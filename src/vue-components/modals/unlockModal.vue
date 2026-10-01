@@ -62,12 +62,13 @@
             inputDigit(digit) {
                 this.resetTimeout();
                 this.inputPasscode = this.inputPasscode + digit;
+                let masterPossible = this.masterkeyPossible &&  this.inputPasscode.startsWith('4');
                 if (this.inputPasscode === this.passcode) {
                     this.$emit('unlock');
                     this.$emit('close');
-                } else if (!this.masterkeyPossible && this.inputPasscode.length >= this.passcode.length) {
+                } else if (!masterPossible && this.inputPasscode.length >= this.passcode.length) {
                     this.$emit('close');
-                } else if (this.masterkeyPossible && this.inputPasscode.length === 10 && this.inputPasscode.startsWith('4')) {
+                } else if (masterPossible && this.inputPasscode.length === 10) {
                     this.$emit('unlock');
                     this.$emit('close');
                 }
