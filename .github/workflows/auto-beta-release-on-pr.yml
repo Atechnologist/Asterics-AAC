@@ -2,11 +2,11 @@
 name: Beta release
 
 on:
-  pull_request:
+  #pull_request:
     # The types of pull request events that will trigger this workflow.
     # 'opened' for a new PR, 'synchronize' for new commits, and 'reopened'
     # if a closed PR is opened again.
-    types: [opened, synchronize, reopened]
+    #types: [opened, synchronize, reopened]
   workflow_dispatch:
     # This allows the workflow to be triggered manually from the GitHub UI.
     # The branch for the deployment will be selected via the built-in "Use workflow from" dropdown.
