@@ -40,7 +40,7 @@ jobs:
           PREVIEW_URL=$(grep '^PREVIEW_URL=' ./deploy-bundle/.deploy-metadata.env | cut -d'=' -f2-)
           PR_NUMBER=$(grep '^PR_NUMBER=' ./deploy-bundle/.deploy-metadata.env | cut -d'=' -f2-)
 
-          if [[ -z "$REMOTE_PATH" || "$REMOTE_PATH" == *".."* \vert{}\vert{} "$REMOTE_PATH" == /* ]]; then
+          if [[ -z "$REMOTE_PATH" || "$REMOTE_PATH" == *".."* || "$REMOTE_PATH" == /* ]]; then
             echo "Error: Invalid REMOTE_PATH ($REMOTE_PATH)"
             exit 1
           fi
