@@ -2,7 +2,7 @@ name: Beta release - Build
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, closed]
   workflow_dispatch:
 
 concurrency:
@@ -19,17 +19,21 @@ jobs:
 
     steps:
       - name: Checkout repository
+        if: github.event.action != 'closed'
         uses: actions/checkout@v4
 
       - name: Set up Node.js environment
+        if: github.event.action != 'closed'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Install dependencies
+        if: github.event.action != 'closed'
         run: npm install
 
       - name: Replace constants in source files
+        if: github.event.action != 'closed'
         run: |
           TAG_NAME="release-beta-$(date +%Y-%m-%d-%H.%M/%z)"
           TAG_NAME_SED="${TAG_NAME//\//\\/}"
@@ -56,11 +60,13 @@ jobs:
           fi
 
       - name: Build web application
+        if: github.event.action != 'closed'
         run: npm run build
 
       - name: Prepare deployment metadata and clean workspace
         env:
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
           PR_HEAD_REF: ${{ github.head_ref }}
           PR_USER: ${{ github.event.pull_request.user.login }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -78,10 +84,17 @@ jobs:
             PR_NUMBER=""
           fi
 
+          if [[ "$EVENT_ACTION" == "closed" ]]; then
+            ACTION="cleanup"
+          else
+            ACTION="deploy"
+          fi
+
           FULL_REMOTE_PATH="${SANITIZED_USER}/${SANITIZED_BRANCH}${POSTFIX}"
           PREVIEW_URL="https://gridbeta-github.asterics-foundation.org/${FULL_REMOTE_PATH}"
 
           {
+            echo "ACTION=${ACTION}"
             echo "REMOTE_PATH=${FULL_REMOTE_PATH}"
             echo "PREVIEW_URL=${PREVIEW_URL}"
             echo "PR_NUMBER=${PR_NUMBER}"
