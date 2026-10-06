@@ -2,7 +2,7 @@ name: Beta release - Build
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened, closed, labeled, unlabeled]
   workflow_dispatch:
 
 concurrency:
@@ -14,7 +14,9 @@ permissions:
 
 jobs:
   build:
-    if: github.actor != 'dependabot[bot]'
+    if: github.actor != 'dependabot[bot]' &&
+      ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+      contains(fromJSON('["serviceworker", "onlineusers", "remote-debug"]'), github.event.label.name))
     runs-on: ubuntu-latest
 
     steps:
