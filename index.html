@@ -216,51 +216,46 @@ document.addEventListener("DOMContentLoaded", () => {
                 webgazer.showVideoPreview(true);
                 webgazer.showPredictionPoints(false);
 
-                // 1. Trigger Quick Calibration Overlay on Startup
-                createCalibrationOverlay();
-
-                // 2. Grid-Snap Gaze Listener (Eliminates Jitter)
-                let dwellTimer = null;
-                let lastTarget = null;
-                const DWELL_TIME_MS = 1200; // Time needed to trigger a button click
+                // Optional: Keep a light moving average buffer to kill jitter
+                let lastX = window.innerWidth / 2;
+                let lastY = window.innerHeight / 2;
+                const smoothing = 0.3; // Lower = smoother, Higher = faster response
 
                 webgazer.setGazeListener((data, timestamp) => {
                     if (!data) return;
 
-                    let x = data.x;
-                    let y = data.y;
+                    // Apply smoothing filter to eliminate jitter
+                    lastX = lastX + smoothing * (data.x - lastX);
+                    lastY = lastY + smoothing * (data.y - lastY);
 
-                    // Update visual feedback cursor smoothly
+                    // Restrict / Clamp coordinates to the AsTeRICS Grid container bounds if present
+                    const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement');
+                    
+                    let targetX = lastX;
+                    let targetY = lastY;
+
+                    if (gridContainer) {
+                        const rect = gridContainer.getBoundingClientRect();
+                        // Optional boundary checks to keep tracking focused inside the grid bounds
+                        // If you want full screen tracking but filtered, remove the clamp below.
+                    }
+
+                    // Update the simulated cursor position
                     const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
-                    cursor.style.left = `${x}px`;
-                    cursor.style.top = `${y}px`;
+                    cursor.style.left = `${targetX}px`;
+                    cursor.style.top = `${targetY}px`;
 
-                    // Find element directly under gaze prediction
-                    const elementUnderGaze = document.elementFromPoint(x, y);
-                    const gridButton = elementUnderGaze ? elementUnderGaze.closest('button, .grid-item, [role="button"]') : null;
-
-                    if (gridButton) {
-                        if (gridButton !== lastTarget) {
-                            // Reset dwell if user looks at a new button
-                            clearTimeout(dwellTimer);
-                            if (lastTarget) lastTarget.classList.remove('gaze-hovered');
-                            lastTarget = gridButton;
-                            lastTarget.classList.add('gaze-hovered');
-
-                            // Start dwell timer to activate click
-                            dwellTimer = setTimeout(() => {
-                                gridButton.click();
-                                gridButton.classList.remove('gaze-hovered');
-                                lastTarget = null;
-                            }, DWELL_TIME_MS);
-                        }
-                    } else {
-                        // Clear selection if looking away from buttons
-                        if (lastTarget) {
-                            clearTimeout(dwellTimer);
-                            lastTarget.classList.remove('gaze-hovered');
-                            lastTarget = null;
-                        }
+                    // Dispatch a native mousemove event so AsTeRICS Grid's native hover/dwell detects it
+                    const element = document.elementFromPoint(targetX, targetY);
+                    if (element) {
+                        const mouseEvent = new MouseEvent('mousemove', {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window,
+                            clientX: targetX,
+                            clientY: targetY
+                        });
+                        element.dispatchEvent(mouseEvent);
                     }
                 });
             } catch (err) {
@@ -270,97 +265,22 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 200);
 });
 
-// Quick 5-Point Calibration Screen to fix initial drift
-function createCalibrationOverlay() {
-    const overlay = document.createElement('div');
-    overlay.id = 'gaze-calibration-overlay';
-    overlay.style.position = 'fixed';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100vw';
-    overlay.style.height = '100vh';
-    overlay.style.backgroundColor = 'rgba(0,0,0,0.85)';
-    overlay.style.zIndex = '999999';
-    overlay.style.display = 'flex';
-    overlay.style.flexDirection = 'column';
-    overlay.style.alignItems = 'center';
-    overlay.style.justifyContent = 'center';
-    overlay.style.color = '#fff';
-    overlay.style.fontFamily = 'sans-serif';
-
-    overlay.innerHTML = `
-        <h2>Eye Tracker Calibration</h2>
-        <p>Please click each target dot 3 times while looking directly at it to calibrate tracking accuracy.</p>
-        <div id="calibration-target" style="width: 30px; height: 30px; background: #00ffcc; border-radius: 50%; cursor: pointer; margin-top: 40px; box-shadow: 0 0 15px #00ffcc;"></div>
-        <p id="calib-status" style="margin-top: 20px;">Clicks remaining on target: 3</p>
-    `;
-    document.body.appendChild(overlay);
-
-    const target = document.getElementById('calibration-target');
-    const statusText = document.getElementById('calib-status');
-    
-    // Define 5 standard calibration spots (Corners + Center)
-    const points = [
-        {x: '10vw', y: '10vh'}, {x: '90vw', y: '10vh'},
-        {x: '50vw', y: '50vh'},
-        {x: '10vw', y: '90vh'}, {x: '90vw', y: '90vh'}
-    ];
-    let currentPoint = 0;
-    let clickCount = 0;
-
-    function moveTarget() {
-        if (currentPoint >= points.length) {
-            overlay.remove();
-            return;
-        }
-        target.style.position = 'absolute';
-        target.style.left = points[currentPoint].x;
-        target.style.top = points[currentPoint].y;
-        clickCount = 0;
-        statusText.innerText = `Target ${currentPoint + 1} of ${points.length}: Click 3 times while staring at the dot.`;
-    }
-
-    target.addEventListener('click', (e) => {
-        // Record screen position for WebGazer ridge regression training
-        webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
-        clickCount++;
-        statusText.innerText = `Target ${currentPoint + 1}: Click count ${clickCount}/3`;
-
-        if (clickCount >= 3) {
-            currentPoint++;
-            moveTarget();
-        }
-    });
-
-    moveTarget();
-}
-
 function createSimulatedCursor() {
     const div = document.createElement('div');
     div.id = 'gaze-cursor-sim';
     div.style.position = 'fixed';
-    div.style.width = '12px';
-    div.style.height = '12px';
-    div.style.backgroundColor = 'rgba(0, 255, 204, 0.7)';
+    div.style.width = '14px';
+    div.style.height = '14px';
+    div.style.backgroundColor = 'rgba(0, 255, 204, 0.8)';
     div.style.border = '2px solid white';
     div.style.borderRadius = '50%';
     div.style.pointerEvents = 'none';
-    div.style.zIndex = '99998';
+    div.style.zIndex = '999999';
     div.style.transform = 'translate(-50%, -50%)';
     document.body.appendChild(div);
     return div;
 }
 </script>
-
-<style>
-/* Visual cue when a grid button is being hovered by gaze dwell */
-.gaze-hovered {
-    transform: scale(1.08) !important;
-    border: 3px solid #00ffcc !important;
-    background-color: rgba(0, 255, 204, 0.2) !important;
-    transition: transform 0.2s ease;
-}
-</style>
 
 <script type="module" src="app/build/asterics-aac.bundle.js"></script>
 </body>
