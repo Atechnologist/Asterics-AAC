@@ -19,7 +19,7 @@
     <!-- Resilient CDN Stack for Eye-Tracking Engine -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tfjs/3.21.0/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh@0.0.5/dist/facemesh.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/webgazer/3.3.0/webgazer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 </head>
     
@@ -207,36 +207,41 @@
 
 <!-- Injected Background WebGazer & Implicit Anchor Script -->
 <script>
-document.addEventListener("DOMContentLoaded", async () => {
-    try {
-        await webgazer.setRegression('ridge')
-            .setTracker('FaceMesh')
-            .useBlobCanvas(true)
-            .begin();
+document.addEventListener("DOMContentLoaded", () => {
+    // Safety check loop in case CDN scripts are still streaming in
+    const checkWebGazerInterval = setInterval(async () => {
+        if (typeof webgazer !== 'undefined') {
+            clearInterval(checkWebGazerInterval);
+            try {
+                await webgazer.setRegression('ridge')
+                    .setTracker('FaceMesh')
+                    .useBlobCanvas(true)
+                    .begin();
 
-        webgazer.showVideoPreview(true);
-        webgazer.showPredictionPoints(false);
+                webgazer.showVideoPreview(true);
+                webgazer.showPredictionPoints(false);
 
-        webgazer.setGazeListener((data, timestamp) => {
-            if (!data) return;
+                webgazer.setGazeListener((data, timestamp) => {
+                    if (!data) return;
 
-            let x = data.x;
-            let y = data.y;
+                    let x = data.x;
+                    let y = data.y;
 
-            const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
-            cursor.style.left = `${x}px`;
-            cursor.style.top = `${y}px`;
+                    const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
+                    cursor.style.left = `${x}px`;
+                    cursor.style.top = `${y}px`;
 
-            // Implicit 3x3 Micro-Calibration (Perimeter Drift Correction)
-            const screenW = window.innerWidth;
-            const screenH = window.innerHeight;
-            if (x < 50 || x > screenW - 50 || y < 50 || y > screenH - 50) {
-                webgazer.recordScreenPosition(x, y, 'click');
+                    const screenW = window.innerWidth;
+                    const screenH = window.innerHeight;
+                    if (x < 50 || x > screenW - 50 || y < 50 || y > screenH - 50) {
+                        webgazer.recordScreenPosition(x, y, 'click');
+                    }
+                });
+            } catch (err) {
+                console.error("WebGazer failed to initialize:", err);
             }
-        });
-    } catch (err) {
-        console.error("WebGazer failed to initialize:", err);
-    }
+        }
+    }, 200); // Checks every 200ms until webgazer is available
 });
 
 function createSimulatedCursor() {
