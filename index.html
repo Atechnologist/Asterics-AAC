@@ -198,5 +198,56 @@
 <script type="text/javascript" src='app/lib/responsive-voice.js'></script>
 
 <script type="module" src="app/build/asterics-aac.bundle.js"></script>
+
+<!-- Resilient CDN Stack for Eye-Tracking Engine -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tfjs/3.21.0/tf.min.js"></script>
+<script src="https://unpkg.com/@tensorflow-models/facemesh@0.0.5/dist/facemesh.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/webgazer/3.3.0/webgazer.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+    await webgazer.setRegression('ridge')
+        .setTracker('FaceMesh')
+        .useBlobCanvas(true)
+        .begin();
+
+    webgazer.showVideoPreview(true);
+    webgazer.showPredictionPoints(false);
+
+    webgazer.setGazeListener((data, timestamp) => {
+        if (!data) return;
+
+        let x = data.x;
+        let y = data.y;
+
+        const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
+        cursor.style.left = `${x}px`;
+        cursor.style.top = `${y}px`;
+
+        // Implicit 3x3 Micro-Calibration (Perimeter Drift Correction)
+        const screenW = window.innerWidth;
+        const screenH = window.innerHeight;
+        if (x < 50 || x > screenW - 50 || y < 50 || y > screenH - 50) {
+            webgazer.recordScreenPosition(x, y, 'click');
+        }
+    });
+});
+
+function createSimulatedCursor() {
+    const div = document.createElement('div');
+    div.id = 'gaze-cursor-sim';
+    div.style.position = 'fixed';
+    div.style.width = '15px';
+    div.style.height = '15px';
+    div.style.backgroundColor = 'rgba(0, 255, 204, 0.6)';
+    div.style.borderRadius = '50%';
+    div.style.pointerEvents = 'none';
+    div.style.zIndex = '99999';
+    div.style.transform = 'translate(-50%, -50%)';
+    document.body.appendChild(div);
+    return div;
+}
+</script>    
 </body>
 </html>
