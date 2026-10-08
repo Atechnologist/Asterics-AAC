@@ -15,6 +15,14 @@
     <link rel="stylesheet" href="app/css/skeleton.css">
     <link rel="stylesheet" href="app/css/bootstrap-grid.css">
     <link rel="stylesheet" href="app/css/grid-styles.css">
+
+    <!-- Resilient CDN Stack for Eye-Tracking Engine -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tfjs/3.21.0/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh@0.0.5/dist/facemesh.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/webgazer/3.3.0/webgazer.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+</head>
+    
 </head>
 <body onload="window.loaded = true;">
 <div style="display: none" aria-hidden="false">
@@ -197,41 +205,38 @@
 <!--script src="https://code.responsivevoice.org/responsivevoice.js"></script-->
 <script type="text/javascript" src='app/lib/responsive-voice.js'></script>
 
-<script type="module" src="app/build/asterics-aac.bundle.js"></script>
-
-<!-- Resilient CDN Stack for Eye-Tracking Engine -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tfjs/3.21.0/tf.min.js"></script>
-<script src="https://unpkg.com/@tensorflow-models/facemesh@0.0.5/dist/facemesh.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/webgazer/3.3.0/webgazer.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
-
+<!-- Injected Background WebGazer & Implicit Anchor Script -->
 <script>
 document.addEventListener("DOMContentLoaded", async () => {
-    await webgazer.setRegression('ridge')
-        .setTracker('FaceMesh')
-        .useBlobCanvas(true)
-        .begin();
+    try {
+        await webgazer.setRegression('ridge')
+            .setTracker('FaceMesh')
+            .useBlobCanvas(true)
+            .begin();
 
-    webgazer.showVideoPreview(true);
-    webgazer.showPredictionPoints(false);
+        webgazer.showVideoPreview(true);
+        webgazer.showPredictionPoints(false);
 
-    webgazer.setGazeListener((data, timestamp) => {
-        if (!data) return;
+        webgazer.setGazeListener((data, timestamp) => {
+            if (!data) return;
 
-        let x = data.x;
-        let y = data.y;
+            let x = data.x;
+            let y = data.y;
 
-        const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
-        cursor.style.left = `${x}px`;
-        cursor.style.top = `${y}px`;
+            const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
+            cursor.style.left = `${x}px`;
+            cursor.style.top = `${y}px`;
 
-        // Implicit 3x3 Micro-Calibration (Perimeter Drift Correction)
-        const screenW = window.innerWidth;
-        const screenH = window.innerHeight;
-        if (x < 50 || x > screenW - 50 || y < 50 || y > screenH - 50) {
-            webgazer.recordScreenPosition(x, y, 'click');
-        }
-    });
+            // Implicit 3x3 Micro-Calibration (Perimeter Drift Correction)
+            const screenW = window.innerWidth;
+            const screenH = window.innerHeight;
+            if (x < 50 || x > screenW - 50 || y < 50 || y > screenH - 50) {
+                webgazer.recordScreenPosition(x, y, 'click');
+            }
+        });
+    } catch (err) {
+        console.error("WebGazer failed to initialize:", err);
+    }
 });
 
 function createSimulatedCursor() {
@@ -248,6 +253,12 @@ function createSimulatedCursor() {
     document.body.appendChild(div);
     return div;
 }
-</script>    
+</script>
+
+<script type="module" src="app/build/asterics-aac.bundle.js"></script>
+</body>
+</html>
+
+<script type="module" src="app/build/asterics-aac.bundle.js"></script>
 </body>
 </html>
