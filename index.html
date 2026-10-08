@@ -208,15 +208,12 @@
 <!-- Injected Background WebGazer & Implicit Anchor Script -->
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-    // Safety check loop in case CDN scripts are still streaming in
     const checkWebGazerInterval = setInterval(async () => {
         if (typeof webgazer !== 'undefined') {
             clearInterval(checkWebGazerInterval);
             try {
-                await webgazer.setRegression('ridge')
-                    .setTracker('FaceMesh')
-                    .useBlobCanvas(true)
-                    .begin();
+                // Initialize WebGazer with standard stable configuration
+                await webgazer.begin();
 
                 webgazer.showVideoPreview(true);
                 webgazer.showPredictionPoints(false);
@@ -231,6 +228,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     cursor.style.left = `${x}px`;
                     cursor.style.top = `${y}px`;
 
+                    // Implicit Micro-Calibration Anchor Check
                     const screenW = window.innerWidth;
                     const screenH = window.innerHeight;
                     if (x < 50 || x > screenW - 50 || y < 50 || y > screenH - 50) {
@@ -241,7 +239,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 console.error("WebGazer failed to initialize:", err);
             }
         }
-    }, 200); // Checks every 200ms until webgazer is available
+    }, 200);
 });
 
 function createSimulatedCursor() {
