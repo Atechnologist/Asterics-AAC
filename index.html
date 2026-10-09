@@ -232,15 +232,24 @@ document.addEventListener("DOMContentLoaded", () => {
                 await webgazer.begin();
                 webgazer.removeMouseEventListeners();
                 webgazer.showVideoPreview(true);
-                webgazer.showPredictionPoints(false); // Keeps resource overhead minimal
+                webgazer.showPredictionPoints(false); // Keeps rendering lightweight
 
                 let activeCellIndex = null;
                 let dwellTimer = null;
-                const DWELL_TIME_MS = 1000; // 1 second dwell per macro-cell
+                const DWELL_TIME_MS = 1000; // 1 second dwell
 
-                // Throttle gaze listener to ~12 FPS to completely eliminate lag and CPU strain
+                // Performance Throttle (~15 FPS to eliminate lag completely)
                 let lastProcessingTime = 0;
-                const THROTTLE_MS = 80; 
+                const THROTTLE_MS = 65; 
+
+                // Cache buttons globally for this grid state to prevent DOM query lag
+                let cachedButtons = [];
+                function updateButtonCache() {
+                    const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement');
+                    if (gridContainer) {
+                        cachedButtons = Array.from(gridContainer.querySelectorAll('button, .grid-item, [role="button"]'));
+                    }
+                }
 
                 webgazer.setGazeListener((data, timestamp) => {
                     if (!data) return;
@@ -249,27 +258,27 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (now - lastProcessingTime < THROTTLE_MS) return;
                     lastProcessingTime = now;
 
-                    // Update simulated cursor position smoothly
+                    // Update simulated cursor position
                     const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
                     cursor.style.left = `${data.x}px`;
                     cursor.style.top = `${data.y}px`;
 
-                    // Find the 3x3 grid container and its buttons
-                    const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement');
-                    if (!gridContainer) return;
+                    // Refresh button cache if empty
+                    if (cachedButtons.length === 0) {
+                        updateButtonCache();
+                    }
+                    if (cachedButtons.length === 0) return;
 
-                    const buttons = Array.from(gridContainer.querySelectorAll('button, .grid-item, [role="button"]'));
-                    if (buttons.length === 0) return;
-
-                    // Macro-Cell Snapping: Direct bounding box check across the 3x3 layout
-                    let matchedButton = null;
+                    // Macro-Cell Snapping across cached 3x3 layout
                     let matchedIndex = -1;
+                    let matchedButton = null;
 
-                    for (let i = 0; i < buttons.length; i++) {
-                        const rect = buttons[i].getBoundingClientRect();
+                    for (let i = 0; i < cachedButtons.length; i++) {
+                        const rect = cachedButtons[i].getBoundingClientRect();
+                        // Check if gaze coordinates fall inside the button's macro boundary
                         if (data.x >= rect.left && data.x <= rect.right && data.y >= rect.top && data.y <= rect.bottom) {
-                            matchedButton = buttons[i];
                             matchedIndex = i;
+                            matchedButton = cachedButtons[i];
                             break;
                         }
                     }
@@ -277,12 +286,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (matchedButton) {
                         if (matchedIndex !== activeCellIndex) {
                             clearTimeout(dwellTimer);
-                            buttons.forEach(b => b.classList.remove('gaze-active-target'));
+                            cachedButtons.forEach(b => b.classList.remove('gaze-active-target'));
 
                             activeCellIndex = matchedIndex;
                             matchedButton.classList.add('gaze-active-target');
 
-                            // Start clean dwell timer for this specific 3x3 cell
+                            // Start dwell timer
                             dwellTimer = setTimeout(() => {
                                 const rect = matchedButton.getBoundingClientRect();
                                 webgazer.recordScreenPosition(rect.left + rect.width / 2, rect.top + rect.height / 2, 'click');
@@ -290,12 +299,13 @@ document.addEventListener("DOMContentLoaded", () => {
                                 matchedButton.click();
                                 matchedButton.classList.remove('gaze-active-target');
                                 activeCellIndex = null;
+                                updateButtonCache(); // Refresh cache in case grid changes view
                             }, DWELL_TIME_MS);
                         }
                     } else {
                         if (activeCellIndex !== null) {
                             clearTimeout(dwellTimer);
-                            buttons.forEach(b => b.classList.remove('gaze-active-target'));
+                            cachedButtons.forEach(b => b.classList.remove('gaze-active-target'));
                             activeCellIndex = null;
                         }
                     }
