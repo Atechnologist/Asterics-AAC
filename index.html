@@ -216,46 +216,54 @@ document.addEventListener("DOMContentLoaded", () => {
                 webgazer.showVideoPreview(true);
                 webgazer.showPredictionPoints(false);
 
-                // Optional: Keep a light moving average buffer to kill jitter
                 let lastX = window.innerWidth / 2;
                 let lastY = window.innerHeight / 2;
-                const smoothing = 0.3; // Lower = smoother, Higher = faster response
+                const smoothing = 0.25; // Smoothing factor to reduce jitter
+
+                let currentHoveredButton = null;
+                let dwellTimer = null;
+                const DWELL_TIME_MS = 1000; // 1 second dwell to trigger click
 
                 webgazer.setGazeListener((data, timestamp) => {
                     if (!data) return;
 
-                    // Apply smoothing filter to eliminate jitter
+                    // Smooth out coordinates to prevent jumpy movement
                     lastX = lastX + smoothing * (data.x - lastX);
                     lastY = lastY + smoothing * (data.y - lastY);
 
-                    // Restrict / Clamp coordinates to the AsTeRICS Grid container bounds if present
-                    const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement');
-                    
-                    let targetX = lastX;
-                    let targetY = lastY;
-
-                    if (gridContainer) {
-                        const rect = gridContainer.getBoundingClientRect();
-                        // Optional boundary checks to keep tracking focused inside the grid bounds
-                        // If you want full screen tracking but filtered, remove the clamp below.
-                    }
-
-                    // Update the simulated cursor position
+                    // Move visual gaze indicator
                     const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
-                    cursor.style.left = `${targetX}px`;
-                    cursor.style.top = `${targetY}px`;
+                    cursor.style.left = `${lastX}px`;
+                    cursor.style.top = `${lastY}px`;
 
-                    // Dispatch a native mousemove event so AsTeRICS Grid's native hover/dwell detects it
-                    const element = document.elementFromPoint(targetX, targetY);
-                    if (element) {
-                        const mouseEvent = new MouseEvent('mousemove', {
-                            bubbles: true,
-                            cancelable: true,
-                            view: window,
-                            clientX: targetX,
-                            clientY: targetY
-                        });
-                        element.dispatchEvent(mouseEvent);
+                    // Find the target button under the gaze coordinates
+                    const elementUnderGaze = document.elementFromPoint(lastX, lastY);
+                    const gridButton = elementUnderGaze ? elementUnderGaze.closest('button, .grid-item, [role="button"]') : null;
+
+                    if (gridButton) {
+                        if (gridButton !== currentHoveredButton) {
+                            // Reset dwell if looking at a new button
+                            clearTimeout(dwellTimer);
+                            if (currentHoveredButton) currentHoveredButton.classList.remove('gaze-active-target');
+                            
+                            currentHoveredButton = gridButton;
+                            currentHoveredButton.classList.add('gaze-active-target');
+
+                            // Start independent dwell timer
+                            dwellTimer = setTimeout(() => {
+                                // Programmatically trigger native click without touching internal input handlers
+                                currentHoveredButton.click();
+                                currentHoveredButton.classList.remove('gaze-active-target');
+                                currentHoveredButton = null;
+                            }, DWELL_TIME_MS);
+                        }
+                    } else {
+                        // Clear active target if looking away from buttons
+                        if (currentHoveredButton) {
+                            clearTimeout(dwellTimer);
+                            currentHoveredButton.classList.remove('gaze-active-target');
+                            currentHoveredButton = null;
+                        }
                     }
                 });
             } catch (err) {
@@ -281,6 +289,16 @@ function createSimulatedCursor() {
     return div;
 }
 </script>
+
+<style>
+/* Clean visual feedback style for gaze selection */
+.gaze-active-target {
+    transform: scale(1.05) !important;
+    box-shadow: 0 0 15px #00ffcc !important;
+    border: 2px solid #00ffcc !important;
+    transition: transform 0.15s ease-in-out;
+}
+</style>
 
 <script type="module" src="app/build/asterics-aac.bundle.js"></script>
 </body>
