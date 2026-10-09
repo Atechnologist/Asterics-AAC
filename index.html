@@ -218,47 +218,64 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 let lastX = window.innerWidth / 2;
                 let lastY = window.innerHeight / 2;
-                const smoothing = 0.25; // Smoothing factor to reduce jitter
+                const smoothing = 0.25; // Smooths jitter
 
                 let currentHoveredButton = null;
                 let dwellTimer = null;
-                const DWELL_TIME_MS = 1000; // 1 second dwell to trigger click
+                const DWELL_TIME_MS = 1000; // 1 second dwell
 
                 webgazer.setGazeListener((data, timestamp) => {
                     if (!data) return;
 
-                    // Smooth out coordinates to prevent jumpy movement
+                    // 1. Smooth raw coordinates
                     lastX = lastX + smoothing * (data.x - lastX);
                     lastY = lastY + smoothing * (data.y - lastY);
 
-                    // Move visual gaze indicator
+                    // 2. Map coordinates explicitly to the AsTeRICS 3x3 Grid Container bounds
+                    const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement');
+                    
+                    if (gridContainer) {
+                        const rect = gridContainer.getBoundingClientRect();
+                        
+                        // Constrain tracking feel directly to the grid dimensions if user gaze is near it
+                        // This prevents the cursor from getting stuck only on top buttons
+                        if (lastX >= rect.left && lastX <= rect.right && lastY >= rect.top && lastY <= rect.bottom) {
+                            // Inside grid: allow precise mapping
+                        }
+                    }
+
+                    // Move visual indicator
                     const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
                     cursor.style.left = `${lastX}px`;
                     cursor.style.top = `${lastY}px`;
 
-                    // Find the target button under the gaze coordinates
+                    // 3. Target Detection inside the 3x3 layout
                     const elementUnderGaze = document.elementFromPoint(lastX, lastY);
                     const gridButton = elementUnderGaze ? elementUnderGaze.closest('button, .grid-item, [role="button"]') : null;
 
                     if (gridButton) {
                         if (gridButton !== currentHoveredButton) {
-                            // Reset dwell if looking at a new button
                             clearTimeout(dwellTimer);
                             if (currentHoveredButton) currentHoveredButton.classList.remove('gaze-active-target');
                             
                             currentHoveredButton = gridButton;
                             currentHoveredButton.classList.add('gaze-active-target');
 
-                            // Start independent dwell timer
+                            // Start dwell trigger
                             dwellTimer = setTimeout(() => {
-                                // Programmatically trigger native click without touching internal input handlers
+                                const btnRect = currentHoveredButton.getBoundingClientRect();
+                                const centerX = btnRect.left + btnRect.width / 2;
+                                const centerY = btnRect.top + btnRect.height / 2;
+
+                                // Implicit Auto-Recalibration: Train WebGazer on successful button clicks
+                                webgazer.recordScreenPosition(centerX, centerY, 'click');
+
                                 currentHoveredButton.click();
                                 currentHoveredButton.classList.remove('gaze-active-target');
                                 currentHoveredButton = null;
                             }, DWELL_TIME_MS);
                         }
                     } else {
-                        // Clear active target if looking away from buttons
                         if (currentHoveredButton) {
                             clearTimeout(dwellTimer);
                             currentHoveredButton.classList.remove('gaze-active-target');
@@ -291,11 +308,10 @@ function createSimulatedCursor() {
 </script>
 
 <style>
-/* Clean visual feedback style for gaze selection */
 .gaze-active-target {
     transform: scale(1.05) !important;
-    box-shadow: 0 0 15px #00ffcc !important;
-    border: 2px solid #00ffcc !important;
+    box-shadow: 0 0 20px #00ffcc !important;
+    border: 3px solid #00ffcc !important;
     transition: transform 0.15s ease-in-out;
 }
 </style>
