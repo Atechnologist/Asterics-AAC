@@ -219,11 +219,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 await webgazer.begin();
                 
-                // CRITICAL: Disable WebGazer from tracking physical mouse movements/clicks as gaze data
+                // Keep mouse listeners removed so WebGazer uses camera/face data exclusively
                 webgazer.removeMouseEventListeners();
 
                 webgazer.showVideoPreview(true);
-                webgazer.showPredictionPoints(false); // Hide the confusing red/blue chasing dots
+                webgazer.showPredictionPoints(true); // Keep prediction dots visible so you can see gaze feedback
 
                 // Trigger Startup Calibration Overlay
                 createCalibrationOverlay();
@@ -235,51 +235,39 @@ document.addEventListener("DOMContentLoaded", () => {
                 webgazer.setGazeListener((data, timestamp) => {
                     if (!data) return;
 
-                    // Move visual indicator cursor to actual gaze coordinates
+                    // 1. Update visual indicator cursor to match actual eye gaze
                     const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
                     cursor.style.left = `${data.x}px`;
                     cursor.style.top = `${data.y}px`;
 
-                    // Find all buttons inside the AsTeRICS grid container
+                    // 2. Find the element directly under the gaze coordinates
+                    const elementUnderGaze = document.elementFromPoint(data.x, data.y);
+                    const gridButton = elementUnderGaze ? elementUnderGaze.closest('button, .grid-item, [role="button"]') : null;
+
+                    // Find all buttons inside the AsTeRICS grid container for management
                     const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement');
                     if (!gridContainer) return;
-
                     const buttons = Array.from(gridContainer.querySelectorAll('button, .grid-item, [role="button"]'));
-                    if (buttons.length === 0) return;
 
-                    let closestButton = null;
-                    let minDistance = Infinity;
-
-                    buttons.forEach((btn, index) => {
-                        const rect = btn.getBoundingClientRect();
-                        const centerX = rect.left + rect.width / 2;
-                        const centerY = rect.top + rect.height / 2;
-                        
-                        const distance = Math.hypot(data.x - centerX, data.y - centerY);
-                        const isInside = data.x >= rect.left && data.x <= rect.right && data.y >= rect.top && data.y <= rect.bottom;
-
-                        if (isInside || distance < minDistance) {
-                            minDistance = distance;
-                            closestButton = { element: btn, index: index, rect: rect };
-                        }
-                    });
-
-                    // If gaze is within a reasonable range of a grid button
-                    if (closestButton && minDistance < 300) {
-                        if (closestButton.index !== currentCellIndex) {
+                    if (gridButton) {
+                        if (gridButton !== currentCellIndex) {
                             clearTimeout(dwellTimer);
                             buttons.forEach(b => b.classList.remove('gaze-active-target'));
 
-                            currentCellIndex = closestButton.index;
-                            closestButton.element.classList.add('gaze-active-target');
+                            currentCellIndex = gridButton;
+                            gridButton.classList.add('gaze-active-target');
 
+                            // Start dwell timer on this specific button
                             dwellTimer = setTimeout(() => {
-                                const targetX = closestButton.rect.left + closestButton.rect.width / 2;
-                                const targetY = closestButton.rect.top + closestButton.rect.height / 2;
+                                const rect = gridButton.getBoundingClientRect();
+                                const targetX = rect.left + rect.width / 2;
+                                const targetY = rect.top + rect.height / 2;
+                                
+                                // Auto-correct regression model with successful dwell point
                                 webgazer.recordScreenPosition(targetX, targetY, 'click');
 
-                                closestButton.element.click();
-                                closestButton.element.classList.remove('gaze-active-target');
+                                gridButton.click();
+                                gridButton.classList.remove('gaze-active-target');
                                 currentCellIndex = null;
                             }, DWELL_TIME_MS);
                         }
@@ -370,9 +358,9 @@ function createSimulatedCursor() {
     if (!div.id) {
         div.id = 'gaze-cursor-sim';
         div.style.position = 'fixed';
-        div.style.width = '14px';
-        div.style.height = '14px';
-        div.style.backgroundColor = 'rgba(0, 255, 204, 0.8)';
+        div.style.width = '16px';
+        div.style.height = '16px';
+        div.style.backgroundColor = 'rgba(0, 255, 204, 0.85)';
         div.style.border = '2px solid white';
         div.style.borderRadius = '50%';
         div.style.pointerEvents = 'none';
@@ -389,6 +377,7 @@ function createSimulatedCursor() {
     transform: scale(1.04) !important;
     box-shadow: 0 0 25px #00ffcc !important;
     border: 3px solid #00ffcc !important;
+    background-color: rgba(0, 255, 204, 0.15) !important;
     transition: transform 0.1s ease-in-out;
 }
 </style>
