@@ -1,6 +1,17 @@
 ﻿<!DOCTYPE html>
 <html lang="en" class="notranslate" translate="no">
 <head>
+    <script>
+    // Safe global mock for ResponsiveVoice to prevent AAC speech crashes
+    window.responsiveVoice = window.responsiveVoice || {
+        speak: function(text) { console.log("Mock Speech:", text); },
+        stop: function() {},
+        cancel: function() {},
+        isPlaying: function() { return false; },
+        deviceSupportsSpeech: function() { return true; },
+        init: function() {}
+    };
+</script>
     <title>Asterics AAC</title>
     <meta id="viewPortMeta" name="viewport" content="width=device-width, initial-scale=1">
     <meta name="google-site-verification" content="UWnxfeRniUm-l7GAbNdqfZQmCCaAU3HB6jGOuEHZ26k" />
