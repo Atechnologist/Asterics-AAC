@@ -234,8 +234,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 webgazer.showVideoPreview(true);
                 webgazer.showPredictionPoints(false);
 
-                // 1. Launch Startup Calibration to lock baseline accuracy
+                // 1. Launch Startup Calibration
                 createCalibrationOverlay(() => {
+                    // Start eye tracking loop only after calibration is completely done
                     startEyeTrackingLoop();
                 });
 
@@ -251,17 +252,22 @@ function startEyeTrackingLoop() {
     let dwellTimer = null;
     const DWELL_TIME_MS = 1000; // 1 second dwell
 
-    // Lightweight throttling (~20 FPS to eliminate lag entirely)
+    // Lightweight throttling (~20 FPS)
     let lastProcessingTime = 0;
     const THROTTLE_MS = 50; 
 
     let cachedButtons = [];
+    
     function updateButtonCache() {
-        const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement');
+        // Broad selector targeting AsTeRICS Grid items and buttons specifically
+        const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement') || document.body;
         if (gridContainer) {
-            cachedButtons = Array.from(gridContainer.querySelectorAll('button, .grid-item, [role="button"]'));
+            cachedButtons = Array.from(gridContainer.querySelectorAll('button, .grid-item, [role="button"], .q-btn'));
         }
     }
+
+    // Initial cache population
+    updateButtonCache();
 
     webgazer.setGazeListener((data, timestamp) => {
         if (!data) return;
@@ -275,6 +281,7 @@ function startEyeTrackingLoop() {
         cursor.style.left = `${data.x}px`;
         cursor.style.top = `${data.y}px`;
 
+        // Refresh cache if buttons aren't found yet
         if (cachedButtons.length === 0) updateButtonCache();
         if (cachedButtons.length === 0) return;
 
@@ -284,10 +291,13 @@ function startEyeTrackingLoop() {
 
         for (let i = 0; i < cachedButtons.length; i++) {
             const rect = cachedButtons[i].getBoundingClientRect();
-            if (data.x >= rect.left && data.x <= rect.right && data.y >= rect.top && data.y <= rect.bottom) {
-                matchedIndex = i;
-                matchedButton = cachedButtons[i];
-                break;
+            // Ensure button is visible before evaluating
+            if (rect.width > 0 && rect.height > 0) {
+                if (data.x >= rect.left && data.x <= rect.right && data.y >= rect.top && data.y <= rect.bottom) {
+                    matchedIndex = i;
+                    matchedButton = cachedButtons[i];
+                    break;
+                }
             }
         }
 
@@ -305,7 +315,7 @@ function startEyeTrackingLoop() {
                     const centerX = rect.left + rect.width / 2;
                     const centerY = rect.top + rect.height / 2;
 
-                    // AUTO-CALIBRATION: Retrain model on successful clicks to eliminate drift over time
+                    // AUTO-CALIBRATION: Retrain model on successful clicks
                     webgazer.recordScreenPosition(centerX, centerY, 'click');
 
                     matchedButton.click();
@@ -381,7 +391,7 @@ function createCalibrationOverlay(onComplete) {
     target.addEventListener('click', (e) => {
         webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
         clickCount++;
-        statusText.innerText = `Target ${currentPoint + 1} of 5: Click count ${clickCount}/3`;
+        statusText.innerText = `Point ${currentPoint + 1} of 5: Click count ${clickCount}/3`;
 
         if (clickCount >= 3) {
             currentPoint++;
