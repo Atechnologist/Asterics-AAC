@@ -21,6 +21,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh@0.0.5/dist/facemesh.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <!-- ResponsiveVoice TTS Engine required by AsTeRICS Grid -->
+    <script src="https://code.responsivevoice.org/responsivevoice.js?key=YOUR_KEY_OR_FREE"></script>
 </head>
     
 </head>
@@ -219,15 +221,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 await webgazer.begin();
                 webgazer.removeMouseEventListeners();
                 webgazer.showVideoPreview(true);
-                webgazer.showPredictionPoints(false); // Hide clutter dots to save rendering resources
+                webgazer.showPredictionPoints(false); // Keeps resource overhead minimal
 
                 let activeCellIndex = null;
                 let dwellTimer = null;
-                const DWELL_TIME_MS = 1000; // 1 second dwell
+                const DWELL_TIME_MS = 1000; // 1 second dwell per macro-cell
 
-                // Throttle control to eliminate lag and CPU strain
+                // Throttle gaze listener to ~12 FPS to completely eliminate lag and CPU strain
                 let lastProcessingTime = 0;
-                const THROTTLE_MS = 80; // Process ~12 times a second instead of 60+
+                const THROTTLE_MS = 80; 
 
                 webgazer.setGazeListener((data, timestamp) => {
                     if (!data) return;
@@ -236,25 +238,24 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (now - lastProcessingTime < THROTTLE_MS) return;
                     lastProcessingTime = now;
 
-                    // Update visual cursor position smoothly
+                    // Update simulated cursor position smoothly
                     const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
                     cursor.style.left = `${data.x}px`;
                     cursor.style.top = `${data.y}px`;
 
-                    // Find the AsTeRICS 3x3 grid container and its buttons
+                    // Find the 3x3 grid container and its buttons
                     const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement');
                     if (!gridContainer) return;
 
                     const buttons = Array.from(gridContainer.querySelectorAll('button, .grid-item, [role="button"]'));
                     if (buttons.length === 0) return;
 
-                    // Fast Macro-Cell Matching (Treating the 3x3 layout as 9 discrete target zones)
+                    // Macro-Cell Snapping: Direct bounding box check across the 3x3 layout
                     let matchedButton = null;
                     let matchedIndex = -1;
 
                     for (let i = 0; i < buttons.length; i++) {
                         const rect = buttons[i].getBoundingClientRect();
-                        // Check if gaze coordinates fall directly inside this grid cell's bounding box
                         if (data.x >= rect.left && data.x <= rect.right && data.y >= rect.top && data.y <= rect.bottom) {
                             matchedButton = buttons[i];
                             matchedIndex = i;
@@ -262,7 +263,6 @@ document.addEventListener("DOMContentLoaded", () => {
                         }
                     }
 
-                    // If gaze is inside a grid cell
                     if (matchedButton) {
                         if (matchedIndex !== activeCellIndex) {
                             clearTimeout(dwellTimer);
@@ -282,7 +282,6 @@ document.addEventListener("DOMContentLoaded", () => {
                             }, DWELL_TIME_MS);
                         }
                     } else {
-                        // If gaze drifts outside the 3x3 buttons, reset selection gracefully
                         if (activeCellIndex !== null) {
                             clearTimeout(dwellTimer);
                             buttons.forEach(b => b.classList.remove('gaze-active-target'));
