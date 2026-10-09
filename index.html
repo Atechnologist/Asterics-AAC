@@ -214,68 +214,79 @@ document.addEventListener("DOMContentLoaded", () => {
         if (typeof webgazer !== 'undefined') {
             clearInterval(checkInterval);
             try {
-                // Clear stale local storage calibration models
                 window.localStorage.removeItem('webgazerGlobalData');
 
                 await webgazer.begin();
-                
-                // Keep mouse listeners removed so WebGazer uses camera/face data exclusively
                 webgazer.removeMouseEventListeners();
-
                 webgazer.showVideoPreview(true);
-                webgazer.showPredictionPoints(true); // Keep prediction dots visible so you can see gaze feedback
+                webgazer.showPredictionPoints(false); // Hide clutter dots to save rendering resources
 
-                // Trigger Startup Calibration Overlay
-                createCalibrationOverlay();
-
-                let currentCellIndex = null;
+                let activeCellIndex = null;
                 let dwellTimer = null;
-                const DWELL_TIME_MS = 1200; // 1.2 second dwell per grid cell
+                const DWELL_TIME_MS = 1000; // 1 second dwell
+
+                // Throttle control to eliminate lag and CPU strain
+                let lastProcessingTime = 0;
+                const THROTTLE_MS = 80; // Process ~12 times a second instead of 60+
 
                 webgazer.setGazeListener((data, timestamp) => {
                     if (!data) return;
 
-                    // 1. Update visual indicator cursor to match actual eye gaze
+                    const now = performance.now();
+                    if (now - lastProcessingTime < THROTTLE_MS) return;
+                    lastProcessingTime = now;
+
+                    // Update visual cursor position smoothly
                     const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
                     cursor.style.left = `${data.x}px`;
                     cursor.style.top = `${data.y}px`;
 
-                    // 2. Find the element directly under the gaze coordinates
-                    const elementUnderGaze = document.elementFromPoint(data.x, data.y);
-                    const gridButton = elementUnderGaze ? elementUnderGaze.closest('button, .grid-item, [role="button"]') : null;
-
-                    // Find all buttons inside the AsTeRICS grid container for management
+                    // Find the AsTeRICS 3x3 grid container and its buttons
                     const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement');
                     if (!gridContainer) return;
-                    const buttons = Array.from(gridContainer.querySelectorAll('button, .grid-item, [role="button"]'));
 
-                    if (gridButton) {
-                        if (gridButton !== currentCellIndex) {
+                    const buttons = Array.from(gridContainer.querySelectorAll('button, .grid-item, [role="button"]'));
+                    if (buttons.length === 0) return;
+
+                    // Fast Macro-Cell Matching (Treating the 3x3 layout as 9 discrete target zones)
+                    let matchedButton = null;
+                    let matchedIndex = -1;
+
+                    for (let i = 0; i < buttons.length; i++) {
+                        const rect = buttons[i].getBoundingClientRect();
+                        // Check if gaze coordinates fall directly inside this grid cell's bounding box
+                        if (data.x >= rect.left && data.x <= rect.right && data.y >= rect.top && data.y <= rect.bottom) {
+                            matchedButton = buttons[i];
+                            matchedIndex = i;
+                            break;
+                        }
+                    }
+
+                    // If gaze is inside a grid cell
+                    if (matchedButton) {
+                        if (matchedIndex !== activeCellIndex) {
                             clearTimeout(dwellTimer);
                             buttons.forEach(b => b.classList.remove('gaze-active-target'));
 
-                            currentCellIndex = gridButton;
-                            gridButton.classList.add('gaze-active-target');
+                            activeCellIndex = matchedIndex;
+                            matchedButton.classList.add('gaze-active-target');
 
-                            // Start dwell timer on this specific button
+                            // Start clean dwell timer for this specific 3x3 cell
                             dwellTimer = setTimeout(() => {
-                                const rect = gridButton.getBoundingClientRect();
-                                const targetX = rect.left + rect.width / 2;
-                                const targetY = rect.top + rect.height / 2;
-                                
-                                // Auto-correct regression model with successful dwell point
-                                webgazer.recordScreenPosition(targetX, targetY, 'click');
+                                const rect = matchedButton.getBoundingClientRect();
+                                webgazer.recordScreenPosition(rect.left + rect.width / 2, rect.top + rect.height / 2, 'click');
 
-                                gridButton.click();
-                                gridButton.classList.remove('gaze-active-target');
-                                currentCellIndex = null;
+                                matchedButton.click();
+                                matchedButton.classList.remove('gaze-active-target');
+                                activeCellIndex = null;
                             }, DWELL_TIME_MS);
                         }
                     } else {
-                        if (currentCellIndex !== null) {
+                        // If gaze drifts outside the 3x3 buttons, reset selection gracefully
+                        if (activeCellIndex !== null) {
                             clearTimeout(dwellTimer);
                             buttons.forEach(b => b.classList.remove('gaze-active-target'));
-                            currentCellIndex = null;
+                            activeCellIndex = null;
                         }
                     }
                 });
@@ -286,81 +297,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 200);
 });
 
-// Startup Calibration Overlay
-function createCalibrationOverlay() {
-    if (document.getElementById('gaze-calibration-overlay')) return;
-
-    const overlay = document.createElement('div');
-    overlay.id = 'gaze-calibration-overlay';
-    overlay.style.position = 'fixed';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100vw';
-    overlay.style.height = '100vh';
-    overlay.style.backgroundColor = 'rgba(10, 10, 10, 0.9)';
-    overlay.style.zIndex = '999999';
-    overlay.style.display = 'flex';
-    overlay.style.flexDirection = 'column';
-    overlay.style.alignItems = 'center';
-    overlay.style.justifyContent = 'center';
-    overlay.style.color = '#fff';
-    overlay.style.fontFamily = 'sans-serif';
-
-    overlay.innerHTML = `
-        <h2 style="margin-bottom: 10px;">Eye-Tracker Calibration</h2>
-        <p style="max-width: 400px; text-align: center; color: #aaa; margin-bottom: 30px;">
-            Look directly at the glowing green dot and click it <strong>3 times</strong> with your mouse. Repeat for each position to train your 3x3 layout.
-        </p>
-        <div id="calibration-target" style="width: 40px; height: 40px; background: #00ffcc; border-radius: 50%; cursor: pointer; box-shadow: 0 0 20px #00ffcc; transition: all 0.2s;"></div>
-        <p id="calib-status" style="margin-top: 25px; font-weight: bold; color: #00ffcc;">Point 1 of 5: Click target 3 times</p>
-    `;
-    document.body.appendChild(overlay);
-
-    const target = document.getElementById('calibration-target');
-    const statusText = document.getElementById('calib-status');
-    
-    const points = [
-        {x: '15vw', y: '20vh'}, {x: '85vw', y: '20vh'},
-        {x: '50vw', y: '50vh'},
-        {x: '15vw', y: '80vh'}, {x: '85vw', y: '80vh'}
-    ];
-    let currentPoint = 0;
-    let clickCount = 0;
-
-    function updateTargetPosition() {
-        if (currentPoint >= points.length) {
-            overlay.remove();
-            return;
-        }
-        target.style.position = 'absolute';
-        target.style.left = points[currentPoint].x;
-        target.style.top = points[currentPoint].y;
-        clickCount = 0;
-        statusText.innerText = `Point ${currentPoint + 1} of ${points.length}: Click 3 times while staring at the dot.`;
-    }
-
-    target.addEventListener('click', (e) => {
-        webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
-        clickCount++;
-        statusText.innerText = `Point ${currentPoint + 1} of 5: Click count ${clickCount}/3`;
-
-        if (clickCount >= 3) {
-            currentPoint++;
-            updateTargetPosition();
-        }
-    });
-
-    updateTargetPosition();
-}
-
 function createSimulatedCursor() {
     const div = document.getElementById('gaze-cursor-sim') || document.createElement('div');
     if (!div.id) {
         div.id = 'gaze-cursor-sim';
         div.style.position = 'fixed';
-        div.style.width = '16px';
-        div.style.height = '16px';
-        div.style.backgroundColor = 'rgba(0, 255, 204, 0.85)';
+        div.style.width = '14px';
+        div.style.height = '14px';
+        div.style.backgroundColor = 'rgba(0, 255, 204, 0.9)';
         div.style.border = '2px solid white';
         div.style.borderRadius = '50%';
         div.style.pointerEvents = 'none';
@@ -374,11 +318,11 @@ function createSimulatedCursor() {
 
 <style>
 .gaze-active-target {
-    transform: scale(1.04) !important;
-    box-shadow: 0 0 25px #00ffcc !important;
+    transform: scale(1.03) !important;
+    box-shadow: 0 0 20px #00ffcc !important;
     border: 3px solid #00ffcc !important;
-    background-color: rgba(0, 255, 204, 0.15) !important;
-    transition: transform 0.1s ease-in-out;
+    background-color: rgba(0, 255, 204, 0.2) !important;
+    transition: transform 0.08s ease-in-out;
 }
 </style>
 <script type="module" src="app/build/asterics-aac.bundle.js"></script>
