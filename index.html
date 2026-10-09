@@ -208,6 +208,16 @@
 <!-- Injected Background WebGazer & Implicit Anchor Script -->
 <script>
 document.addEventListener("DOMContentLoaded", () => {
+    // Fix TensorFlow FaceMesh willReadFrequently warning by patching canvas context creation
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function(type, attributes) {
+        if (type === '2d') {
+            attributes = attributes || {};
+            attributes.willReadFrequently = true;
+        }
+        return originalGetContext.call(this, type, attributes);
+    };
+
     const checkInterval = setInterval(async () => {
         if (typeof webgazer !== 'undefined') {
             clearInterval(checkInterval);
@@ -216,70 +226,75 @@ document.addEventListener("DOMContentLoaded", () => {
                 webgazer.showVideoPreview(true);
                 webgazer.showPredictionPoints(false);
 
-                let lastX = window.innerWidth / 2;
-                let lastY = window.innerHeight / 2;
-                const smoothing = 0.25; // Smooths jitter
-
-                let currentHoveredButton = null;
+                let currentCellIndex = null;
                 let dwellTimer = null;
-                const DWELL_TIME_MS = 1000; // 1 second dwell
+                const DWELL_TIME_MS = 1000; // 1 second dwell per cell
 
                 webgazer.setGazeListener((data, timestamp) => {
                     if (!data) return;
 
-                    // 1. Smooth raw coordinates
-                    lastX = lastX + smoothing * (data.x - lastX);
-                    lastY = lastY + smoothing * (data.y - lastY);
-
-                    // 2. Map coordinates explicitly to the AsTeRICS 3x3 Grid Container bounds
-                    const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement');
-                    
-                    if (gridContainer) {
-                        const rect = gridContainer.getBoundingClientRect();
-                        
-                        // Constrain tracking feel directly to the grid dimensions if user gaze is near it
-                        // This prevents the cursor from getting stuck only on top buttons
-                        if (lastX >= rect.left && lastX <= rect.right && lastY >= rect.top && lastY <= rect.bottom) {
-                            // Inside grid: allow precise mapping
-                        }
-                    }
-
                     // Move visual indicator
                     const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
-                    cursor.style.left = `${lastX}px`;
-                    cursor.style.top = `${lastY}px`;
+                    cursor.style.left = `${data.x}px`;
+                    cursor.style.top = `${data.y}px`;
 
-                    // 3. Target Detection inside the 3x3 layout
-                    const elementUnderGaze = document.elementFromPoint(lastX, lastY);
-                    const gridButton = elementUnderGaze ? elementUnderGaze.closest('button, .grid-item, [role="button"]') : null;
+                    // Find all buttons inside the active AsTeRICS grid container
+                    const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement');
+                    if (!gridContainer) return;
 
-                    if (gridButton) {
-                        if (gridButton !== currentHoveredButton) {
+                    const buttons = Array.from(gridContainer.querySelectorAll('button, .grid-item, [role="button"]'));
+                    if (buttons.length === 0) return;
+
+                    // Map gaze coordinates directly to the closest button among the 3x3 matrix
+                    let closestButton = null;
+                    let minDistance = Infinity;
+
+                    buttons.forEach((btn, index) => {
+                        const rect = btn.getBoundingClientRect();
+                        // Check if gaze is inside or closest to this button's macro zone
+                        const centerX = rect.left + rect.width / 2;
+                        const centerY = rect.top + rect.height / 2;
+                        
+                        // Distance calculation to treat each grid cell as a discrete target zone
+                        const distance = Math.hypot(data.x - centerX, data.y - centerY);
+
+                        // Give preference if gaze is physically inside the button bounding box
+                        const isInside = data.x >= rect.left && data.x <= rect.right && data.y >= rect.top && data.y <= rect.bottom;
+
+                        if (isInside || distance < minDistance) {
+                            minDistance = distance;
+                            closestButton = { element: btn, index: index, rect: rect };
+                        }
+                    });
+
+                    if (closestButton) {
+                        // If the user's gaze shifts to a different macro grid cell
+                        if (closestButton.index !== currentCellIndex) {
                             clearTimeout(dwellTimer);
-                            if (currentHoveredButton) currentHoveredButton.classList.remove('gaze-active-target');
                             
-                            currentHoveredButton = gridButton;
-                            currentHoveredButton.classList.add('gaze-active-target');
+                            // Clean up previous highlights
+                            buttons.forEach(b => b.classList.remove('gaze-active-target'));
 
-                            // Start dwell trigger
+                            currentCellIndex = closestButton.index;
+                            closestButton.element.classList.add('gaze-active-target');
+
+                            // Start dwell timer on this specific 3x3 cell
                             dwellTimer = setTimeout(() => {
-                                const btnRect = currentHoveredButton.getBoundingClientRect();
-                                const centerX = btnRect.left + btnRect.width / 2;
-                                const centerY = btnRect.top + btnRect.height / 2;
+                                // Auto-correct WebGazer mapping using the exact center of this grid cell
+                                const targetX = closestButton.rect.left + closestButton.rect.width / 2;
+                                const targetY = closestButton.rect.top + closestButton.rect.height / 2;
+                                webgazer.recordScreenPosition(targetX, targetY, 'click');
 
-                                // Implicit Auto-Recalibration: Train WebGazer on successful button clicks
-                                webgazer.recordScreenPosition(centerX, centerY, 'click');
-
-                                currentHoveredButton.click();
-                                currentHoveredButton.classList.remove('gaze-active-target');
-                                currentHoveredButton = null;
+                                closestButton.element.click();
+                                closestButton.element.classList.remove('gaze-active-target');
+                                currentCellIndex = null;
                             }, DWELL_TIME_MS);
                         }
                     } else {
-                        if (currentHoveredButton) {
+                        if (currentCellIndex !== null) {
                             clearTimeout(dwellTimer);
-                            currentHoveredButton.classList.remove('gaze-active-target');
-                            currentHoveredButton = null;
+                            buttons.forEach(b => b.classList.remove('gaze-active-target'));
+                            currentCellIndex = null;
                         }
                     }
                 });
@@ -291,28 +306,30 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function createSimulatedCursor() {
-    const div = document.createElement('div');
-    div.id = 'gaze-cursor-sim';
-    div.style.position = 'fixed';
-    div.style.width = '14px';
-    div.style.height = '14px';
-    div.style.backgroundColor = 'rgba(0, 255, 204, 0.8)';
-    div.style.border = '2px solid white';
-    div.style.borderRadius = '50%';
-    div.style.pointerEvents = 'none';
-    div.style.zIndex = '999999';
-    div.style.transform = 'translate(-50%, -50%)';
-    document.body.appendChild(div);
+    const div = document.getElementById('gaze-cursor-sim') || document.createElement('div');
+    if (!div.id) {
+        div.id = 'gaze-cursor-sim';
+        div.style.position = 'fixed';
+        div.style.width = '14px';
+        div.style.height = '14px';
+        div.style.backgroundColor = 'rgba(0, 255, 204, 0.8)';
+        div.style.border = '2px solid white';
+        div.style.borderRadius = '50%';
+        div.style.pointerEvents = 'none';
+        div.style.zIndex = '999999';
+        div.style.transform = 'translate(-50%, -50%)';
+        document.body.appendChild(div);
+    }
     return div;
 }
 </script>
 
 <style>
 .gaze-active-target {
-    transform: scale(1.05) !important;
-    box-shadow: 0 0 20px #00ffcc !important;
+    transform: scale(1.04) !important;
+    box-shadow: 0 0 25px #00ffcc !important;
     border: 3px solid #00ffcc !important;
-    transition: transform 0.15s ease-in-out;
+    transition: transform 0.1s ease-in-out;
 }
 </style>
 
