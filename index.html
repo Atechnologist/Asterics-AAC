@@ -248,7 +248,7 @@
 
                     // 1. Launch Startup Calibration Overlay
                     createCalibrationOverlay(() => {
-                        // Start magnetic eye-tracking loop after calibration completes
+                        // Start universal nearest-neighbor eye-tracking loop after calibration completes
                         startEyeTrackingLoop();
                     });
 
@@ -263,7 +263,6 @@
         let lastProcessingTime = 0;
         const THROTTLE_MS = 50; // ~20 FPS
         let lastTarget = null;
-        const SNAP_THRESHOLD_PX = 90; // Magnetic pull radius in pixels
 
         webgazer.setGazeListener((data, timestamp) => {
             if (!data) return;
@@ -275,82 +274,61 @@
             let rawX = data.x;
             let rawY = data.y;
 
-            // --- OUT-OF-THE-BOX ACCURACY: MAGNETIC GRID SNAP ---
+            // --- UNIVERSAL NEAREST-NEIGHBOR SNAP (NO DEAD ZONES) ---
             const gridButtons = document.querySelectorAll('.grid-item, button, [role="button"], .q-btn');
             let bestTarget = null;
             let minDistance = Infinity;
 
             gridButtons.forEach(btn => {
                 const rect = btn.getBoundingClientRect();
-                // Skip hidden or out-of-bounds elements
-                if (rect.width === 0 || rect.height === 0) return;
+                if (rect.width === 0 || rect.height === 0) return; // Skip hidden elements
 
                 const centerX = rect.left + rect.width / 2;
                 const centerY = rect.top + rect.height / 2;
 
-                // Calculate Euclidean distance from raw gaze to button center
                 const distance = Math.hypot(rawX - centerX, rawY - centerY);
 
-                // Check if the gaze is inside the button bounding box OR within the snap threshold perimeter
-                const isInsideBox = (rawX >= rect.left && rawX <= rect.right && rawY >= rect.top && rawY <= rect.bottom);
-                
-                if (isInsideBox || distance < SNAP_THRESHOLD_PX) {
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                        bestTarget = btn;
-                    }
+                // Find the absolute closest button on the entire board
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    bestTarget = btn;
                 }
             });
 
-            // Use the snapped target's center if found, otherwise fall back to raw coordinates
-            let targetX = rawX;
-            let targetY = rawY;
-            let activeElement = null;
+            if (!bestTarget) return;
 
-            if (bestTarget) {
-                const rect = bestTarget.getBoundingClientRect();
-                targetX = rect.left + rect.width / 2;
-                targetY = rect.top + rect.height / 2;
-                activeElement = bestTarget;
-            } else {
-                activeElement = document.elementFromPoint(rawX, rawY);
-            }
+            // Snap target coordinates precisely to the center of the closest button
+            const rect = bestTarget.getBoundingClientRect();
+            const targetX = rect.left + rect.width / 2;
+            const targetY = rect.top + rect.height / 2;
 
-            // Update simulated gaze cursor (smoothly snaps to the button center if locked)
+            // Update simulated gaze cursor to show the snap lock
             const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
             cursor.style.left = `${targetX}px`;
             cursor.style.top = `${targetY}px`;
 
-            // Handle Native Event Dispatching & Dwell State
-            if (activeElement) {
-                if (activeElement !== lastTarget) {
-                    if (lastTarget) {
-                        lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, clientX: targetX, clientY: targetY }));
-                        lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, clientX: targetX, clientY: targetY }));
-                        lastTarget.classList.remove('gaze-active-target');
-                    }
-                    activeElement.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    activeElement.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    activeElement.classList.add('gaze-active-target');
-                    
-                    lastTarget = activeElement;
-                }
-
-                // Continuous hover motion injection
-                activeElement.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: targetX, clientY: targetY }));
-                activeElement.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: targetX, clientY: targetY }));
-            } else {
+            // Handle Native Event Dispatching & Hover State
+            if (bestTarget !== lastTarget) {
                 if (lastTarget) {
+                    lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, clientX: targetX, clientY: targetY }));
+                    lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, clientX: targetX, clientY: targetY }));
                     lastTarget.classList.remove('gaze-active-target');
-                    lastTarget = null;
                 }
+                bestTarget.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, clientX: targetX, clientY: targetY }));
+                bestTarget.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: targetX, clientY: targetY }));
+                bestTarget.classList.add('gaze-active-target');
+                
+                lastTarget = bestTarget;
             }
 
-            // Implicit Auto-Calibration Check: If user looks toward outer edges, record point
-            const screenW = window.innerWidth;
-            const screenH = window.innerHeight;
-            if (rawX < 40 || rawX > screenW - 40 || rawY < 40 || rawY > screenH - 40) {
-                webgazer.recordScreenPosition(rawX, rawY, 'click');
+            // Continuous motion injection for native dwell progress bars
+            bestTarget.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: targetX, clientY: targetY }));
+            bestTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: targetX, clientY: targetY }));
+
+            // --- PROGRESSIVE IMPLICIT DRIFT CORRECTION ---
+            // Continuously train WebGazer using successful button centers during runtime
+            if (minDistance < 150) { 
+                webgazer.recordScreenPosition(targetX, targetY, 'click');
             }
         });
     }
