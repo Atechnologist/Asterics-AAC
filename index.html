@@ -236,7 +236,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 // 1. Launch Startup Calibration
                 createCalibrationOverlay(() => {
-                    // Start eye tracking loop only after calibration is completely done
                     startEyeTrackingLoop();
                 });
 
@@ -248,26 +247,13 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function startEyeTrackingLoop() {
-    let activeCellIndex = null;
+    let currentHoveredButton = null;
     let dwellTimer = null;
     const DWELL_TIME_MS = 1000; // 1 second dwell
 
-    // Lightweight throttling (~20 FPS)
+    // Throttle for performance (~20 FPS)
     let lastProcessingTime = 0;
     const THROTTLE_MS = 50; 
-
-    let cachedButtons = [];
-    
-    function updateButtonCache() {
-        // Broad selector targeting AsTeRICS Grid items and buttons specifically
-        const gridContainer = document.querySelector('.grid-container') || document.getElementById('touchElement') || document.body;
-        if (gridContainer) {
-            cachedButtons = Array.from(gridContainer.querySelectorAll('button, .grid-item, [role="button"], .q-btn'));
-        }
-    }
-
-    // Initial cache population
-    updateButtonCache();
 
     webgazer.setGazeListener((data, timestamp) => {
         if (!data) return;
@@ -281,54 +267,37 @@ function startEyeTrackingLoop() {
         cursor.style.left = `${data.x}px`;
         cursor.style.top = `${data.y}px`;
 
-        // Refresh cache if buttons aren't found yet
-        if (cachedButtons.length === 0) updateButtonCache();
-        if (cachedButtons.length === 0) return;
+        // Direct Element Hit Testing via browser native point-checking
+        const elementUnderGaze = document.elementFromPoint(data.x, data.y);
+        const gridButton = elementUnderGaze ? elementUnderGaze.closest('button, .grid-item, [role="button"], .q-btn') : null;
 
-        // Macro-Cell Hit Testing
-        let matchedIndex = -1;
-        let matchedButton = null;
-
-        for (let i = 0; i < cachedButtons.length; i++) {
-            const rect = cachedButtons[i].getBoundingClientRect();
-            // Ensure button is visible before evaluating
-            if (rect.width > 0 && rect.height > 0) {
-                if (data.x >= rect.left && data.x <= rect.right && data.y >= rect.top && data.y <= rect.bottom) {
-                    matchedIndex = i;
-                    matchedButton = cachedButtons[i];
-                    break;
-                }
-            }
-        }
-
-        if (matchedButton) {
-            if (matchedIndex !== activeCellIndex) {
+        if (gridButton) {
+            if (gridButton !== currentHoveredButton) {
                 clearTimeout(dwellTimer);
-                cachedButtons.forEach(b => b.classList.remove('gaze-active-target'));
+                if (currentHoveredButton) currentHoveredButton.classList.remove('gaze-active-target');
 
-                activeCellIndex = matchedIndex;
-                matchedButton.classList.add('gaze-active-target');
+                currentHoveredButton = gridButton;
+                currentHoveredButton.classList.add('gaze-active-target');
 
                 // Dwell trigger timer
                 dwellTimer = setTimeout(() => {
-                    const rect = matchedButton.getBoundingClientRect();
+                    const rect = currentHoveredButton.getBoundingClientRect();
                     const centerX = rect.left + rect.width / 2;
                     const centerY = rect.top + rect.height / 2;
 
-                    // AUTO-CALIBRATION: Retrain model on successful clicks
+                    // Auto-calibrate on successful click
                     webgazer.recordScreenPosition(centerX, centerY, 'click');
 
-                    matchedButton.click();
-                    matchedButton.classList.remove('gaze-active-target');
-                    activeCellIndex = null;
-                    updateButtonCache();
+                    currentHoveredButton.click();
+                    currentHoveredButton.classList.remove('gaze-active-target');
+                    currentHoveredButton = null;
                 }, DWELL_TIME_MS);
             }
         } else {
-            if (activeCellIndex !== null) {
+            if (currentHoveredButton) {
                 clearTimeout(dwellTimer);
-                cachedButtons.forEach(b => b.classList.remove('gaze-active-target'));
-                activeCellIndex = null;
+                currentHoveredButton.classList.remove('gaze-active-target');
+                currentHoveredButton = null;
             }
         }
     });
