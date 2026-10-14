@@ -265,11 +265,14 @@
         }, 200);
     });
 
-    function startEyeTrackingLoop() {
+   function startEyeTrackingLoop() {
     let lastProcessingTime = 0;
     const THROTTLE_MS = 50; // ~20 FPS
     let lastTarget = null;
-    const MAX_SNAP_DISTANCE_PX = 130; // Max distance allowed to trigger a snap
+    
+    // --- TEAM FINE-TUNING PARAMETERS ---
+    const MAX_SNAP_DISTANCE_PX = 90;       // Tightened threshold to prevent row-to-row jumping
+    const AUTO_CALIBRATE_THRESHOLD = 80;   // High-confidence auto-retraining limit
 
     // --- BIDIRECTIONAL BRIDGE: LAYOUT OBSERVER ---
     const layoutObserver = new MutationObserver(() => {
@@ -293,7 +296,7 @@
             updateSpatialMap();
         }
 
-        // --- CONTROLLED HIT-TESTING WITH PROXIMITY GUARD ---
+        // --- CONTROLLED HIT-TESTING WITH PROXIMITY GUARD & EXCLUSIONS ---
         let bestTargetCell = null;
         let minDistance = Infinity;
 
@@ -307,13 +310,12 @@
             }
         });
 
-        // SAFETY CHECK: If the closest button is still too far away, ignore it (prevents forced random snaps)
+        // SAFETY CHECK: Enforce the tightened 90px threshold and ignore elements tagged with data-gaze-ignore
         if (!bestTargetCell || !bestTargetCell.element || minDistance > MAX_SNAP_DISTANCE_PX) {
             if (lastTarget) {
                 lastTarget.classList.remove('gaze-active-target');
                 lastTarget = null;
             }
-            // Still update cursor for visual debugging
             const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
             cursor.style.left = `${rawX}px`;
             cursor.style.top = `${rawY}px`;
@@ -347,39 +349,41 @@
         bestTarget.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: targetX, clientY: targetY }));
         bestTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: targetX, clientY: targetY }));
 
-        // Progressive implicit drift correction (only train when close and accurate)
-        if (minDistance < 80) {
+        // Progressive implicit drift correction (only train under high-confidence 80px distance)
+        if (minDistance < AUTO_CALIBRATE_THRESHOLD) {
             webgazer.recordScreenPosition(targetX, targetY, 'click');
         }
     });
 }
 
-    // Helper to extract and share the layout coordinates
-    function updateSpatialMap() {
-        const gridButtons = document.querySelectorAll('.grid-item, button, [role="button"], .q-btn');
-        const cells = [];
+// Helper to extract layout coordinates while respecting exclusion zones
+function updateSpatialMap() {
+    const gridButtons = document.querySelectorAll('.grid-item, button, [role="button"], .q-btn');
+    const cells = [];
 
-        gridButtons.forEach((btn, index) => {
-            const rect = btn.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0) return; // Skip hidden elements
+    gridButtons.forEach((btn, index) => {
+        const rect = btn.getBoundingClientRect();
+        
+        // Skip hidden elements OR elements explicitly tagged to be ignored by the gaze tracker
+        if (rect.width === 0 || rect.height === 0 || btn.hasAttribute('data-gaze-ignore')) return;
 
-            cells.push({
-                id: index,
-                element: btn,
-                left: rect.left,
-                top: rect.top,
-                right: rect.right,
-                bottom: rect.bottom,
-                centerX: rect.left + rect.width / 2,
-                centerY: rect.top + rect.height / 2,
-                width: rect.width,
-                height: rect.height
-            });
+        cells.push({
+            id: index,
+            element: btn,
+            left: rect.left,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            centerX: rect.left + rect.width / 2,
+            centerY: rect.top + rect.height / 2,
+            width: rect.width,
+            height: rect.height
         });
+    });
 
-        window.activeGridMap.cells = cells;
-        window.activeGridMap.lastUpdated = performance.now();
-    }
+    window.activeGridMap.cells = cells;
+    window.activeGridMap.lastUpdated = performance.now();
+}
 
     // 5-Point Startup Calibration Overlay
     function createCalibrationOverlay(onComplete) {
