@@ -266,87 +266,93 @@
     });
 
     function startEyeTrackingLoop() {
-        let lastProcessingTime = 0;
-        const THROTTLE_MS = 50; // ~20 FPS
-        let lastTarget = null;
+    let lastProcessingTime = 0;
+    const THROTTLE_MS = 50; // ~20 FPS
+    let lastTarget = null;
+    const MAX_SNAP_DISTANCE_PX = 130; // Max distance allowed to trigger a snap
 
-        // --- BIDIRECTIONAL BRIDGE: LAYOUT OBSERVER ---
-        // Automatically updates the shared spatial map whenever AsTeRICS Grid renders/updates buttons
-        const layoutObserver = new MutationObserver(() => {
-            updateSpatialMap();
-        });
-        layoutObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
-        
-        // Initial map build
+    // --- BIDIRECTIONAL BRIDGE: LAYOUT OBSERVER ---
+    const layoutObserver = new MutationObserver(() => {
         updateSpatialMap();
+    });
+    layoutObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+    
+    updateSpatialMap();
 
-        webgazer.setGazeListener((data, timestamp) => {
-            if (!data) return;
+    webgazer.setGazeListener((data, timestamp) => {
+        if (!data) return;
 
-            const now = performance.now();
-            if (now - lastProcessingTime < THROTTLE_MS) return;
-            lastProcessingTime = now;
+        const now = performance.now();
+        if (now - lastProcessingTime < THROTTLE_MS) return;
+        lastProcessingTime = now;
 
-            let rawX = data.x;
-            let rawY = data.y;
+        let rawX = data.x;
+        let rawY = data.y;
 
-            // If layout changed or map is empty, refresh it
-            if (window.activeGridMap.cells.length === 0) {
-                updateSpatialMap();
-            }
+        if (window.activeGridMap.cells.length === 0) {
+            updateSpatialMap();
+        }
 
-            // --- SHARED SPATIAL MAP HIT-TESTING ---
-            let bestTargetCell = null;
-            let minDistance = Infinity;
+        // --- CONTROLLED HIT-TESTING WITH PROXIMITY GUARD ---
+        let bestTargetCell = null;
+        let minDistance = Infinity;
 
-            window.activeGridMap.cells.forEach(cell => {
-                const distance = Math.hypot(rawX - cell.centerX, rawY - cell.centerY);
-                
-                // Check if gaze is inside bounding box or closest overall
-                const isInsideBox = (rawX >= cell.left && rawX <= cell.right && rawY >= cell.top && rawY <= cell.bottom);
-                
-                if (isInsideBox || distance < minDistance) {
-                    minDistance = distance;
-                    bestTargetCell = cell;
-                }
-            });
-
-            if (!bestTargetCell || !bestTargetCell.element) return;
-
-            const bestTarget = bestTargetCell.element;
-            const targetX = bestTargetCell.centerX;
-            const targetY = bestTargetCell.centerY;
-
-            // Update simulated gaze cursor to snap to the shared model's center coordinate
-            const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
-            cursor.style.left = `${targetX}px`;
-            cursor.style.top = `${targetY}px`;
-
-            // Handle Native Event Dispatching & Hover State
-            if (bestTarget !== lastTarget) {
-                if (lastTarget) {
-                    lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    lastTarget.classList.remove('gaze-active-target');
-                }
-                bestTarget.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, clientX: targetX, clientY: targetY }));
-                bestTarget.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: targetX, clientY: targetY }));
-                bestTarget.classList.add('gaze-active-target');
-                
-                lastTarget = bestTarget;
-            }
-
-            // Continuous motion injection for native dwell progress bars
-            bestTarget.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: targetX, clientY: targetY }));
-            bestTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: targetX, clientY: targetY }));
-
-            // --- PROGRESSIVE IMPLICIT DRIFT CORRECTION ---
-            // Feed the matched semantic center back into WebGazer for continuous auto-calibration
-            if (minDistance < 200) {
-                webgazer.recordScreenPosition(targetX, targetY, 'click');
+        window.activeGridMap.cells.forEach(cell => {
+            const distance = Math.hypot(rawX - cell.centerX, rawY - cell.centerY);
+            const isInsideBox = (rawX >= cell.left && rawX <= cell.right && rawY >= cell.top && rawY <= cell.bottom);
+            
+            if (isInsideBox || distance < minDistance) {
+                minDistance = distance;
+                bestTargetCell = cell;
             }
         });
-    }
+
+        // SAFETY CHECK: If the closest button is still too far away, ignore it (prevents forced random snaps)
+        if (!bestTargetCell || !bestTargetCell.element || minDistance > MAX_SNAP_DISTANCE_PX) {
+            if (lastTarget) {
+                lastTarget.classList.remove('gaze-active-target');
+                lastTarget = null;
+            }
+            // Still update cursor for visual debugging
+            const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
+            cursor.style.left = `${rawX}px`;
+            cursor.style.top = `${rawY}px`;
+            return;
+        }
+
+        const bestTarget = bestTargetCell.element;
+        const targetX = bestTargetCell.centerX;
+        const targetY = bestTargetCell.centerY;
+
+        // Update simulated gaze cursor to snap to the matched button
+        const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
+        cursor.style.left = `${targetX}px`;
+        cursor.style.top = `${targetY}px`;
+
+        // Handle Native Event Dispatching & Hover State
+        if (bestTarget !== lastTarget) {
+            if (lastTarget) {
+                lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, clientX: targetX, clientY: targetY }));
+                lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, clientX: targetX, clientY: targetY }));
+                lastTarget.classList.remove('gaze-active-target');
+            }
+            bestTarget.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, clientX: targetX, clientY: targetY }));
+            bestTarget.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: targetX, clientY: targetY }));
+            bestTarget.classList.add('gaze-active-target');
+            
+            lastTarget = bestTarget;
+        }
+
+        // Continuous motion injection for native dwell progress bars
+        bestTarget.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: targetX, clientY: targetY }));
+        bestTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: targetX, clientY: targetY }));
+
+        // Progressive implicit drift correction (only train when close and accurate)
+        if (minDistance < 80) {
+            webgazer.recordScreenPosition(targetX, targetY, 'click');
+        }
+    });
+}
 
     // Helper to extract and share the layout coordinates
     function updateSpatialMap() {
