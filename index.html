@@ -267,13 +267,10 @@
         let lastProcessingTime = 0;
         const THROTTLE_MS = 50; // ~20 FPS
         let lastTarget = null;
-
-        // Head-Nudge State Variables
-        let baselineX = null;
-        let baselineY = null;
-        const NUDGE_SENSITIVITY = 1.5; // Multiplier for head shift influence
-        const MAX_SNAP_DISTANCE_PX = 110; // Controlled snap distance
-        const AUTO_CALIBRATE_THRESHOLD = 80;
+        
+        // --- CLEAN SNAP & LEARN PARAMETERS ---
+        const MAX_SNAP_DISTANCE_PX = 95;      // Perimeter guard: ignores gaze if too far from any button
+        const AUTO_CALIBRATE_THRESHOLD = 75;  // High-confidence threshold for progressive training
 
         // --- BIDIRECTIONAL BRIDGE: LAYOUT OBSERVER ---
         const layoutObserver = new MutationObserver(() => {
@@ -293,32 +290,17 @@
             let rawX = data.x;
             let rawY = data.y;
 
-            // Capture neutral baseline center on first valid frame
-            if (baselineX === null) {
-                baselineX = rawX;
-                baselineY = rawY;
-            }
-
-            // Calculate subtle head/gaze shift from baseline (damped offset)
-            let headDeltaX = (rawX - baselineX) * 0.1; 
-            let headDeltaY = (rawY - baselineY) * 0.1;
-
-            // Apply hybrid nudge vector
-            let adjustedX = rawX + (headDeltaX * NUDGE_SENSITIVITY);
-            let adjustedY = rawY + (headDeltaY * NUDGE_SENSITIVITY);
-
             if (window.activeGridMap.cells.length === 0) {
                 updateSpatialMap();
             }
 
-            // --- SHARED SPATIAL MAP SNAP USING ADJUSTED COORDINATES ---
+            // --- CONTROLLED SPATIAL MAP HIT-TESTING ---
             let bestTargetCell = null;
             let minDistance = Infinity;
 
             window.activeGridMap.cells.forEach(cell => {
-                // Measure distance using the adjusted hybrid coordinate
-                const distance = Math.hypot(adjustedX - cell.centerX, adjustedY - cell.centerY);
-                const isInsideBox = (adjustedX >= cell.left && adjustedX <= cell.right && adjustedY >= cell.top && adjustedY <= cell.bottom);
+                const distance = Math.hypot(rawX - cell.centerX, rawY - cell.centerY);
+                const isInsideBox = (rawX >= cell.left && rawX <= cell.right && rawY >= cell.top && rawY <= cell.bottom);
                 
                 if (isInsideBox || distance < minDistance) {
                     minDistance = distance;
@@ -326,15 +308,15 @@
                 }
             });
 
-            // Proximity protection check
+            // SAFETY CHECK: If gaze is outside the confidence perimeter, release target and remain neutral
             if (!bestTargetCell || !bestTargetCell.element || minDistance > MAX_SNAP_DISTANCE_PX) {
                 if (lastTarget) {
                     lastTarget.classList.remove('gaze-active-target');
                     lastTarget = null;
                 }
                 const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
-                cursor.style.left = `${adjustedX}px`;
-                cursor.style.top = `${adjustedY}px`;
+                cursor.style.left = `${rawX}px`;
+                cursor.style.top = `${rawY}px`;
                 return;
             }
 
@@ -364,7 +346,7 @@
             bestTarget.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: targetX, clientY: targetY }));
             bestTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: targetX, clientY: targetY }));
 
-            // Progressive Auto-Calibration
+            // Progressive Implicit Calibration (Snowball Effect on high-confidence hits)
             if (minDistance < AUTO_CALIBRATE_THRESHOLD) {
                 webgazer.recordScreenPosition(targetX, targetY, 'click');
             }
@@ -484,6 +466,7 @@
         return div;
     }
     </script>
+  
 
 <script type="module" src="app/build/asterics-aac.bundle.js"></script>
 </body>
