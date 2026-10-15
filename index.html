@@ -227,7 +227,7 @@
                     webgazer.showVideoPreview(true);
                     webgazer.showPredictionPoints(false);
 
-                    // 1. Launch Startup Calibration Overlay
+                    // 1. Launch Startup Calibration Overlay with Extended Range
                     createCalibrationOverlay(() => {
                         startGazeScanningBridge();
                     });
@@ -239,7 +239,7 @@
         }, 200);
     });
 
-    // --- GAZE-TO-SCANNER BRIDGE ---
+    // --- GAZE-TO-SCANNER BRIDGE WITH VERTICAL STRETCH GAIN ---
     function startGazeScanningBridge() {
         let lastProcessingTime = 0;
         const THROTTLE_MS = 60; // ~16-18 FPS for stable row locking
@@ -252,7 +252,8 @@
             if (now - lastProcessingTime < THROTTLE_MS) return;
             lastProcessingTime = now;
 
-            let rawY = data.y; // Vertical gaze focus
+            // Apply slight vertical gain factor to compensate for downward head-tilt range compression
+            let rawY = data.y * 1.05; 
 
             // Grab all interactive grid items currently rendered on screen
             const gridButtons = Array.from(document.querySelectorAll('.grid-item, button, [role="button"], .q-btn'));
@@ -308,7 +309,7 @@
         });
     }
 
-    // 5-Point Startup Calibration Overlay (Kept intact for initial setup)
+    // 5-Point Startup Calibration Overlay (Extended Bounds to Fix Range Compression)
     function createCalibrationOverlay(onComplete) {
         if (document.getElementById('gaze-calibration-overlay')) return;
 
@@ -341,10 +342,11 @@
         const target = document.getElementById('calibration-target');
         const statusText = document.getElementById('calib-status');
         
+        // Pushed further to screen extremes (15vh and 85vh) to unlock full vertical range
         const points = [
-            {x: '15vw', y: '20vh'}, {x: '85vw', y: '20vh'},
+            {x: '15vw', y: '15vh'}, {x: '85vw', y: '15vh'},
             {x: '50vw', y: '50vh'},
-            {x: '15vw', y: '80vh'}, {x: '85vw', y: '80vh'}
+            {x: '15vw', y: '85vh'}, {x: '85vw', y: '85vh'}
         ];
         let currentPoint = 0;
         let clickCount = 0;
