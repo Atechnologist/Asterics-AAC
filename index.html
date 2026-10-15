@@ -223,163 +223,105 @@
 </script>
 
 <script>
-    // Global Shared Spatial Map for Bidirectional Sync
-    window.activeGridMap = {
-        cells: [],
-        lastUpdated: 0
-    };
+   // Global Shared Spatial Map for Row-Level Aggregation
+window.activeGridMap = {
+    rows: [],
+    lastUpdated: 0
+};
 
-    document.addEventListener("DOMContentLoaded", () => {
-        // Suppress TensorFlow FaceMesh willReadFrequently canvas warning
-        const originalGetContext = HTMLCanvasElement.prototype.getContext;
-        HTMLCanvasElement.prototype.getContext = function(type, attributes) {
-            if (type === '2d') {
-                attributes = attributes || {};
-                attributes.willReadFrequently = true;
+function startEyeTrackingLoop() {
+    let lastProcessingTime = 0;
+    const THROTTLE_MS = 50; // ~20 FPS
+    let lastActiveRow = null;
+
+    // --- BIDIRECTIONAL BRIDGE: LAYOUT OBSERVER ---
+    const layoutObserver = new MutationObserver(() => {
+        updateRowSpatialMap();
+    });
+    layoutObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+    
+    updateRowSpatialMap();
+
+    webgazer.setGazeListener((data, timestamp) => {
+        if (!data) return;
+
+        const now = performance.now();
+        if (now - lastProcessingTime < THROTTLE_MS) return;
+        lastProcessingTime = now;
+
+        let rawY = data.y; // In Row-Scanning, Y-axis (vertical position) is primary
+
+        if (window.activeGridMap.rows.length === 0) {
+            updateRowSpatialMap();
+        }
+
+        // --- EVALUATE GAZE AGAINST LARGE ROW REGIONS ---
+        let targetRow = null;
+
+        window.activeGridMap.rows.forEach(row => {
+            // Check if vertical gaze falls cleanly within the row height boundaries (with 20px buffer)
+            if (rawY >= (row.top - 20) && rawY <= (row.bottom + 20)) {
+                targetRow = row;
             }
-            return originalGetContext.call(this, type, attributes);
-        };
+        });
 
-        const checkInterval = setInterval(async () => {
-            if (typeof webgazer !== 'undefined') {
-                clearInterval(checkInterval);
-                try {
-                    window.localStorage.removeItem('webgazerGlobalData');
+        if (!targetRow) return;
 
-                    await webgazer.begin();
-                    webgazer.removeMouseEventListeners();
-                    webgazer.showVideoPreview(true);
-                    webgazer.showPredictionPoints(false);
-
-                    // 1. Launch Startup Calibration Overlay
-                    createCalibrationOverlay(() => {
-                        startEyeTrackingLoop();
-                    });
-
-                } catch (err) {
-                    console.error("WebGazer initialization error:", err);
-                }
+        // Highlight and dispatch native hover state to all buttons in the active row
+        if (targetRow !== lastActiveRow) {
+            if (lastActiveRow) {
+                lastActiveRow.elements.forEach(btn => btn.classList.remove('gaze-active-target'));
             }
-        }, 200);
+            targetRow.elements.forEach(btn => btn.classList.add('gaze-active-target'));
+            
+            // Optionally trigger AsTeRICS Grid native row-focus event or key sequence
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: targetRow.shortcutKey, bubbles: true }));
+            
+            lastActiveRow = targetRow;
+        }
+    });
+}
+
+// Helper to aggregate individual buttons into 3 wide horizontal Row Blocks
+function updateRowSpatialMap() {
+    const gridButtons = Array.from(document.querySelectorAll('.grid-item, button, [role="button"], .q-btn'));
+    if (gridButtons.length === 0) return;
+
+    // Group buttons by their Y-axis top offset (clustering into rows)
+    const rowMap = new Map();
+
+    gridButtons.forEach(btn => {
+        const rect = btn.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0 || btn.hasAttribute('data-gaze-ignore')) return;
+
+        // Round Y position to nearest 40px to group buttons on the same line
+        const rowKey = Math.round(rect.top / 40) * 40;
+
+        if (!rowMap.has(rowKey)) {
+            rowMap.set(rowKey, {
+                top: rect.top,
+                bottom: rect.bottom,
+                elements: []
+            });
+        }
+
+        const rowGroup = rowMap.get(rowKey);
+        rowGroup.top = Math.min(rowGroup.top, rect.top);
+        rowGroup.bottom = Math.max(rowGroup.bottom, rect.bottom);
+        rowGroup.elements.push(btn);
     });
 
-    function startEyeTrackingLoop() {
-        let lastProcessingTime = 0;
-        const THROTTLE_MS = 50; // ~20 FPS
-        let lastTarget = null;
-        
-        // --- CLEAN SNAP & LEARN PARAMETERS ---
-        const MAX_SNAP_DISTANCE_PX = 95;      // Perimeter guard: ignores gaze if too far from any button
-        const AUTO_CALIBRATE_THRESHOLD = 75;  // High-confidence threshold for progressive training
+    const rows = Array.from(rowMap.values()).map((row, index) => ({
+        id: index,
+        top: row.top,
+        bottom: row.bottom,
+        elements: row.elements,
+        shortcutKey: `Digit${index + 1}` // Maps Row 1, Row 2, Row 3 to shortcuts
+    }));
 
-        // --- BIDIRECTIONAL BRIDGE: LAYOUT OBSERVER ---
-        const layoutObserver = new MutationObserver(() => {
-            updateSpatialMap();
-        });
-        layoutObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
-        
-        updateSpatialMap();
-
-        webgazer.setGazeListener((data, timestamp) => {
-            if (!data) return;
-
-            const now = performance.now();
-            if (now - lastProcessingTime < THROTTLE_MS) return;
-            lastProcessingTime = now;
-
-            let rawX = data.x;
-            let rawY = data.y;
-
-            if (window.activeGridMap.cells.length === 0) {
-                updateSpatialMap();
-            }
-
-            // --- CONTROLLED SPATIAL MAP HIT-TESTING ---
-            let bestTargetCell = null;
-            let minDistance = Infinity;
-
-            window.activeGridMap.cells.forEach(cell => {
-                const distance = Math.hypot(rawX - cell.centerX, rawY - cell.centerY);
-                const isInsideBox = (rawX >= cell.left && rawX <= cell.right && rawY >= cell.top && rawY <= cell.bottom);
-                
-                if (isInsideBox || distance < minDistance) {
-                    minDistance = distance;
-                    bestTargetCell = cell;
-                }
-            });
-
-            // SAFETY CHECK: If gaze is outside the confidence perimeter, release target and remain neutral
-            if (!bestTargetCell || !bestTargetCell.element || minDistance > MAX_SNAP_DISTANCE_PX) {
-                if (lastTarget) {
-                    lastTarget.classList.remove('gaze-active-target');
-                    lastTarget = null;
-                }
-                const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
-                cursor.style.left = `${rawX}px`;
-                cursor.style.top = `${rawY}px`;
-                return;
-            }
-
-            const bestTarget = bestTargetCell.element;
-            const targetX = bestTargetCell.centerX;
-            const targetY = bestTargetCell.centerY;
-
-            // Update simulated cursor to snapped coordinate
-            const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
-            cursor.style.left = `${targetX}px`;
-            cursor.style.top = `${targetY}px`;
-
-            // Native Event Dispatching for Vue Dwell
-            if (bestTarget !== lastTarget) {
-                if (lastTarget) {
-                    lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    lastTarget.classList.remove('gaze-active-target');
-                }
-                bestTarget.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, clientX: targetX, clientY: targetY }));
-                bestTarget.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: targetX, clientY: targetY }));
-                bestTarget.classList.add('gaze-active-target');
-                
-                lastTarget = bestTarget;
-            }
-
-            bestTarget.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: targetX, clientY: targetY }));
-            bestTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: targetX, clientY: targetY }));
-
-            // Progressive Implicit Calibration (Snowball Effect on high-confidence hits)
-            if (minDistance < AUTO_CALIBRATE_THRESHOLD) {
-                webgazer.recordScreenPosition(targetX, targetY, 'click');
-            }
-        });
-    }
-
-    // Helper to extract layout coordinates while respecting exclusion zones
-    function updateSpatialMap() {
-        const gridButtons = document.querySelectorAll('.grid-item, button, [role="button"], .q-btn');
-        const cells = [];
-
-        gridButtons.forEach((btn, index) => {
-            const rect = btn.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0 || btn.hasAttribute('data-gaze-ignore')) return;
-
-            cells.push({
-                id: index,
-                element: btn,
-                left: rect.left,
-                top: rect.top,
-                right: rect.right,
-                bottom: rect.bottom,
-                centerX: rect.left + rect.width / 2,
-                centerY: rect.top + rect.height / 2,
-                width: rect.width,
-                height: rect.height
-            });
-        });
-
-        window.activeGridMap.cells = cells;
-        window.activeGridMap.lastUpdated = performance.now();
-    }
-
+    window.activeGridMap.rows = rows;
+    window.activeGridMap.lastUpdated = performance.now();
+}
     // 5-Point Startup Calibration Overlay
     function createCalibrationOverlay(onComplete) {
         if (document.getElementById('gaze-calibration-overlay')) return;
