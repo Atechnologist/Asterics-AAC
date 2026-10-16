@@ -169,8 +169,8 @@
         return { element: null, x: gazeX, y: gazeY, isSnapped: false };
     }
 
-    // ==========================================
-// 2. MAIN EYE VECTOR DRAWER & WEBGAZER SYNC
+   // ==========================================
+// 2. TRUE EYE-ANCHORED VECTOR DRAWER & WEBGAZER SYNC
 // ==========================================
 function startVectorGazeTracking() {
     let lastTarget = null;
@@ -181,7 +181,7 @@ function startVectorGazeTracking() {
         // Run raw coordinates through the magnetic snap verification pass
         const target = getSnappedGazeTarget(data.x, data.y);
 
-        // Fetch or create a dedicated overlay canvas for the vector lines
+        // Fetch or create dedicated overlay canvas for vector lines
         let overlayCanvas = document.getElementById('vector-overlay-canvas');
         if (!overlayCanvas) {
             overlayCanvas = document.createElement('canvas');
@@ -201,30 +201,41 @@ function startVectorGazeTracking() {
         const ctx = overlayCanvas.getContext('2d');
         ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-        // Anchor origin: Center of the WebGazer video preview element on screen
-        const videoElement = document.getElementById('webgazerVideoFeed') || document.querySelector('video');
-        let originX = window.innerWidth * 0.15; // Default fallback left position
-        let originY = window.innerHeight * 0.15; // Default fallback top position
+        // Extract true eye coordinates from WebGazer / MediaPipe face mesh if available
+        let leftEyeX = window.innerWidth * 0.15;
+        let leftEyeY = window.innerHeight * 0.20;
+        let rightEyeX = window.innerWidth * 0.22;
+        let rightEyeY = window.innerHeight * 0.20;
 
-        if (videoElement) {
-            const vRect = videoElement.getBoundingClientRect();
-            originX = vRect.left + vRect.width / 2;
-            originY = vRect.top + vRect.height / 2;
+        const tracker = webgazer.getTracker();
+        const positions = tracker && typeof tracker.getCurrentPosition === 'function' ? tracker.getCurrentPosition() : null;
+
+        if (positions && positions.length > 362) {
+            // Map face mesh landmarks directly to screen coordinates relative to video box
+            const videoElement = document.getElementById('webgazerVideoFeed') || document.querySelector('video');
+            if (videoElement) {
+                const vRect = videoElement.getBoundingClientRect();
+                // MediaPipe coordinates are normalized or relative to video frame; map them to screen space
+                leftEyeX = vRect.left + ((positions[362].x + positions[263].x) / 2) * (vRect.width / videoElement.videoWidth || 1);
+                leftEyeY = vRect.top + ((positions[362].y + positions[263].y) / 2) * (vRect.height / videoElement.videoHeight || 1);
+                rightEyeX = vRect.left + ((positions[133].x + positions[33].x) / 2) * (vRect.width / videoElement.videoWidth || 1);
+                rightEyeY = vRect.top + ((positions[133].y + positions[33].y) / 2) * (vRect.height / videoElement.videoHeight || 1);
+            }
         }
 
         // Visual configurations (Green if snapped to a button, Red if floating free)
         ctx.strokeStyle = target.isSnapped ? "rgba(46, 204, 113, 0.95)" : "rgba(231, 76, 60, 0.85)";
-        ctx.lineWidth = target.isSnapped ? 4.0 : 2.5;
+        ctx.lineWidth = target.isSnapped ? 3.5 : 2.0;
 
-        // Draw Vector 1 (Slightly offset for the dual-eye collision effect)
+        // Draw Vector 1: Left Eye to Target Point
         ctx.beginPath();
-        ctx.moveTo(originX - 12, originY);
+        ctx.moveTo(leftEyeX, leftEyeY);
         ctx.lineTo(target.x, target.y);
         ctx.stroke();
 
-        // Draw Vector 2 (Slightly offset right for the dual-eye collision effect)
+        // Draw Vector 2: Right Eye to Target Point
         ctx.beginPath();
-        ctx.moveTo(originX + 12, originY);
+        ctx.moveTo(rightEyeX, rightEyeY);
         ctx.lineTo(target.x, target.y);
         ctx.stroke();
 
