@@ -102,6 +102,11 @@
 <script type="text/javascript" src='app/lib/sjcl.min.js'></script>
 
 <script>
+    // Smoothing variables for gaze coordinates to eliminate jitter
+    let smoothedGazeX = null;
+    let smoothedGazeY = null;
+    const smoothingFactor = 0.4; // Higher = more responsive, Lower = smoother
+
     document.addEventListener("DOMContentLoaded", () => {
         // Suppress TensorFlow FaceMesh willReadFrequently canvas warning
         const originalGetContext = HTMLCanvasElement.prototype.getContext;
@@ -124,6 +129,7 @@
                     webgazer.showVideoPreview(true);
                     webgazer.showPredictionPoints(false);
                     webgazer.showFaceOverlay(true);
+                    webgazer.applyKalmanFilter(true);
 
                     // 1. Launch Startup Calibration Overlay
                     createCalibrationOverlay(() => {
@@ -142,8 +148,8 @@
     // ==========================================
     function getSnappedGazeTarget(gazeX, gazeY) {
         // Dynamically tag grid buttons and interactive elements as gaze targets
-        const targetElements = document.querySelectorAll('.grid-item, button, [role="button"], .q-btn');
-        const SNAP_BUFFER = 65; // Proximity magnetic snap buffer zone in pixels
+        const targetElements = document.querySelectorAll('.grid-item, button, [role="button'], .q-btn');
+        const SNAP_BUFFER = 75; // Proximity magnetic snap buffer zone in pixels
 
         for (let element of targetElements) {
             const bounds = element.getBoundingClientRect();
@@ -169,100 +175,107 @@
         return { element: null, x: gazeX, y: gazeY, isSnapped: false };
     }
 
-   // ==========================================
-// 2. TRUE EYE-ANCHORED VECTOR DRAWER & WEBGAZER SYNC
-// ==========================================
-function startVectorGazeTracking() {
-    let lastTarget = null;
+    // ==========================================
+    // 2. TRUE COLLISION-GAME EYE VECTOR DRAWER & SYNC
+    // ==========================================
+    function startVectorGazeTracking() {
+        let lastTarget = null;
 
-    webgazer.setGazeListener((data, elapsedTime) => {
-        if (!data) return;
+        webgazer.setGazeListener(async (data, elapsedTime) => {
+            if (!data) return;
 
-        // Run raw coordinates through the magnetic snap verification pass
-        const target = getSnappedGazeTarget(data.x, data.y);
-
-        // Fetch or create dedicated overlay canvas for vector lines
-        let overlayCanvas = document.getElementById('vector-overlay-canvas');
-        if (!overlayCanvas) {
-            overlayCanvas = document.createElement('canvas');
-            overlayCanvas.id = 'vector-overlay-canvas';
-            overlayCanvas.style.position = 'fixed';
-            overlayCanvas.style.top = '0';
-            overlayCanvas.style.left = '0';
-            overlayCanvas.style.width = '100vw';
-            overlayCanvas.style.height = '100vh';
-            overlayCanvas.style.pointerEvents = 'none';
-            overlayCanvas.style.zIndex = '999997';
-            document.body.appendChild(overlayCanvas);
-        }
-
-        overlayCanvas.width = window.innerWidth;
-        overlayCanvas.height = window.innerHeight;
-        const ctx = overlayCanvas.getContext('2d');
-        ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-
-        // Extract true eye coordinates from WebGazer / MediaPipe face mesh if available
-        let leftEyeX = window.innerWidth * 0.15;
-        let leftEyeY = window.innerHeight * 0.20;
-        let rightEyeX = window.innerWidth * 0.22;
-        let rightEyeY = window.innerHeight * 0.20;
-
-        const tracker = webgazer.getTracker();
-        const positions = tracker && typeof tracker.getCurrentPosition === 'function' ? tracker.getCurrentPosition() : null;
-
-        if (positions && positions.length > 362) {
-            // Map face mesh landmarks directly to screen coordinates relative to video box
-            const videoElement = document.getElementById('webgazerVideoFeed') || document.querySelector('video');
-            if (videoElement) {
-                const vRect = videoElement.getBoundingClientRect();
-                // MediaPipe coordinates are normalized or relative to video frame; map them to screen space
-                leftEyeX = vRect.left + ((positions[362].x + positions[263].x) / 2) * (vRect.width / videoElement.videoWidth || 1);
-                leftEyeY = vRect.top + ((positions[362].y + positions[263].y) / 2) * (vRect.height / videoElement.videoHeight || 1);
-                rightEyeX = vRect.left + ((positions[133].x + positions[33].x) / 2) * (vRect.width / videoElement.videoWidth || 1);
-                rightEyeY = vRect.top + ((positions[133].y + positions[33].y) / 2) * (vRect.height / videoElement.videoHeight || 1);
+            // Apply linear interpolation (lerp) to smooth out gaze jitter
+            if (smoothedGazeX === null || smoothedGazeY === null) {
+                smoothedGazeX = data.x;
+                smoothedGazeY = data.y;
+            } else {
+                smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
+                smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
             }
-        }
 
-        // Visual configurations (Green if snapped to a button, Red if floating free)
-        ctx.strokeStyle = target.isSnapped ? "rgba(46, 204, 113, 0.95)" : "rgba(231, 76, 60, 0.85)";
-        ctx.lineWidth = target.isSnapped ? 3.5 : 2.0;
+            // Run smoothed coordinates through the magnetic snap verification pass
+            const target = getSnappedGazeTarget(smoothedGazeX, smoothedGazeY);
 
-        // Draw Vector 1: Left Eye to Target Point
-        ctx.beginPath();
-        ctx.moveTo(leftEyeX, leftEyeY);
-        ctx.lineTo(target.x, target.y);
-        ctx.stroke();
+            // Fetch or create dedicated overlay canvas for vector lines
+            let overlayCanvas = document.getElementById('vector-overlay-canvas');
+            if (!overlayCanvas) {
+                overlayCanvas = document.createElement('canvas');
+                overlayCanvas.id = 'vector-overlay-canvas';
+                overlayCanvas.style.position = 'fixed';
+                overlayCanvas.style.top = '0';
+                overlayCanvas.style.left = '0';
+                overlayCanvas.style.width = '100vw';
+                overlayCanvas.style.height = '100vh';
+                overlayCanvas.style.pointerEvents = 'none';
+                overlayCanvas.style.zIndex = '999997';
+                document.body.appendChild(overlayCanvas);
+            }
 
-        // Draw Vector 2: Right Eye to Target Point
-        ctx.beginPath();
-        ctx.moveTo(rightEyeX, rightEyeY);
-        ctx.lineTo(target.x, target.y);
-        ctx.stroke();
+            overlayCanvas.width = window.innerWidth;
+            overlayCanvas.height = window.innerHeight;
+            const ctx = overlayCanvas.getContext('2d');
+            ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-        // Handle Event Dispatching for Snapped Elements
-        if (target.isSnapped && target.element) {
-            const bestTarget = target.element;
-            const targetX = target.x;
-            const targetY = target.y;
+            // Extract exact eye landmark positions using the collision game's ratio approach
+            const tracker = webgazer.getTracker();
+            const fmPositions = tracker && typeof tracker.getPositions === 'function' ? await tracker.getPositions() : null;
+            const previewWidth = webgazer.params.videoViewerWidth || 320;
+            const whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
 
-            if (bestTarget !== lastTarget) {
-                if (lastTarget) {
-                    lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, clientX: targetX, clientY: targetY }));
+            // Fallback eye origins if face mesh is momentarily out of frame
+            let leftEyeX = window.innerWidth * 0.15;
+            let leftEyeY = window.innerHeight * 0.20;
+            let rightEyeX = window.innerWidth * 0.22;
+            let rightEyeY = window.innerHeight * 0.20;
+
+            // Landmarks 145 (left eye) and 374 (right eye) mapped exactly like collision.js
+            if (fmPositions && fmPositions[145] && fmPositions[374]) {
+                leftEyeX = previewWidth - fmPositions[145][0] * whr[0];
+                leftEyeY = fmPositions[145][1] * whr[1];
+                rightEyeX = previewWidth - fmPositions[374][0] * whr[0];
+                rightEyeY = fmPositions[374][1] * whr[1];
+            }
+
+            // Visual configurations (Green if snapped to a button, Red if floating free)
+            ctx.strokeStyle = target.isSnapped ? "rgba(46, 204, 113, 0.95)" : "rgba(231, 76, 60, 0.85)";
+            ctx.lineWidth = target.isSnapped ? 4.0 : 2.5;
+
+            // Draw Vector 1: Left Eye to Target Point
+            ctx.beginPath();
+            ctx.moveTo(leftEyeX, leftEyeY);
+            ctx.lineTo(target.x, target.y);
+            ctx.stroke();
+
+            // Draw Vector 2: Right Eye to Target Point
+            ctx.beginPath();
+            ctx.moveTo(rightEyeX, rightEyeY);
+            ctx.lineTo(target.x, target.y);
+            ctx.stroke();
+
+            // Handle Event Dispatching for Snapped Elements (Dwell / Hover triggering)
+            if (target.isSnapped && target.element) {
+                const bestTarget = target.element;
+                const targetX = target.x;
+                const targetY = target.y;
+
+                if (bestTarget !== lastTarget) {
+                    if (lastTarget) {
+                        lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, clientX: targetX, clientY: targetY }));
+                        lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, clientX: targetX, clientY: targetY }));
+                    }
+                    bestTarget.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, clientX: targetX, clientY: targetY }));
+                    bestTarget.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: targetX, clientY: targetY }));
+                    lastTarget = bestTarget;
                 }
-                bestTarget.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, clientX: targetX, clientY: targetY }));
-                bestTarget.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: targetX, clientY: targetY }));
-                lastTarget = bestTarget;
+                bestTarget.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: targetX, clientY: targetY }));
+                bestTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: targetX, clientY: targetY }));
+            } else if (lastTarget) {
+                lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }));
+                lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+                lastTarget = null;
             }
-            bestTarget.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: targetX, clientY: targetY }));
-            bestTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: targetX, clientY: targetY }));
-        } else if (lastTarget) {
-            lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }));
-            lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
-            lastTarget = null;
-        }
-    });
-}
+        });
+    }
 
     // 5-Point Startup Calibration Overlay
     function createCalibrationOverlay(onComplete) {
@@ -332,7 +345,6 @@ function startVectorGazeTracking() {
         updateTargetPosition();
     }
 </script>
-
 <script type="module" src="app/build/asterics-aac.bundle.js"></script>
 </body>
 </html>
