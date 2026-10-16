@@ -1,355 +1,175 @@
 <!DOCTYPE html>
-<html lang="en" class="notranslate" translate="no">
+<html lang="en">
 <head>
-    <script>
-    // Safe global mock for ResponsiveVoice to prevent AAC speech crashes
-    window.responsiveVoice = window.responsiveVoice || {
-        speak: function(text) { console.log("Mock Speech:", text); },
-        stop: function() {},
-        cancel: function() {},
-        isPlaying: function() { return false; },
-        deviceSupportsSpeech: function() { return true; },
-        init: function() {}
-    };
-    </script>
-
-    <script>
-    // Robust jQuery contextMenu mock to satisfy AsTeRICS bundle initialization
-    window.addEventListener('beforeunload', () => {}, {once: true});
-    if (typeof jQuery !== 'undefined') {
-        if (!jQuery.contextMenu) {
-            jQuery.contextMenu = function() {};
-        }
-        if (!jQuery.fn.contextMenu) {
-            jQuery.fn.contextMenu = function() { return this; };
-        }
-    }
-</script>
-    
-    <title>Asterics AAC - Vector Gaze Tracking</title>
-    <meta id="viewPortMeta" name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="google-site-verification" content="UWnxfeRniUm-l7GAbNdqfZQmCCaAU3HB6jGOuEHZ26k" />
-
-    <link rel="icon" href="app/img/favicon-no-circle.svg" type="image/svg+xml">
-    <link rel="icon" href="app/img/favicon-no-circle.png" type="image/png">
-    <link rel="manifest" href="app/manifest.webmanifest">
-
-    <link rel="stylesheet" href="app/css/fontawesome/css/all.css">
-    <link rel="stylesheet" href="app/css/custom.css">
-    <link rel="stylesheet" href="app/css/jquery-ui.min.css">
-    <link rel="stylesheet" href="app/css/skeleton.css">
-    <link rel="stylesheet" href="app/css/bootstrap-grid.css">
-    <link rel="stylesheet" href="app/css/grid-styles.css">
-
-    <!-- Resilient CDN Stack for Eye-Tracking Engine -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tfjs/3.21.0/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh@0.0.5/dist/facemesh.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
-    <script src="https://code.responsivevoice.org/responsivevoice.js?key=YOUR_KEY_OR_FREE"></script>
-
+    <meta charset="utf-8">
+    <title>WebGazer D3 Alphabet Collision Test</title>
     <style>
-        /* Visual styling for vector-snapped targets */
-        .gaze-focused {
-            transform: scale(1.03) !important;
-            box-shadow: 0 0 25px rgba(46, 204, 113, 0.8) !important;
-            border: 3px solid #2ecc71 !important;
-            background-color: rgba(46, 204, 113, 0.15) !important;
-            transition: transform 0.08s ease-in-out;
-        }
+        body { margin: 0; overflow: hidden; background: #111; font-family: sans-serif; }
+        .letter-node { font-weight: bold; cursor: pointer; user-select: none; }
     </style>
 </head>
-<body onload="window.loaded = true;">
-<div style="display: none" aria-hidden="false">
-    {{ $t('accessKey1NavigationAccessKey2Main') }}
-</div>
-<div id="app" class="holy-grail">
-    <h1 class="sr-only">Asterics AAC</h1>
-    <div id="touchElement" class="grid-container" style="z-index: 2; display: none; -webkit-touch-callout: none; -webkit-user-select: none;">
-    </div>
-    <audio style="display: none" id="audioPlayer" src="" preload="none"></audio>
-    <video style="display: none" id="videoPlayer" src="" preload="none"></video>
-    <notification-bar ref="notificationBar"></notification-bar>
-    <progress-bar-modal v-show="showModal === modalTypes.MODAL_PROGRESSBAR" ref="progressBar" @close="showModal = null"></progress-bar-modal>
-    <search-modal v-if="showModal === modalTypes.MODAL_SEARCH" @close="showModal = null;" :route-to-edit="Router.getCurrentView() === Router.VIEWS.GridEditView" :options="modalOptions"></search-modal>
-    <message-box v-show="showModal === modalTypes.MODAL_MESSAGEBOX" ref="messageBox" @close="showModal = null"></message-box>
-    <div class="holy-grail-body" v-cloak>
-        <div class="holy-grail-sidebar-1 hg-sidebar no-print" v-show="showSidebar">
-            <!-- Sidebar elements -->
-        </div>
-        <main role="main" class="holy-grail-content" accesskey="2">
-            <component v-if="component" v-bind:is="component" v-bind="properties" :key="componentKey"></component>
-        </main>
-    </div>
-</div>
+<body>
 
-<!-- Scripts & Polyfills -->
-<script type="text/javascript" src='app/lib/modernizr-custom.js'></script>
-<!-- jQuery ContextMenu Safety Polyfill -->
-<script>
-    window.addEventListener('DOMContentLoaded', () => {
-        if (typeof jQuery !== 'undefined' && !jQuery.contextMenu) {
-            jQuery.contextMenu = function() {};
-            jQuery.fn.contextMenu = function() { return this; };
+  <!-- Include dependencies -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.8.1/localforage.js"></script>
+  <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+
+  <script>
+    window.saveDataAcrossSessions = false;
+    var force, nodes = [];
+    var smoothedGazeX = null, smoothedGazeY = null;
+    const smoothingFactor = 0.4;
+
+    window.onload = async function() {
+        if (!window.saveDataAcrossSessions) {
+            localforage.setItem('webgazerGlobalData', null);
+            localforage.setItem('webgazerGlobalSettings', null);
         }
-    });
-</script>    
-<script src="app/lib/jquery.min.js"></script>
-<script src="app/lib/jquery-ui.min.js"></script>
-<script type="text/javascript" src='app/lib/object-model.min.js'></script>
-<script type="text/javascript" src='app/lib/pouchdb-8.0.1.min.js'></script>
-<script type="text/javascript" src='app/lib/loglevel.min.js'></script>
-<script type="text/javascript" src='app/lib/sjcl.min.js'></script>
 
-<script>
-    let smoothedGazeX = null;
-    let smoothedGazeY = null;
-    const smoothingFactor = 0.5; // Balanced smoothing for low latency
-
-    document.addEventListener("DOMContentLoaded", () => {
-        // Suppress TensorFlow FaceMesh willReadFrequently canvas warning
-        const originalGetContext = HTMLCanvasElement.prototype.getContext;
-        HTMLCanvasElement.prototype.getContext = function(type, attributes) {
-            if (type === '2d') {
-                attributes = attributes || {};
-                attributes.willReadFrequently = true;
-            }
-            return originalGetContext.call(this, type, attributes);
-        };
-
-        const checkInterval = setInterval(async () => {
-            if (typeof webgazer !== 'undefined') {
-                clearInterval(checkInterval);
-                try {
-                    window.localStorage.removeItem('webgazerGlobalData');
-
-                    await webgazer.begin();
-                    // Keep mouse event listeners active so click-to-calibrate works seamlessly!
-                    webgazer.showVideoPreview(true);
-                    webgazer.showPredictionPoints(false);
-                    webgazer.showFaceOverlay(true);
-                    webgazer.applyKalmanFilter(true);
-
-                    // 1. Launch Startup Calibration Overlay
-                    createCalibrationOverlay(() => {
-                        startVectorGazeTracking();
-                    });
-
-                } catch (err) {
-                    console.error("WebGazer initialization error:", err);
-                }
-            }
-        }, 200);
-    });
-
-    // ==========================================
-    // 1. GEOMETRIC ELEMENT SNAPPING UTILITY
-    // ==========================================
-    function getSnappedGazeTarget(gazeX, gazeY) {
-        const targetElements = document.querySelectorAll('.grid-item, button, [role="button"], .q-btn');
-        const SNAP_BUFFER = 75; 
-
-        for (let element of targetElements) {
-            const bounds = element.getBoundingClientRect();
-            if (bounds.width === 0 || bounds.height === 0) continue;
-
-            const minX = bounds.left - SNAP_BUFFER;
-            const maxX = bounds.right + SNAP_BUFFER;
-            const minY = bounds.top - SNAP_BUFFER;
-            const maxY = bounds.bottom + SNAP_BUFFER;
-
-            if (gazeX >= minX && gazeX <= maxX && gazeY >= minY && gazeY <= maxY) {
-                element.classList.add('gaze-focused');
-                return {
-                    element: element,
-                    x: bounds.left + bounds.width / 2,
-                    y: bounds.top + bounds.height / 2,
-                    isSnapped: true
-                };
-            } else {
-                element.classList.remove('gaze-focused');
-            }
-        }
-        return { element: null, x: gazeX, y: gazeY, isSnapped: false };
-    }
-
-    // ==========================================
-    // 2. OPTIMIZED COLLISION EYE VECTOR DRAWER
-    // ==========================================
-    function startVectorGazeTracking() {
-        let lastTarget = null;
-        let cachedPositions = null;
-        let frameCounter = 0;
-
-        webgazer.setGazeListener(async (data, elapsedTime) => {
-            if (!data) return;
-
-            // Linear interpolation for smoothing
-            if (smoothedGazeX === null || smoothedGazeY === null) {
-                smoothedGazeX = data.x;
-                smoothedGazeY = data.y;
-            } else {
-                smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
-                smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
-            }
-
-            const target = getSnappedGazeTarget(smoothedGazeX, smoothedGazeY);
-
-            let overlayCanvas = document.getElementById('vector-overlay-canvas');
-            if (!overlayCanvas) {
-                overlayCanvas = document.createElement('canvas');
-                overlayCanvas.id = 'vector-overlay-canvas';
-                overlayCanvas.style.position = 'fixed';
-                overlayCanvas.style.top = '0';
-                overlayCanvas.style.left = '0';
-                overlayCanvas.style.width = '100vw';
-                overlayCanvas.style.height = '100vh';
-                overlayCanvas.style.pointerEvents = 'none';
-                overlayCanvas.style.zIndex = '999997';
-                document.body.appendChild(overlayCanvas);
-            }
-
-            overlayCanvas.width = window.innerWidth;
-            overlayCanvas.height = window.innerHeight;
-            const ctx = overlayCanvas.getContext('2d');
-            ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-
-            // Throttle heavy tracker position lookups every 3 frames to prevent CPU lagging
-            frameCounter++;
-            const tracker = webgazer.getTracker();
-            if (frameCounter % 3 === 0 && tracker && typeof tracker.getPositions === 'function') {
-                cachedPositions = await tracker.getPositions();
-            }
-
-            const previewWidth = webgazer.params.videoViewerWidth || 320;
-            const whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
-
-            let leftEyeX = window.innerWidth * 0.15;
-            let leftEyeY = window.innerHeight * 0.20;
-            let rightEyeX = window.innerWidth * 0.22;
-            let rightEyeY = window.innerHeight * 0.20;
-
-            if (cachedPositions && cachedPositions[145] && cachedPositions[374]) {
-                leftEyeX = previewWidth - cachedPositions[145][0] * whr[0];
-                leftEyeY = cachedPositions[145][1] * whr[1];
-                rightEyeX = previewWidth - cachedPositions[374][0] * whr[0];
-                rightEyeY = cachedPositions[374][1] * whr[1];
-            }
-
-            // Draw Vector Lines
-            ctx.strokeStyle = target.isSnapped ? "rgba(46, 204, 113, 0.95)" : "rgba(231, 76, 60, 0.85)";
-            ctx.lineWidth = target.isSnapped ? 4.0 : 2.5;
-
-            ctx.beginPath();
-            ctx.moveTo(leftEyeX, leftEyeY);
-            ctx.lineTo(target.x, target.y);
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.moveTo(rightEyeX, rightEyeY);
-            ctx.lineTo(target.x, target.y);
-            ctx.stroke();
-
-            // Handle Dwell / Hover Events
-            if (target.isSnapped && target.element) {
-                const bestTarget = target.element;
-                const targetX = target.x;
-                const targetY = target.y;
-
-                if (bestTarget !== lastTarget) {
-                    if (lastTarget) {
-                        lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, clientX: targetX, clientY: targetY }));
-                        lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    }
-                    bestTarget.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    bestTarget.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    lastTarget = bestTarget;
-                }
-                bestTarget.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: targetX, clientY: targetY }));
-                bestTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: targetX, clientY: targetY }));
-            } else if (lastTarget) {
-                lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }));
-                lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
-                lastTarget = null;
-            }
-        });
-
-        // Restore Collision Demo Click-to-Calibrate Behavior Anywhere on Screen
-        document.addEventListener('click', (e) => {
-            if (typeof webgazer !== 'undefined' && webgazer.recordScreenPosition) {
-                webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
-            }
-        });
-    }
-
-    // 5-Point Startup Calibration Overlay
-    function createCalibrationOverlay(onComplete) {
-        if (document.getElementById('gaze-calibration-overlay')) return;
-
-        const overlay = document.createElement('div');
-        overlay.id = 'gaze-calibration-overlay';
-        overlay.style.position = 'fixed';
-        overlay.style.top = '0';
-        overlay.style.left = '0';
-        overlay.style.width = '100vw';
-        overlay.style.height = '100vh';
-        overlay.style.backgroundColor = 'rgba(10, 10, 10, 0.95)';
-        overlay.style.zIndex = '999999';
-        overlay.style.display = 'flex';
-        overlay.style.flexDirection = 'column';
-        overlay.style.alignItems = 'center';
-        overlay.style.justifyContent = 'center';
-        overlay.style.color = '#fff';
-        overlay.style.fontFamily = 'sans-serif';
-
-        overlay.innerHTML = `
-            <h2 style="margin-bottom: 10px; font-size: 24px;">Eye-Tracker Setup Calibration</h2>
-            <p style="max-width: 450px; text-align: center; color: #bbb; margin-bottom: 30px; line-height: 1.5;">
-                Stare directly at the glowing green dot and click it <strong>3 times</strong> with your mouse. Repeat for all positions to map your grid accurately.
-            </p>
-            <div id="calibration-target" style="width: 40px; height: 40px; background: #00ffcc; border-radius: 50%; cursor: pointer; box-shadow: 0 0 25px #00ffcc; transition: all 0.15s;"></div>
-            <p id="calib-status" style="margin-top: 25px; font-weight: bold; color: #00ffcc; font-size: 16px;">Target 1 of 5: Click 3 times</p>
-        `;
-        document.body.appendChild(overlay);
-
-        const target = document.getElementById('calibration-target');
-        const statusText = document.getElementById('calib-status');
+        const webgazerInstance = await webgazer.setRegression('ridge')
+            .setTracker('TFFacemesh')
+            .begin();
         
-        const points = [
-            {x: '15vw', y: '15vh'}, {x: '85vw', y: '15vh'},
-            {x: '50vw', y: '50vh'},
-            {x: '15vw', y: '85vh'}, {x: '85vw', y: '85vh'}
-        ];
-        let currentPoint = 0;
-        let clickCount = 0;
+        webgazerInstance.showVideoPreview(true)
+            .showPredictionPoints(false)
+            .applyKalmanFilter(true);
 
-        function updateTargetPosition() {
-            if (currentPoint >= points.length) {
-                overlay.remove();
-                if (typeof onComplete === 'function') onComplete();
-                return;
-            }
-            target.style.position = 'absolute';
-            target.style.left = points[currentPoint].x;
-            target.style.top = points[currentPoint].y;
-            clickCount = 0;
-            statusText.innerText = `Target ${currentPoint + 1} of ${points.length}: Click 3 times while staring at the dot.`;
-        }
+        setupAlphabetCollisionSystem();
+        webgazer.setGazeListener(collisionEyeListener);
+    };
 
-        target.addEventListener('click', (e) => {
-            webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
-            clickCount++;
-            statusText.innerText = `Point ${currentPoint + 1} of 5: Click count ${clickCount}/3`;
+    function setupAlphabetCollisionSystem() {
+        var width = window.innerWidth;
+        var height = window.innerHeight;
 
-            if (clickCount >= 3) {
-                currentPoint++;
-                updateTargetPosition();
-            }
+        // Define a set of alphabet letters as collision nodes
+        var letters = ["Q", "W", "E", "R", "T", "Z", "U", "I", "O", "P", "A", "S", "D", "F", "G", "H", "J", "K", "L", "Y", "X", "C", "V", "B", "N", "M"];
+        
+        nodes = letters.map(function(char) {
+            return {
+                char: char,
+                radius: 35,
+                x: Math.random() * width,
+                y: Math.random() * height
+            };
         });
 
-        updateTargetPosition();
+        // Add index 0 node for gaze/mouse anchor
+        nodes.unshift({ radius: 0, fixed: true, x: width/2, y: height/2 });
+
+        force = d3.layout.force()
+            .gravity(0.08)
+            .charge(function(d, i) { return i ? 0 : -3000; })
+            .nodes(nodes)
+            .size([width, height])
+            .start();
+
+        var svg = d3.select("body").append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
+
+        // Render text elements instead of circles
+        var nodeElements = svg.selectAll(".letter-node")
+            .data(nodes.slice(1))
+            .enter().append("text")
+            .attr("class", "letter-node")
+            .attr("dy", ".35em")
+            .attr("text-anchor", "middle")
+            .attr("font-size", "28px")
+            .attr("fill", "#00ffcc")
+            .text(function(d) { return d.char; });
+
+        force.on("tick", function(e) {
+            var q = d3.geom.quadtree(nodes),
+                i = 0,
+                n = nodes.length;
+
+            while (++i < n) q.visit(collide(nodes[i]));
+
+            nodeElements
+                .attr("x", function(d) { return d.x; })
+                .attr("y", function(d) { return d.y; });
+        });
+
+        // Dual eye-tracking lines
+        svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "red");
+        svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "red");
+
+        // Allow mouse fallback for testing
+        svg.on("mousemove", function() {
+            var p1 = d3.mouse(this);
+            nodes[0].x = nodes[0].px = p1[0];
+            nodes[0].y = nodes[0].py = p1[1];
+            force.resume();
+        });
+
+        // Click anywhere to calibrate WebGazer
+        svg.on("click", function() {
+            var p = d3.mouse(this);
+            webgazer.recordScreenPosition(p[0], p[1], 'click');
+        });
+
+        function collide(node) {
+            var r = node.radius + 16,
+                nx1 = node.x - r, nx2 = node.x + r,
+                ny1 = node.y - r, ny2 = node.y + r;
+            return function(quad, x1, y1, x2, y2) {
+                if (quad.point && (quad.point !== node)) {
+                    var x = node.x - quad.point.x,
+                        y = node.y - quad.point.y,
+                        l = Math.sqrt(x * x + y * y),
+                        r = node.radius + quad.point.radius;
+                    if (l < r) {
+                        l = (l - r) / l * .5;
+                        node.x -= x *= l;
+                        node.y -= y *= l;
+                        quad.point.x += x;
+                        quad.point.y += y;
+                    }
+                }
+                return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
+            };
+        }
     }
-</script>
-<script type="module" src="app/build/asterics-aac.bundle.js"></script>
+
+    var webgazerCanvas = null;
+
+    var collisionEyeListener = async function(data, clock) {
+        if (!data) return;
+
+        if (smoothedGazeX === null || smoothedGazeY === null) {
+            smoothedGazeX = data.x;
+            smoothedGazeY = data.y;
+        } else {
+            smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
+            smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
+        }
+
+        nodes[0].x = nodes[0].px = smoothedGazeX;
+        nodes[0].y = nodes[0].py = smoothedGazeY;
+        force.resume();
+
+        var tracker = webgazer.getTracker();
+        var fmPositions = tracker && tracker.getPositions ? await tracker.getPositions() : null;
+        var previewWidth = webgazer.params.videoViewerWidth || 320;
+        var whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
+
+        if (fmPositions && fmPositions[145] && fmPositions[374]) {
+            d3.select('#eyeline1')
+                .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
+                .attr("x2", previewWidth - fmPositions[145][0] * whr[0])
+                .attr("y2", fmPositions[145][1] * whr[1]);
+
+            d3.select("#eyeline2")
+                .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
+                .attr("x2", previewWidth - fmPositions[374][0] * whr[0])
+                .attr("y2", fmPositions[374][1] * whr[1]);
+        }
+    };
+  </script>
 </body>
 </html>
