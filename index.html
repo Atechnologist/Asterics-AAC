@@ -12,6 +12,20 @@
         init: function() {}
     };
     </script>
+
+    <script>
+    // Robust jQuery contextMenu mock to satisfy AsTeRICS bundle initialization
+    window.addEventListener('beforeunload', () => {}, {once: true});
+    if (typeof jQuery !== 'undefined') {
+        if (!jQuery.contextMenu) {
+            jQuery.contextMenu = function() {};
+        }
+        if (!jQuery.fn.contextMenu) {
+            jQuery.fn.contextMenu = function() { return this; };
+        }
+    }
+</script>
+    
     <title>Asterics AAC - Vector Gaze Tracking</title>
     <meta id="viewPortMeta" name="viewport" content="width=device-width, initial-scale=1">
     <meta name="google-site-verification" content="UWnxfeRniUm-l7GAbNdqfZQmCCaAU3HB6jGOuEHZ26k" />
