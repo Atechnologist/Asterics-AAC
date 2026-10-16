@@ -102,10 +102,9 @@
 <script type="text/javascript" src='app/lib/sjcl.min.js'></script>
 
 <script>
-    // Smoothing variables for gaze coordinates to eliminate jitter
     let smoothedGazeX = null;
     let smoothedGazeY = null;
-    const smoothingFactor = 0.4; // Higher = more responsive, Lower = smoother
+    const smoothingFactor = 0.5; // Balanced smoothing for low latency
 
     document.addEventListener("DOMContentLoaded", () => {
         // Suppress TensorFlow FaceMesh willReadFrequently canvas warning
@@ -125,7 +124,7 @@
                     window.localStorage.removeItem('webgazerGlobalData');
 
                     await webgazer.begin();
-                    webgazer.removeMouseEventListeners();
+                    // Keep mouse event listeners active so click-to-calibrate works seamlessly!
                     webgazer.showVideoPreview(true);
                     webgazer.showPredictionPoints(false);
                     webgazer.showFaceOverlay(true);
@@ -147,9 +146,8 @@
     // 1. GEOMETRIC ELEMENT SNAPPING UTILITY
     // ==========================================
     function getSnappedGazeTarget(gazeX, gazeY) {
-        // Dynamically tag grid buttons and interactive elements as gaze targets
         const targetElements = document.querySelectorAll('.grid-item, button, [role="button"], .q-btn');
-        const SNAP_BUFFER = 75; // Proximity magnetic snap buffer zone in pixels
+        const SNAP_BUFFER = 75; 
 
         for (let element of targetElements) {
             const bounds = element.getBoundingClientRect();
@@ -176,15 +174,17 @@
     }
 
     // ==========================================
-    // 2. TRUE COLLISION-GAME EYE VECTOR DRAWER & SYNC
+    // 2. OPTIMIZED COLLISION EYE VECTOR DRAWER
     // ==========================================
     function startVectorGazeTracking() {
         let lastTarget = null;
+        let cachedPositions = null;
+        let frameCounter = 0;
 
         webgazer.setGazeListener(async (data, elapsedTime) => {
             if (!data) return;
 
-            // Apply linear interpolation (lerp) to smooth out gaze jitter
+            // Linear interpolation for smoothing
             if (smoothedGazeX === null || smoothedGazeY === null) {
                 smoothedGazeX = data.x;
                 smoothedGazeY = data.y;
@@ -193,10 +193,8 @@
                 smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
             }
 
-            // Run smoothed coordinates through the magnetic snap verification pass
             const target = getSnappedGazeTarget(smoothedGazeX, smoothedGazeY);
 
-            // Fetch or create dedicated overlay canvas for vector lines
             let overlayCanvas = document.getElementById('vector-overlay-canvas');
             if (!overlayCanvas) {
                 overlayCanvas = document.createElement('canvas');
@@ -216,43 +214,43 @@
             const ctx = overlayCanvas.getContext('2d');
             ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-            // Extract exact eye landmark positions using the collision game's ratio approach
+            // Throttle heavy tracker position lookups every 3 frames to prevent CPU lagging
+            frameCounter++;
             const tracker = webgazer.getTracker();
-            const fmPositions = tracker && typeof tracker.getPositions === 'function' ? await tracker.getPositions() : null;
+            if (frameCounter % 3 === 0 && tracker && typeof tracker.getPositions === 'function') {
+                cachedPositions = await tracker.getPositions();
+            }
+
             const previewWidth = webgazer.params.videoViewerWidth || 320;
             const whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
 
-            // Fallback eye origins if face mesh is momentarily out of frame
             let leftEyeX = window.innerWidth * 0.15;
             let leftEyeY = window.innerHeight * 0.20;
             let rightEyeX = window.innerWidth * 0.22;
             let rightEyeY = window.innerHeight * 0.20;
 
-            // Landmarks 145 (left eye) and 374 (right eye) mapped exactly like collision.js
-            if (fmPositions && fmPositions[145] && fmPositions[374]) {
-                leftEyeX = previewWidth - fmPositions[145][0] * whr[0];
-                leftEyeY = fmPositions[145][1] * whr[1];
-                rightEyeX = previewWidth - fmPositions[374][0] * whr[0];
-                rightEyeY = fmPositions[374][1] * whr[1];
+            if (cachedPositions && cachedPositions[145] && cachedPositions[374]) {
+                leftEyeX = previewWidth - cachedPositions[145][0] * whr[0];
+                leftEyeY = cachedPositions[145][1] * whr[1];
+                rightEyeX = previewWidth - cachedPositions[374][0] * whr[0];
+                rightEyeY = cachedPositions[374][1] * whr[1];
             }
 
-            // Visual configurations (Green if snapped to a button, Red if floating free)
+            // Draw Vector Lines
             ctx.strokeStyle = target.isSnapped ? "rgba(46, 204, 113, 0.95)" : "rgba(231, 76, 60, 0.85)";
             ctx.lineWidth = target.isSnapped ? 4.0 : 2.5;
 
-            // Draw Vector 1: Left Eye to Target Point
             ctx.beginPath();
             ctx.moveTo(leftEyeX, leftEyeY);
             ctx.lineTo(target.x, target.y);
             ctx.stroke();
 
-            // Draw Vector 2: Right Eye to Target Point
             ctx.beginPath();
             ctx.moveTo(rightEyeX, rightEyeY);
             ctx.lineTo(target.x, target.y);
             ctx.stroke();
 
-            // Handle Event Dispatching for Snapped Elements (Dwell / Hover triggering)
+            // Handle Dwell / Hover Events
             if (target.isSnapped && target.element) {
                 const bestTarget = target.element;
                 const targetX = target.x;
@@ -273,6 +271,13 @@
                 lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }));
                 lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
                 lastTarget = null;
+            }
+        });
+
+        // Restore Collision Demo Click-to-Calibrate Behavior Anywhere on Screen
+        document.addEventListener('click', (e) => {
+            if (typeof webgazer !== 'undefined' && webgazer.recordScreenPosition) {
+                webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
             }
         });
     }
