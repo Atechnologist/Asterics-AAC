@@ -148,7 +148,7 @@
     // ==========================================
     function getSnappedGazeTarget(gazeX, gazeY) {
         // Dynamically tag grid buttons and interactive elements as gaze targets
-        const targetElements = document.querySelectorAll('.grid-item, button, [role="button'], .q-btn');
+        const targetElements = document.querySelectorAll('.grid-item, button, [role="button"], .q-btn');
         const SNAP_BUFFER = 75; // Proximity magnetic snap buffer zone in pixels
 
         for (let element of targetElements) {
