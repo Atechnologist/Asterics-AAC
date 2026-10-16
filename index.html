@@ -71,6 +71,15 @@
 
 <!-- Scripts & Polyfills -->
 <script type="text/javascript" src='app/lib/modernizr-custom.js'></script>
+<!-- jQuery ContextMenu Safety Polyfill -->
+<script>
+    window.addEventListener('DOMContentLoaded', () => {
+        if (typeof jQuery !== 'undefined' && !jQuery.contextMenu) {
+            jQuery.contextMenu = function() {};
+            jQuery.fn.contextMenu = function() { return this; };
+        }
+    });
+</script>    
 <script src="app/lib/jquery.min.js"></script>
 <script src="app/lib/jquery-ui.min.js"></script>
 <script type="text/javascript" src='app/lib/object-model.min.js'></script>
