@@ -16,8 +16,13 @@
         #calibration-overlay {
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
             background: rgba(10, 10, 10, 0.92); z-index: 20000;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+            padding-top: 50px;
             color: #fff; text-align: center; font-family: sans-serif;
+            pointer-events: none; /* Allows clicks to pass through to the keyboard */
+        }
+        #calibration-overlay button, #calibration-overlay .interactive-target {
+            pointer-events: auto; /* Re-enables clicking on active elements inside */
         }
         .calib-btn {
             background: #00ffcc; color: #000; border: none; padding: 12px 24px;
