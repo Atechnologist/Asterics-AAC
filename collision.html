@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>WebGazer + D3 QWERTY Gaze Keyboard</title>
+    <title>WebGazer + D3 QWERTY Key-Calibrated Gaze Keyboard</title>
     <style>
         body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; }
         .key-node { cursor: pointer; user-select: none; font-weight: bold; }
@@ -13,11 +13,18 @@
             font-size: 24px; display: flex; align-items: center; padding: 0 20px;
             z-index: 10000; box-shadow: 0 0 20px rgba(0, 255, 204, 0.3);
         }
+        #calibration-banner {
+            position: fixed; top: 85px; left: 50%; transform: translateX(-50%);
+            background: rgba(0, 255, 204, 0.15); border: 1px solid #00ffcc; padding: 10px 20px;
+            border-radius: 6px; color: #00ffcc; font-size: 16px; font-weight: bold;
+            z-index: 10000; display: none; text-align: center;
+        }
     </style>
 </head>
 <body>
 
   <div id="output-bar">Type here...</div>
+  <div id="calibration-banner">Calibration Mode: Stare at the highlighted key and click it 3 times.</div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.8.1/localforage.js"></script>
@@ -29,10 +36,16 @@
     var smoothedGazeX = null, smoothedGazeY = null;
     const smoothingFactor = 0.4;
     
-    // Dwell typing variables
+    // Calibration & Typing state
+    let isCalibrating = true;
+    let calibrationStep = 0;
+    let clickCount = 0;
+    // Key anchors used for calibrating across the keyboard layout corners and center
+    const calibrationKeys = ["Q", "P", "G", "Z", "M"];
+
     let currentCollidingKey = null;
     let dwellTimer = null;
-    const DWELL_TIME_MS = 800; // Time needed looking at a key to trigger typing
+    const DWELL_TIME_MS = 750;
 
     window.onload = async function() {
         if (!window.saveDataAcrossSessions) {
@@ -52,11 +65,12 @@
         webgazer.setGazeListener(collisionEyeListener);
     };
 
+    let keyGroups; // global reference for updating UI styles
+
     function setupKeyboardSystem() {
         var width = window.innerWidth;
         var height = window.innerHeight;
 
-        // QWERTY rows configuration
         var rows = [
             ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
             ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
@@ -72,19 +86,18 @@
                 nodes.push({
                     char: char,
                     radius: 30,
-                    x0: startX + (colIndex * 75) + 35, // Home grid X position
-                    y0: startY + (rowIndex * 80),      // Home grid Y position
+                    x0: startX + (colIndex * 75) + 35,
+                    y0: startY + (rowIndex * 80),
                     x: startX + (colIndex * 75) + 35,
                     y: startY + (rowIndex * 80)
                 });
             });
         });
 
-        // Gaze anchor node at index 0
         nodes.unshift({ radius: 0, fixed: true, x: width/2, y: height/2 });
 
         force = d3.layout.force()
-            .gravity(0) // Zero gravity so keys stay in position
+            .gravity(0)
             .charge(0)
             .nodes(nodes)
             .size([width, height])
@@ -97,8 +110,7 @@
             .style("top", "0")
             .style("left", "0");
 
-        // Draw key background boxes
-        var keyGroups = svg.selectAll(".key-group")
+        keyGroups = svg.selectAll(".key-group")
             .data(nodes.slice(1))
             .enter().append("g")
             .attr("class", "key-group");
@@ -114,7 +126,6 @@
             .attr("stroke", "#00ffcc")
             .attr("stroke-width", 2);
 
-        // Draw key letters
         keyGroups.append("text")
             .attr("class", "key-node")
             .attr("x", function(d) { return d.x0; })
@@ -132,7 +143,6 @@
 
             while (++i < n) q.visit(collide(nodes[i]));
 
-            // Pull keys gently back toward their home QWERTY positions (spring effect)
             for (let j = 1; j < nodes.length; j++) {
                 let d = nodes[j];
                 d.x += (d.x0 - d.x) * 0.2;
@@ -148,50 +158,87 @@
                 .attr("y", function(d) { return d.y; });
         });
 
-        // Dual eye-tracking vector lines
         svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "red");
         svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "red");
 
-        // Mouse support for testing
-        svg.on("mousemove", function() {
-            var p1 = d3.mouse(this);
-            nodes[0].x = nodes[0].px = p1[0];
-            nodes[0].y = nodes[0].py = p1[1];
-            force.resume();
-        });
-
+        // Unified Click Handler: Handles Key-Based Calibration OR Mouse Fallback Typing
         svg.on("click", function() {
             var p = d3.mouse(this);
-            webgazer.recordScreenPosition(p[0], p[1], 'click');
-        });
+            
+            if (isCalibrating) {
+                let targetChar = calibrationKeys[calibrationStep];
+                let targetNode = nodes.find(n => n.char === targetChar);
+                if (targetNode) {
+                    // Record calibration training data precisely at the key's center coordinates
+                    webgazer.recordScreenPosition(targetNode.x0, targetNode.y0, 'click');
+                    clickCount++;
+                    
+                    document.getElementById("calibration-banner").innerText = 
+                        `Calibrating '${targetChar}' (${calibrationStep + 1}/${calibrationKeys.length}): Click count ${clickCount}/3`;
 
-        function collide(node) {
-            var r = node.radius + 18,
-                nx1 = node.x - r, nx2 = node.x + r,
-                ny1 = node.y - r, ny2 = node.y + r;
-            return function(quad, x1, y1, x2, y2) {
-                if (quad.point && (quad.point !== node)) {
-                    var x = node.x - quad.point.x,
-                        y = node.y - quad.point.y,
-                        l = Math.sqrt(x * x + y * y),
-                        r = node.radius + quad.point.radius;
-                    if (l < r) {
-                        l = (l - r) / l * .5;
-                        node.x -= x *= l;
-                        node.y -= y *= l;
-                        quad.point.x += x;
-                        quad.point.y += y;
-
-                        // Check if gaze node (index 0) is colliding with a key
-                        if (node === nodes[0] || quad.point === nodes[0]) {
-                            let hitKey = node === nodes[0] ? quad.point : node;
-                            handleKeyCollision(hitKey);
+                    if (clickCount >= 3) {
+                        clickCount = 0;
+                        calibrationStep++;
+                        if (calibrationStep >= calibrationKeys.length) {
+                            isCalibrating = false;
+                            document.getElementById("calibration-banner").style.display = "none";
+                            updateKeyboardUI();
+                        } else {
+                            updateKeyboardUI();
                         }
                     }
                 }
-                return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
-            };
+            } else {
+                nodes[0].x = nodes[0].px = p[0];
+                nodes[0].y = nodes[0].py = p[1];
+                force.resume();
+            }
+        });
+
+        updateKeyboardUI();
+    }
+
+    function updateKeyboardUI() {
+        if (isCalibrating) {
+            document.getElementById("calibration-banner").style.display = "block";
+            let activeChar = calibrationKeys[calibrationStep];
+            keyGroups.select("rect").attr("stroke", function(d) {
+                return d.char === activeChar ? "#ff0055" : "#00ffcc";
+            }).attr("stroke-width", function(d) {
+                return d.char === activeChar ? 4 : 2;
+            });
+            keyGroups.select("text").attr("fill", function(d) {
+                return d.char === activeChar ? "#ff0055" : "#00ffcc";
+            });
         }
+    }
+
+    function collide(node) {
+        var r = node.radius + 18,
+            nx1 = node.x - r, nx2 = node.x + r,
+            ny1 = node.y - r, ny2 = node.y + r;
+        return function(quad, x1, y1, x2, y2) {
+            if (quad.point && (quad.point !== node)) {
+                var x = node.x - quad.point.x,
+                    y = node.y - quad.point.y,
+                    l = Math.sqrt(x * x + y * y),
+                    r = node.radius + quad.point.radius;
+                if (l < r) {
+                    l = (l - r) / l * .5;
+                    node.x -= x *= l;
+                    node.y -= y *= l;
+                    quad.point.x += x;
+                    quad.point.y += y;
+
+                    // Only trigger typing via gaze if calibration is finished!
+                    if (!isCalibrating && (node === nodes[0] || quad.point === nodes[0])) {
+                        let hitKey = node === nodes[0] ? quad.point : node;
+                        handleKeyCollision(hitKey);
+                    }
+                }
+            }
+            return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
+        };
     }
 
     function handleKeyCollision(keyNode) {
@@ -199,11 +246,9 @@
             currentCollidingKey = keyNode.char;
             clearTimeout(dwellTimer);
 
-            // Highlight active key
-            d3.selectAll(".key-box").attr("fill", "#1e1e1e");
-            d3.selectAll(".key-box").filter(d => d.char === currentCollidingKey).attr("fill", "#00ffcc");
+            keyGroups.select("rect").attr("fill", "#1e1e1e");
+            keyGroups.filter(d => d.char === currentCollidingKey).select("rect").attr("fill", "#00ffcc");
 
-            // Start Dwell Timer to type character
             dwellTimer = setTimeout(() => {
                 appendCharacter(currentCollidingKey);
             }, DWELL_TIME_MS);
