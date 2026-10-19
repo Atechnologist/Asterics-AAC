@@ -485,4 +485,63 @@
     function clearText() {
         const outputBar = document.getElementById("output-bar");
         let txt = outputBar.innerText;
-        outputBar.innerText = txt.length >
+        outputBar.innerText = txt.length > 1 ? txt.slice(0, -1) : "Type here...";
+    }
+
+    function clearAllText() {
+        document.getElementById("output-bar").innerText = "Type here...";
+    }
+
+    function speakText() {
+        const text = document.getElementById("output-bar").innerText;
+        if (text && text !== "Type here...") {
+            const utterance = new SpeechSynthesisUtterance(text);
+            window.speechSynthesis.speak(utterance);
+        }
+    }
+
+    function updateDwell(val) {
+        DWELL_TIME_MS = parseFloat(val) * 1000;
+        document.getElementById("dwell-val").innerText = val;
+    }
+
+    function updateSmooth(val) {
+        smoothingFactor = parseFloat(val);
+        document.getElementById("smooth-val").innerText = val;
+    }
+
+    var gazeTickListener = async function(data, clock) {
+        if (!data || isCalibrating) return;
+
+        if (smoothedGazeX === null || smoothedGazeY === null) {
+            smoothedGazeX = data.x;
+            smoothedGazeY = data.y;
+        } else {
+            smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
+            smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
+        }
+
+        nodes[0].x = nodes[0].px = smoothedGazeX;
+        nodes[0].y = nodes[0].py = smoothedGazeY;
+        force.resume();
+
+        var tracker = webgazer.getTracker();
+        var fmPositions = tracker && tracker.getPositions ? await tracker.getPositions() : null;
+        var previewWidth = webgazer.params.videoViewerWidth || 320;
+        var whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
+
+        if (fmPositions && fmPositions[145] && fmPositions[374]) {
+            d3.select('#eyeline1')
+                .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
+                .attr("x2", previewWidth - fmPositions[145][0] * whr[0])
+                .attr("y2", fmPositions[145][1] * whr[1]);
+
+            d3.select("#eyeline2")
+                .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
+                .attr("x2", previewWidth - fmPositions[374][0] * whr[0])
+                .attr("y2", fmPositions[374][1] * whr[1]);
+        }
+    };
+  </script>
+</body>
+</html>
