@@ -2,19 +2,262 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Webgazer.js + D3.js collision demo</title>
+    <title>WebGazer + D3 QWERTY Gaze Keyboard</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #111; }
+        body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; }
+        .key-node { cursor: pointer; user-select: none; font-weight: bold; }
+        #output-bar {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            width: 600px; height: 50px; background: rgba(20, 20, 20, 0.85);
+            border: 2px solid #00ffcc; border-radius: 8px; color: #fff;
+            font-size: 24px; display: flex; align-items: center; padding: 0 20px;
+            z-index: 10000; box-shadow: 0 0 20px rgba(0, 255, 204, 0.3);
+        }
     </style>
 </head>
 <body>
-  <!-- D3.js v3 required for the collision layout -->
+
+  <div id="output-bar">Type here...</div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
-  <!-- LocalForage for WebGazer session data storage -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.8.1/localforage.js"></script>
-  <!-- WebGazer script -->
-  <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
-  <!-- Your collision script -->
-  <script src="collision.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
+
+  <script>
+    window.saveDataAcrossSessions = false;
+    var force, nodes = [];
+    var smoothedGazeX = null, smoothedGazeY = null;
+    const smoothingFactor = 0.4;
+    
+    // Dwell typing variables
+    let currentCollidingKey = null;
+    let dwellTimer = null;
+    const DWELL_TIME_MS = 800; // Time needed looking at a key to trigger typing
+
+    window.onload = async function() {
+        if (!window.saveDataAcrossSessions) {
+            localforage.setItem('webgazerGlobalData', null);
+            localforage.setItem('webgazerGlobalSettings', null);
+        }
+
+        const webgazerInstance = await webgazer.setRegression('ridge')
+            .setTracker('TFFacemesh')
+            .begin();
+        
+        webgazerInstance.showVideoPreview(true)
+            .showPredictionPoints(false)
+            .applyKalmanFilter(true);
+
+        setupKeyboardSystem();
+        webgazer.setGazeListener(collisionEyeListener);
+    };
+
+    function setupKeyboardSystem() {
+        var width = window.innerWidth;
+        var height = window.innerHeight;
+
+        // QWERTY rows configuration
+        var rows = [
+            ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
+            ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
+            ["Z", "X", "C", "V", "B", "N", "M", "⌫", "SP"]
+        ];
+
+        nodes = [];
+        let startY = height * 0.35;
+
+        rows.forEach((row, rowIndex) => {
+            let startX = (width - (row.length * 75)) / 2;
+            row.forEach((char, colIndex) => {
+                nodes.push({
+                    char: char,
+                    radius: 30,
+                    x0: startX + (colIndex * 75) + 35, // Home grid X position
+                    y0: startY + (rowIndex * 80),      // Home grid Y position
+                    x: startX + (colIndex * 75) + 35,
+                    y: startY + (rowIndex * 80)
+                });
+            });
+        });
+
+        // Gaze anchor node at index 0
+        nodes.unshift({ radius: 0, fixed: true, x: width/2, y: height/2 });
+
+        force = d3.layout.force()
+            .gravity(0) // Zero gravity so keys stay in position
+            .charge(0)
+            .nodes(nodes)
+            .size([width, height])
+            .start();
+
+        var svg = d3.select("body").append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
+
+        // Draw key background boxes
+        var keyGroups = svg.selectAll(".key-group")
+            .data(nodes.slice(1))
+            .enter().append("g")
+            .attr("class", "key-group");
+
+        keyGroups.append("rect")
+            .attr("class", "key-box")
+            .attr("width", 64)
+            .attr("height", 64)
+            .attr("x", function(d) { return d.x0 - 32; })
+            .attr("y", function(d) { return d.y0 - 32; })
+            .attr("rx", 8)
+            .attr("fill", "#1e1e1e")
+            .attr("stroke", "#00ffcc")
+            .attr("stroke-width", 2);
+
+        // Draw key letters
+        keyGroups.append("text")
+            .attr("class", "key-node")
+            .attr("x", function(d) { return d.x0; })
+            .attr("y", function(d) { return d.y0; })
+            .attr("dy", ".35em")
+            .attr("text-anchor", "middle")
+            .attr("font-size", "22px")
+            .attr("fill", "#00ffcc")
+            .text(function(d) { return d.char; });
+
+        force.on("tick", function(e) {
+            var q = d3.geom.quadtree(nodes),
+                i = 0,
+                n = nodes.length;
+
+            while (++i < n) q.visit(collide(nodes[i]));
+
+            // Pull keys gently back toward their home QWERTY positions (spring effect)
+            for (let j = 1; j < nodes.length; j++) {
+                let d = nodes[j];
+                d.x += (d.x0 - d.x) * 0.2;
+                d.y += (d.y0 - d.y) * 0.2;
+            }
+
+            keyGroups.select("rect")
+                .attr("x", function(d) { return d.x - 32; })
+                .attr("y", function(d) { return d.y - 32; });
+
+            keyGroups.select("text")
+                .attr("x", function(d) { return d.x; })
+                .attr("y", function(d) { return d.y; });
+        });
+
+        // Dual eye-tracking vector lines
+        svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "red");
+        svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "red");
+
+        // Mouse support for testing
+        svg.on("mousemove", function() {
+            var p1 = d3.mouse(this);
+            nodes[0].x = nodes[0].px = p1[0];
+            nodes[0].y = nodes[0].py = p1[1];
+            force.resume();
+        });
+
+        svg.on("click", function() {
+            var p = d3.mouse(this);
+            webgazer.recordScreenPosition(p[0], p[1], 'click');
+        });
+
+        function collide(node) {
+            var r = node.radius + 18,
+                nx1 = node.x - r, nx2 = node.x + r,
+                ny1 = node.y - r, ny2 = node.y + r;
+            return function(quad, x1, y1, x2, y2) {
+                if (quad.point && (quad.point !== node)) {
+                    var x = node.x - quad.point.x,
+                        y = node.y - quad.point.y,
+                        l = Math.sqrt(x * x + y * y),
+                        r = node.radius + quad.point.radius;
+                    if (l < r) {
+                        l = (l - r) / l * .5;
+                        node.x -= x *= l;
+                        node.y -= y *= l;
+                        quad.point.x += x;
+                        quad.point.y += y;
+
+                        // Check if gaze node (index 0) is colliding with a key
+                        if (node === nodes[0] || quad.point === nodes[0]) {
+                            let hitKey = node === nodes[0] ? quad.point : node;
+                            handleKeyCollision(hitKey);
+                        }
+                    }
+                }
+                return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
+            };
+        }
+    }
+
+    function handleKeyCollision(keyNode) {
+        if (currentCollidingKey !== keyNode.char) {
+            currentCollidingKey = keyNode.char;
+            clearTimeout(dwellTimer);
+
+            // Highlight active key
+            d3.selectAll(".key-box").attr("fill", "#1e1e1e");
+            d3.selectAll(".key-box").filter(d => d.char === currentCollidingKey).attr("fill", "#00ffcc");
+
+            // Start Dwell Timer to type character
+            dwellTimer = setTimeout(() => {
+                appendCharacter(currentCollidingKey);
+            }, DWELL_TIME_MS);
+        }
+    }
+
+    function appendCharacter(char) {
+        const outputBar = document.getElementById("output-bar");
+        let currentText = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
+
+        if (char === "⌫") {
+            currentText = currentText.slice(0, -1);
+        } else if (char === "SP") {
+            currentText += " ";
+        } else {
+            currentText += char;
+        }
+
+        outputBar.innerText = currentText || "Type here...";
+    }
+
+    var webgazerCanvas = null;
+    var collisionEyeListener = async function(data, clock) {
+        if (!data) return;
+
+        if (smoothedGazeX === null || smoothedGazeY === null) {
+            smoothedGazeX = data.x;
+            smoothedGazeY = data.y;
+        } else {
+            smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
+            smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
+        }
+
+        nodes[0].x = nodes[0].px = smoothedGazeX;
+        nodes[0].y = nodes[0].py = smoothedGazeY;
+        force.resume();
+
+        var tracker = webgazer.getTracker();
+        var fmPositions = tracker && tracker.getPositions ? await tracker.getPositions() : null;
+        var previewWidth = webgazer.params.videoViewerWidth || 320;
+        var whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
+
+        if (fmPositions && fmPositions[145] && fmPositions[374]) {
+            d3.select('#eyeline1')
+                .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
+                .attr("x2", previewWidth - fmPositions[145][0] * whr[0])
+                .attr("y2", fmPositions[145][1] * whr[1]);
+
+            d3.select("#eyeline2")
+                .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
+                .attr("x2", previewWidth - fmPositions[374][0] * whr[0])
+                .attr("y2", fmPositions[374][1] * whr[1]);
+        }
+    };
+  </script>
 </body>
 </html>
