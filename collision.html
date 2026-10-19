@@ -10,7 +10,7 @@
         #top-bar {
             position: fixed; top: 0; left: 0; width: 100vw; height: 75px;
             background: rgba(15, 15, 15, 0.95); border-bottom: 2px solid #00ffcc;
-            display: flex; align-items: center; justify-content: space-between; padding: 0 20px;
+            display: flex; align-items: center; justify-space: space-between; padding: 0 20px;
             z-index: 10000; box-sizing: border-box;
         }
         #output-bar {
@@ -109,7 +109,7 @@
       <p id="calib-text" style="color: #bbb; max-width: 450px; line-height: 1.5; margin-bottom: 30px;">
           Stare directly at the red glowing circle and click it <strong>3 times</strong> with your mouse.
       </p>
-      <div id="calib-dot">Q</div>
+      <div id="calib-dot">1</div>
   </div>
 
   <!-- Radial Menu Overlay -->
@@ -126,6 +126,16 @@
   <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
 
   <script>
+    // Suppress TensorFlow FaceMesh willReadFrequently canvas warning
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function(type, attributes) {
+        if (type === '2d') {
+            attributes = attributes || {};
+            attributes.willReadFrequently = true;
+        }
+        return originalGetContext.call(this, type, attributes);
+    };
+
     window.saveDataAcrossSessions = false;
     var force, nodes = [];
     var smoothedGazeX = null, smoothedGazeY = null;
@@ -135,13 +145,25 @@
     let isCalibrating = true;
     let calibStep = 0;
     let calibClicks = 0;
-    const calibSequence = ["Q", "P", "G", "Z", "M"];
+    
+    // 5-Zone Range-of-Motion Calibration
+    const calibSequence = [
+        {name: "Top-Left Zone", x: 0.15, y: 0.3},
+        {name: "Top-Right Zone", x: 0.85, y: 0.3},
+        {name: "Center Zone (Key G)", key: "G"},
+        {name: "Bottom-Left Zone", x: 0.15, y: 0.8},
+        {name: "Bottom-Right Zone", x: 0.85, y: 0.8}
+    ];
 
     let currentCollidingKey = null;
     let dwellTimer = null;
     let DWELL_TIME_MS = 800;
     let svg, keyGroups, swipePolyline;
     let swipePathNodes = [];
+
+    // Variance-gated dwell stability filter
+    let lastGazeSamples = [];
+    const VARIANCE_THRESHOLD = 185;
 
     window.onload = async function() {
         if (!window.saveDataAcrossSessions) {
@@ -174,7 +196,7 @@
         ];
 
         nodes = [];
-        let startY = height * 0.42;
+        let startY = height * 0.45;
 
         rows.forEach((row, rowIndex) => {
             let startX = (width - (row.length * 75)) / 2;
@@ -185,8 +207,11 @@
                     char: char,
                     radius: 30,
                     x0: kx, y0: ky,
-                    x: kx, y: ky,
-                    vx: 0, vy: 0
+                    // Bounded initial positions to prevent floating off-screen
+                    x: currentMode === "floating" ? (width * 0.2 + Math.random() * (width * 0.6)) : kx,
+                    y: currentMode === "floating" ? (height * 0.4 + Math.random() * (height * 0.4)) : ky,
+                    vx: (Math.random() - 0.5) * 2,
+                    vy: (Math.random() - 0.5) * 2
                 });
             });
         });
@@ -237,7 +262,7 @@
             .attr("fill", "#00ffcc")
             .text(function(d) { return d.char; });
 
-        // Swipe trajectory line
+        // Swipe trajectory polyline
         swipePolyline = svg.append("polyline")
             .attr("fill", "none")
             .attr("stroke", "#ff0055")
@@ -245,7 +270,7 @@
             .attr("stroke-linecap", "round")
             .style("opacity", 0);
 
-        // Dual eye-tracking lines
+        // Dual eye-tracking vector lines
         svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
         svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
 
@@ -259,12 +284,11 @@
             for (let j = 1; j < nodes.length; j++) {
                 let d = nodes[j];
                 if (currentMode === "floating") {
-                    // Floating Physics behavior
                     d.x += d.vx; d.y += d.vy;
-                    if (d.x < 50 || d.x > width - 50) d.vx *= -1;
-                    if (d.y < 150 || d.y > height - 50) d.vy *= -1;
+                    // Keep floating letters contained within viewport
+                    if (d.x < 80 || d.x > width - 80) d.vx *= -1;
+                    if (d.y < 200 || d.y > height - 80) d.vy *= -1;
                 } else {
-                    // Spring back to QWERTY layout home position
                     let pull = currentMode === "magnetic" ? 0.25 : 0.15;
                     d.x += (d.x0 - d.x) * pull;
                     d.y += (d.y0 - d.y) * pull;
@@ -280,7 +304,7 @@
                 .attr("y", function(d) { return d.y; });
         });
 
-        // Mouse fallback testing
+        // Mouse fallback for desktop testing
         svg.on("mousemove", function() {
             if (isCalibrating) return;
             var p1 = d3.mouse(this);
@@ -300,9 +324,12 @@
         swipePolyline.style("opacity", mode === "swipe" ? 1 : 0);
 
         if (mode === "floating") {
+            let width = window.innerWidth, height = window.innerHeight;
             nodes.slice(1).forEach(d => {
-                d.vx = (Math.random() - 0.5) * 4;
-                d.vy = (Math.random() - 0.5) * 4;
+                d.x = width * 0.2 + Math.random() * (width * 0.6);
+                d.y = height * 0.4 + Math.random() * (height * 0.4);
+                d.vx = (Math.random() - 0.5) * 3;
+                d.vy = (Math.random() - 0.5) * 3;
             });
         }
         force.resume();
@@ -322,25 +349,26 @@
             document.getElementById("calibration-overlay").style.display = "none";
             return;
         }
-        let targetChar = calibSequence[calibStep];
-        let matchedNode = nodes.find(n => n.char === targetChar);
-        if (!matchedNode) return;
+        let target = calibSequence[calibStep];
+        let targetX = target.key ? nodes.find(n => n.char === target.key).x0 : window.innerWidth * target.x;
+        let targetY = target.key ? nodes.find(n => n.char === target.key).y0 : window.innerHeight * target.y;
 
         let dot = document.getElementById("calib-dot");
-        dot.style.left = matchedNode.x0 + "px";
-        dot.style.top = matchedNode.y0 + "px";
-        dot.innerText = targetChar;
+        dot.style.left = targetX + "px";
+        dot.style.top = targetY + "px";
+        dot.innerText = target.key || (calibStep + 1);
 
         document.getElementById("calib-text").innerHTML = 
-            `Calibration Step ${calibStep + 1} of ${calibSequence.length} (Target Key: <strong>${targetChar}</strong>)<br>Stare at the red dot and click it 3 times (${calibClicks}/3).`;
+            `Calibration Step ${calibStep + 1} of ${calibSequence.length} (${target.name})<br>Stare at the red dot and click it 3 times (${calibClicks}/3).`;
+            
+        window.currentCalibrationTargetCoords = {x: targetX, y: targetY};
     }
 
     document.getElementById("calib-dot").addEventListener("click", function() {
         if (!isCalibrating) return;
-        let targetChar = calibSequence[calibStep];
-        let matchedNode = nodes.find(n => n.char === targetChar);
+        let coords = window.currentCalibrationTargetCoords;
 
-        webgazer.recordScreenPosition(matchedNode.x0, matchedNode.y0, 'click');
+        webgazer.recordScreenPosition(coords.x, coords.y, 'click');
         calibClicks++;
 
         if (calibClicks >= 3) {
@@ -380,6 +408,22 @@
     function handleInteractions(gazeX, gazeY, keyNode) {
         if (isCalibrating || currentMode === "radial") return;
 
+        // Calculate micro-jitter variance across recent gaze positions
+        lastGazeSamples.push({x: gazeX, y: gazeY});
+        if (lastGazeSamples.length > 5) lastGazeSamples.shift();
+
+        if (lastGazeSamples.length === 5) {
+            let meanX = lastGazeSamples.reduce((sum, p) => sum + p.x, 0) / 5;
+            let meanY = lastGazeSamples.reduce((sum, p) => sum + p.y, 0) / 5;
+            let variance = lastGazeSamples.reduce((sum, p) => sum + Math.pow(p.x - meanX, 2) + Math.pow(p.y - meanY, 2), 0) / 5;
+
+            // Pause dwell timer if eye variance exceeds stability threshold
+            if (variance > VARIANCE_THRESHOLD) {
+                clearTimeout(dwellTimer);
+                return;
+            }
+        }
+
         if (currentMode === "magnetic" && keyNode) {
             if (currentCollidingKey !== keyNode.char) {
                 currentCollidingKey = keyNode.char;
@@ -409,7 +453,6 @@
         swipePolyline.attr("points", pts);
     }
 
-    // Finish Swipe on pause/mouse-up
     window.addEventListener("mouseup", () => {
         if (currentMode === "swipe" && swipePathNodes.length > 0) {
             let word = swipePathNodes.join("");
@@ -418,6 +461,10 @@
             swipePolyline.attr("points", "");
         }
     });
+
+    function selectRadial(range) {
+        appendWord(`[${range}]`);
+    }
 
     function appendCharacter(char) {
         const outputBar = document.getElementById("output-bar");
@@ -438,63 +485,4 @@
     function clearText() {
         const outputBar = document.getElementById("output-bar");
         let txt = outputBar.innerText;
-        outputBar.innerText = txt.length > 1 ? txt.slice(0, -1) : "Type here...";
-    }
-
-    function clearAllText() {
-        document.getElementById("output-bar").innerText = "Type here...";
-    }
-
-    function speakText() {
-        const text = document.getElementById("output-bar").innerText;
-        if (text && text !== "Type here...") {
-            const utterance = new SpeechSynthesisUtterance(text);
-            window.speechSynthesis.speak(utterance);
-        }
-    }
-
-    function updateDwell(val) {
-        DWELL_TIME_MS = parseFloat(val) * 1000;
-        document.getElementById("dwell-val").innerText = val;
-    }
-
-    function updateSmooth(val) {
-        smoothingFactor = parseFloat(val);
-        document.getElementById("smooth-val").innerText = val;
-    }
-
-    var gazeTickListener = async function(data, clock) {
-        if (!data || isCalibrating) return;
-
-        if (smoothedGazeX === null || smoothedGazeY === null) {
-            smoothedGazeX = data.x;
-            smoothedGazeY = data.y;
-        } else {
-            smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
-            smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
-        }
-
-        nodes[0].x = nodes[0].px = smoothedGazeX;
-        nodes[0].y = nodes[0].py = smoothedGazeY;
-        force.resume();
-
-        var tracker = webgazer.getTracker();
-        var fmPositions = tracker && tracker.getPositions ? await tracker.getPositions() : null;
-        var previewWidth = webgazer.params.videoViewerWidth || 320;
-        var whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
-
-        if (fmPositions && fmPositions[145] && fmPositions[374]) {
-            d3.select('#eyeline1')
-                .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
-                .attr("x2", previewWidth - fmPositions[145][0] * whr[0])
-                .attr("y2", fmPositions[145][1] * whr[1]);
-
-            d3.select("#eyeline2")
-                .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
-                .attr("x2", previewWidth - fmPositions[374][0] * whr[0])
-                .attr("y2", fmPositions[374][1] * whr[1]);
-        }
-    };
-  </script>
-</body>
-</html>
+        outputBar.innerText = txt.length >
