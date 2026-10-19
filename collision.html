@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>WebGazer + D3 Tuned Gaze Keyboard</title>
+    <title>WebGazer + D3 Gaze Keyboard</title>
     <style>
         body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; }
         .key-node { cursor: pointer; user-select: none; font-weight: bold; }
@@ -13,35 +13,25 @@
             font-size: 24px; display: flex; align-items: center; padding: 0 20px;
             z-index: 10000; box-shadow: 0 0 20px rgba(0, 255, 204, 0.3);
         }
-        #calibration-overlay {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(10, 10, 10, 0.92); z-index: 20000;
-            display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-            padding-top: 50px;
-            color: #fff; text-align: center; font-family: sans-serif;
-            pointer-events: none; /* Allows clicks to pass through to the keyboard */
+        #calibration-dot {
+            position: fixed; width: 40px; height: 40px; background: #ff0055;
+            border-radius: 50%; transform: translate(-50%, -50%); cursor: pointer;
+            z-index: 25000; box-shadow: 0 0 25px #ff0055; display: flex;
+            align-items: center; justify-content: center; color: #fff; font-weight: bold;
         }
-        #calibration-overlay button, #calibration-overlay .interactive-target {
-            pointer-events: auto; /* Re-enables clicking on active elements inside */
-        }
-        .calib-btn {
-            background: #00ffcc; color: #000; border: none; padding: 12px 24px;
-            font-size: 18px; font-weight: bold; border-radius: 6px; cursor: pointer; margin-top: 20px;
-            box-shadow: 0 0 15px rgba(0, 255, 204, 0.4);
+        #calibration-banner {
+            position: fixed; top: 85px; left: 50%; transform: translateX(-50%);
+            background: rgba(255, 0, 85, 0.15); border: 1px solid #ff0055; padding: 10px 20px;
+            border-radius: 6px; color: #ff0055; font-size: 16px; font-weight: bold;
+            z-index: 20000; text-align: center;
         }
     </style>
 </head>
 <body>
 
   <div id="output-bar">Type here...</div>
-
-  <div id="calibration-overlay">
-      <h2>Gaze Keyboard Calibration</h2>
-      <p id="calib-instructions" style="max-width: 450px; color: #bbb; line-height: 1.5; margin-bottom: 20px;">
-          Stare directly at the highlighted key on the keyboard below and click it <strong>3 times</strong> to train accuracy.
-      </p>
-      <div id="calib-progress" style="color: #00ffcc; font-size: 18px; font-weight: bold;">Target 1 of 5 (Key: Q)</div>
-  </div>
+  <div id="calibration-banner">Calibration: Stare at the red dot and click it 3 times.</div>
+  <div id="calibration-dot">Q</div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.8.1/localforage.js"></script>
@@ -51,23 +41,27 @@
     window.saveDataAcrossSessions = false;
     var force, nodes = [];
     var smoothedGazeX = null, smoothedGazeY = null;
-    const smoothingFactor = 0.35; // Higher damping for less jitter
+    const smoothingFactor = 0.35;
     
     let isCalibrating = true;
     let calibrationStep = 0;
     let clickCount = 0;
     const calibrationKeys = ["Q", "P", "G", "Z", "M"];
+    let keyNodeCoords = {};
 
     let currentCollidingKey = null;
     let dwellTimer = null;
-    const DWELL_TIME_MS = 1200; // Increased dwell time to prevent accidental triggers
-    let keyGroups;
+    const DWELL_TIME_MS = 1200;
+    let keyGroups, svg;
 
     window.onload = async function() {
         if (!window.saveDataAcrossSessions) {
             localforage.setItem('webgazerGlobalData', null);
             localforage.setItem('webgazerGlobalSettings', null);
         }
+
+        // Render keyboard immediately so you can see it right away
+        setupKeyboardSystem();
 
         const webgazerInstance = await webgazer.setRegression('ridge')
             .setTracker('TFFacemesh')
@@ -77,8 +71,8 @@
             .showPredictionPoints(false)
             .applyKalmanFilter(true);
 
-        setupKeyboardSystem();
         webgazer.setGazeListener(collisionEyeListener);
+        updateCalibrationDotPosition();
     };
 
     function setupKeyboardSystem() {
@@ -97,14 +91,15 @@
         rows.forEach((row, rowIndex) => {
             let startX = (width - (row.length * 75)) / 2;
             row.forEach((char, colIndex) => {
+                let kx = startX + (colIndex * 75) + 35;
+                let ky = startY + (rowIndex * 80);
                 nodes.push({
                     char: char,
-                    radius: 25, // Tighter collision radius to prevent overlapping triggers
-                    x0: startX + (colIndex * 75) + 35,
-                    y0: startY + (rowIndex * 80),
-                    x: startX + (colIndex * 75) + 35,
-                    y: startY + (rowIndex * 80)
+                    radius: 25,
+                    x0: kx, y0: ky,
+                    x: kx, y: ky
                 });
+                keyNodeCoords[char] = { x: kx, y: ky };
             });
         });
 
@@ -117,7 +112,7 @@
             .size([width, height])
             .start();
 
-        var svg = d3.select("body").append("svg")
+        svg = d3.select("body").append("svg")
             .attr("width", width)
             .attr("height", height)
             .style("position", "absolute")
@@ -174,59 +169,46 @@
 
         svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "red");
         svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "red");
+    }
 
-        // Click Handler for Calibration or Mouse Testing
-        svg.on("click", function() {
-            var p = d3.mouse(this);
-            
-            if (isCalibrating) {
-                let targetChar = calibrationKeys[calibrationStep];
-                let targetNode = nodes.find(n => n.char === targetChar);
-                if (targetNode) {
-                    webgazer.recordScreenPosition(targetNode.x0, targetNode.y0, 'click');
-                    clickCount++;
-                    
-                    document.getElementById("calib-progress").innerText = 
-                        `Target ${calibrationStep + 1} of ${calibrationKeys.length} (Key: ${targetChar}): Click count ${clickCount}/3`;
+    function updateCalibrationDotPosition() {
+        if (!isCalibrating) return;
+        let activeChar = calibrationKeys[calibrationStep];
+        let coords = keyNodeCoords[activeChar];
+        let dot = document.getElementById("calibration-dot");
+        
+        dot.style.left = coords.x + "px";
+        dot.style.top = coords.y + "px";
+        dot.innerText = activeChar;
 
-                    if (clickCount >= 3) {
-                        clickCount = 0;
-                        calibrationStep++;
-                        if (calibrationStep >= calibrationKeys.length) {
-                            isCalibrating = false;
-                            document.getElementById("calibration-overlay").style.display = "none";
-                            updateKeyboardUI();
-                        } else {
-                            updateKeyboardUI();
-                        }
-                    }
-                }
-            } else {
-                nodes[0].x = nodes[0].px = p[0];
-                nodes[0].y = nodes[0].py = p[1];
-                force.resume();
+        document.getElementById("calibration-banner").innerText = 
+            `Calibration (${calibrationStep + 1}/${calibrationKeys.length}) - Stare at '${activeChar}' and click dot 3 times (${clickCount}/3)`;
+    }
+
+    // Calibration Dot Click Listener
+    document.getElementById("calibration-dot").addEventListener("click", function(e) {
+        if (!isCalibrating) return;
+        let activeChar = calibrationKeys[calibrationStep];
+        let coords = keyNodeCoords[activeChar];
+
+        webgazer.recordScreenPosition(coords.x, coords.y, 'click');
+        clickCount++;
+
+        if (clickCount >= 3) {
+            clickCount = 0;
+            calibrationStep++;
+            if (calibrationStep >= calibrationKeys.length) {
+                isCalibrating = false;
+                document.getElementById("calibration-dot").style.display = "none";
+                document.getElementById("calibration-banner").style.display = "none";
+                return;
             }
-        });
-
-        updateKeyboardUI();
-    }
-
-    function updateKeyboardUI() {
-        if (isCalibrating) {
-            let activeChar = calibrationKeys[calibrationStep];
-            keyGroups.select("rect").attr("stroke", function(d) {
-                return d.char === activeChar ? "#ff0055" : "#00ffcc";
-            }).attr("stroke-width", function(d) {
-                return d.char === activeChar ? 4 : 2;
-            });
-            keyGroups.select("text").attr("fill", function(d) {
-                return d.char === activeChar ? "#ff0055" : "#00ffcc";
-            });
         }
-    }
+        updateCalibrationDotPosition();
+    });
 
     function collide(node) {
-        var r = node.radius + 12, // Reduced collision boundary
+        var r = node.radius + 12,
             nx1 = node.x - r, nx2 = node.x + r,
             ny1 = node.y - r, ny2 = node.y + r;
         return function(quad, x1, y1, x2, y2) {
@@ -260,10 +242,9 @@
             keyGroups.select("rect").attr("fill", "#1e1e1e");
             keyGroups.filter(d => d.char === currentCollidingKey).select("rect").attr("fill", "#00ffcc");
 
-            // Strict Dwell Timer before typing occurs
             dwellTimer = setTimeout(() => {
                 appendCharacter(currentCollidingKey);
-                currentCollidingKey = null; // Reset after typing to require re-entry
+                currentCollidingKey = null;
             }, DWELL_TIME_MS);
         }
     }
