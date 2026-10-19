@@ -2,301 +2,852 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>WebGazer + D3 Gaze Keyboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Mode Gaze Input Engine (WebGazer + D3.js)</title>
+    <!-- Tailwind CSS for modern layout & styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; }
-        .key-node { cursor: pointer; user-select: none; font-weight: bold; }
-        #output-bar {
-            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-            width: 600px; height: 50px; background: rgba(20, 20, 20, 0.85);
-            border: 2px solid #00ffcc; border-radius: 8px; color: #fff;
-            font-size: 24px; display: flex; align-items: center; padding: 0 20px;
-            z-index: 10000; box-shadow: 0 0 20px rgba(0, 255, 204, 0.3);
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0a0a0a;
+            color: #ffffff;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            user-select: none;
         }
-        #calibration-dot {
-            position: fixed; width: 40px; height: 40px; background: #ff0055;
-            border-radius: 50%; transform: translate(-50%, -50%); cursor: pointer;
-            z-index: 25000; box-shadow: 0 0 25px #ff0055; display: flex;
-            align-items: center; justify-content: center; color: #fff; font-weight: bold;
+
+        /* D3 SVG Canvas */
+        #gaze-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10;
         }
-        #calibration-banner {
-            position: fixed; top: 85px; left: 50%; transform: translateX(-50%);
-            background: rgba(255, 0, 85, 0.15); border: 1px solid #ff0055; padding: 10px 20px;
-            border-radius: 6px; color: #ff0055; font-size: 16px; font-weight: bold;
-            z-index: 20000; text-align: center;
+
+        /* SVG Element Styling */
+        .key-box {
+            transition: fill 0.15s ease, stroke 0.15s ease, stroke-width 0.15s ease;
+        }
+
+        .key-text {
+            font-weight: 700;
+            pointer-events: none;
+        }
+
+        /* Calibration Target Marker */
+        #calibration-marker {
+            position: fixed;
+            width: 48px;
+            height: 48px;
+            background: rgba(255, 0, 85, 0.25);
+            border: 3px solid #ff0055;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+            z-index: 50000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            font-weight: 800;
+            font-size: 18px;
+            box-shadow: 0 0 25px rgba(255, 0, 85, 0.8), inset 0 0 15px rgba(255, 0, 85, 0.5);
+            animation: pulse-marker 1.2s infinite ease-in-out;
+        }
+
+        @keyframes pulse-marker {
+            0% { transform: translate(-50%, -50%) scale(0.95); box-shadow: 0 0 15px rgba(255, 0, 85, 0.6); }
+            50% { transform: translate(-50%, -50%) scale(1.1); box-shadow: 0 0 35px rgba(255, 0, 85, 1); }
+            100% { transform: translate(-50%, -50%) scale(0.95); box-shadow: 0 0 15px rgba(255, 0, 85, 0.6); }
+        }
+
+        /* WebGazer Video Preview Repositioning & Styling */
+        #webgazerVideoContainer {
+            top: 110px !important;
+            left: 16px !important;
+            border: 2px solid #00ffcc !important;
+            border-radius: 12px !important;
+            overflow: hidden !important;
+            box-shadow: 0 0 20px rgba(0, 255, 204, 0.3) !important;
+            z-index: 40 !important;
+        }
+
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #121212;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #00ffcc;
+            border-radius: 3px;
         }
     </style>
 </head>
-<body>
+<body class="relative w-screen h-screen overflow-hidden">
 
-  <div id="output-bar">Type here...</div>
-  <div id="calibration-banner">Calibration: Stare at the red dot and click it 3 times.</div>
-  <div id="calibration-dot">Q</div>
+    <!-- Top UI Header & Control Panel -->
+    <header class="fixed top-0 left-0 right-0 z-50 p-3 bg-neutral-900/90 backdrop-blur-md border-b border-neutral-800 flex flex-col gap-2 shadow-2xl">
+        <!-- Top Bar: Output Bar & Action Buttons -->
+        <div class="flex items-center gap-3">
+            <!-- Text Output Box -->
+            <div id="output-bar" class="flex-1 h-14 bg-black/80 border-2 border-emerald-400 rounded-xl px-4 flex items-center text-2xl font-mono text-emerald-300 overflow-x-auto whitespace-nowrap shadow-[0_0_15px_rgba(0,255,204,0.25)]">
+                Type here...
+            </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.8.1/localforage.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
+            <!-- Global Actions -->
+            <button id="btn-speak" class="h-14 px-4 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-400/50 rounded-xl font-bold text-emerald-400 flex items-center gap-2 transition active:scale-95">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
+                Speak
+            </button>
+            <button id="btn-backspace" class="h-14 px-4 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/50 rounded-xl font-bold text-rose-400 flex items-center gap-2 transition active:scale-95">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414-6.414a2 2 0 011.414-.586H19a2 2 0 012 2v10a2 2 0 01-2 2h-9.172a2 2 0 01-1.414-.586L3 12z"/></svg>
+                Delete
+            </button>
+            <button id="btn-clear" class="h-14 px-4 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded-xl font-bold text-neutral-300 transition active:scale-95">
+                Clear
+            </button>
+        </div>
 
-  <script>
-    window.saveDataAcrossSessions = false;
-    var force, nodes = [];
-    var smoothedGazeX = null, smoothedGazeY = null;
-    const smoothingFactor = 0.35;
-    
-    let isCalibrating = true;
-    let calibrationStep = 0;
-    let clickCount = 0;
-    const calibrationKeys = ["Q", "P", "G", "Z", "M"];
-    let keyNodeCoords = {};
+        <!-- Mode Selector & Settings Controls -->
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+            <!-- Mode Switcher Buttons -->
+            <div class="flex items-center gap-2 bg-black/60 p-1 rounded-xl border border-neutral-800">
+                <button id="mode-magnetic" class="mode-btn px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-1.5 bg-emerald-400 text-black shadow-lg shadow-emerald-400/20" onclick="switchInputMode('magnetic')">
+                    🧲 Magnetic QWERTY
+                </button>
+                <button id="mode-swipe" class="mode-btn px-4 py-2 rounded-lg font-bold text-sm text-neutral-400 hover:text-white transition-all flex items-center gap-1.5" onclick="switchInputMode('swipe')">
+                    ✍️ Gaze Swipe
+                </button>
+                <button id="mode-radial" class="mode-btn px-4 py-2 rounded-lg font-bold text-sm text-neutral-400 hover:text-white transition-all flex items-center gap-1.5" onclick="switchInputMode('radial')">
+                    🎯 Radial Pie
+                </button>
+            </div>
 
-    let currentCollidingKey = null;
-    let dwellTimer = null;
-    const DWELL_TIME_MS = 1200;
-    let keyGroups, svg;
+            <!-- Fine-Tuning Sliders & Toggles -->
+            <div class="flex items-center gap-4 bg-black/60 px-4 py-1.5 rounded-xl border border-neutral-800 text-xs">
+                <!-- Dwell Duration -->
+                <div class="flex items-center gap-2">
+                    <span class="text-neutral-400">Dwell:</span>
+                    <input id="slider-dwell" type="range" min="400" max="2000" step="100" value="1000" class="w-24 accent-emerald-400 cursor-pointer" oninput="updateSettings()">
+                    <span id="val-dwell" class="text-emerald-400 font-mono w-10">1.0s</span>
+                </div>
 
-    window.onload = async function() {
-        if (!window.saveDataAcrossSessions) {
-            localforage.setItem('webgazerGlobalData', null);
-            localforage.setItem('webgazerGlobalSettings', null);
-        }
+                <!-- Smoothing Factor -->
+                <div class="flex items-center gap-2">
+                    <span class="text-neutral-400">Smooth:</span>
+                    <input id="slider-smooth" type="range" min="0.05" max="0.8" step="0.05" value="0.3" class="w-24 accent-emerald-400 cursor-pointer" oninput="updateSettings()">
+                    <span id="val-smooth" class="text-emerald-400 font-mono w-8">0.30</span>
+                </div>
 
-        // Render keyboard immediately so you can see it right away
-        setupKeyboardSystem();
+                <!-- Action Controls -->
+                <button id="btn-recalibrate" class="px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/60 text-rose-300 font-bold rounded-lg transition" onclick="startCalibration()">
+                    🎯 Recalibrate
+                </button>
+                <button id="btn-toggle-video" class="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-bold rounded-lg transition" onclick="toggleWebcamPreview()">
+                    📷 Camera Off
+                </button>
+            </div>
+        </div>
+    </header>
 
-        const webgazerInstance = await webgazer.setRegression('ridge')
-            .setTracker('TFFacemesh')
-            .begin();
-        
-        webgazerInstance.showVideoPreview(true)
-            .showPredictionPoints(false)
-            .applyKalmanFilter(true);
+    <!-- Calibration Target Marker (Dynamically Positioned) -->
+    <div id="calibration-marker" style="display: none;">Q</div>
 
-        webgazer.setGazeListener(collisionEyeListener);
-        updateCalibrationDotPosition();
-    };
+    <!-- Calibration Banner Modal -->
+    <div id="calibration-banner" class="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-rose-950/90 border border-rose-500 text-rose-200 px-6 py-3 rounded-2xl shadow-2xl text-center text-sm font-semibold max-w-lg backdrop-blur-md" style="display: none;">
+        <span id="calibration-instruction">Stare directly at the glowing marker and click it 3 times.</span>
+    </div>
 
-    function setupKeyboardSystem() {
-        var width = window.innerWidth;
-        var height = window.innerHeight;
+    <!-- External CDN Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.8.1/localforage.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
 
-        var rows = [
-            ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
-            ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
-            ["Z", "X", "C", "V", "B", "N", "M", "⌫", "SP"]
+    <!-- Application Engine Logic -->
+    <script>
+        /* =========================================================================
+           0. Canvas Context Patch Guardrail
+           ========================================================================= */
+        (function() {
+            const originalGetContext = HTMLCanvasElement.prototype.getContext;
+            HTMLCanvasElement.prototype.getContext = function(type, attributes) {
+                if (type === '2d') {
+                    attributes = attributes || {};
+                    attributes.willReadFrequently = true;
+                }
+                return originalGetContext.call(this, type, attributes);
+            };
+        })();
+
+        /* =========================================================================
+           1. Global State & Settings
+           ========================================================================= */
+        let currentMode = "magnetic"; // 'magnetic', 'swipe', 'radial'
+        let smoothedGazeX = null, smoothedGazeY = null;
+        let smoothingFactor = 0.30;
+        let dwellTimeMs = 1000;
+        let isVideoPreviewVisible = true;
+
+        // Calibration State
+        let isCalibrating = false;
+        let calibrationStep = 0;
+        let clickCount = 0;
+        const calibrationTargets = [
+            { char: "Q", xRatio: 0.15, yRatio: 0.35 },
+            { char: "P", xRatio: 0.85, yRatio: 0.35 },
+            { char: "G", xRatio: 0.50, yRatio: 0.55 },
+            { char: "Z", xRatio: 0.20, yRatio: 0.75 },
+            { char: "M", xRatio: 0.80, yRatio: 0.75 }
         ];
 
-        nodes = [];
-        let startY = height * 0.40;
+        // Magnetic Dwell State
+        let activeHoverNode = null;
+        let hoverStartTime = null;
 
-        rows.forEach((row, rowIndex) => {
-            let startX = (width - (row.length * 75)) / 2;
-            row.forEach((char, colIndex) => {
-                let kx = startX + (colIndex * 75) + 35;
-                let ky = startY + (rowIndex * 80);
-                nodes.push({
-                    char: char,
-                    radius: 25,
-                    x0: kx, y0: ky,
-                    x: kx, y: ky
-                });
-                keyNodeCoords[char] = { x: kx, y: ky };
-            });
-        });
+        // Swipe Trajectory State
+        let swipePathPoints = [];
+        let visitedSwipeNodes = [];
+        let swipePauseTimer = null;
 
-        nodes.unshift({ radius: 0, fixed: true, x: width/2, y: height/2 });
+        // D3 Physics Engine Data Structures
+        let forceLayout, nodes = [], keyNodeCoords = {};
+        let d3Svg, keyGroupsLayer, trajectoryPath, gazePointCircle, gazeLinesGroup;
+        let radialSlicesGroup;
 
-        force = d3.layout.force()
-            .gravity(0)
-            .charge(0)
-            .nodes(nodes)
-            .size([width, height])
-            .start();
+        // Dictionary for Simulated Swipe Word Resolution
+        const dictionary = [
+            "BOCAR", "HELLO", "WORLD", "GAZE", "TRACKING", "SYSTEM", "INPUT",
+            "EYE", "SPEED", "MAGNETIC", "SWIPE", "RADIAL", "QUICK", "FAST",
+            "KEYBOARD", "SMART", "VISION", "PYTHON", "JAVASCRIPT", "D3"
+        ];
 
-        svg = d3.select("body").append("svg")
-            .attr("width", width)
-            .attr("height", height)
-            .style("position", "absolute")
-            .style("top", "0")
-            .style("left", "0");
-
-        keyGroups = svg.selectAll(".key-group")
-            .data(nodes.slice(1))
-            .enter().append("g")
-            .attr("class", "key-group");
-
-        keyGroups.append("rect")
-            .attr("class", "key-box")
-            .attr("width", 64)
-            .attr("height", 64)
-            .attr("x", function(d) { return d.x0 - 32; })
-            .attr("y", function(d) { return d.y0 - 32; })
-            .attr("rx", 8)
-            .attr("fill", "#1e1e1e")
-            .attr("stroke", "#00ffcc")
-            .attr("stroke-width", 2);
-
-        keyGroups.append("text")
-            .attr("class", "key-node")
-            .attr("x", function(d) { return d.x0; })
-            .attr("y", function(d) { return d.y0; })
-            .attr("dy", ".35em")
-            .attr("text-anchor", "middle")
-            .attr("font-size", "22px")
-            .attr("fill", "#00ffcc")
-            .text(function(d) { return d.char; });
-
-        force.on("tick", function(e) {
-            var q = d3.geom.quadtree(nodes),
-                i = 0,
-                n = nodes.length;
-
-            while (++i < n) q.visit(collide(nodes[i]));
-
-            for (let j = 1; j < nodes.length; j++) {
-                let d = nodes[j];
-                d.x += (d.x0 - d.x) * 0.2;
-                d.y += (d.y0 - d.y) * 0.2;
+        /* =========================================================================
+           2. Initialization Logic
+           ========================================================================= */
+        window.onload = async function() {
+            // Disable persistent webgazer storage to start fresh
+            if (typeof localforage !== 'undefined') {
+                localforage.setItem('webgazerGlobalData', null);
+                localforage.setItem('webgazerGlobalSettings', null);
             }
 
-            keyGroups.select("rect")
-                .attr("x", function(d) { return d.x - 32; })
-                .attr("y", function(d) { return d.y - 32; });
+            // Setup Main D3 SVG Canvas & Layouts
+            initD3Engine();
 
-            keyGroups.select("text")
-                .attr("x", function(d) { return d.x; })
-                .attr("y", function(d) { return d.y; });
-        });
+            // Initialize WebGazer Instance
+            try {
+                const webgazerInstance = await webgazer.setRegression('ridge')
+                    .setTracker('TFFacemesh')
+                    .begin();
 
-        svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "red");
-        svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "red");
-    }
+                webgazerInstance.showVideoPreview(true)
+                    .showPredictionPoints(false)
+                    .applyKalmanFilter(true);
 
-    function updateCalibrationDotPosition() {
-        if (!isCalibrating) return;
-        let activeChar = calibrationKeys[calibrationStep];
-        let coords = keyNodeCoords[activeChar];
-        let dot = document.getElementById("calibration-dot");
-        
-        dot.style.left = coords.x + "px";
-        dot.style.top = coords.y + "px";
-        dot.innerText = activeChar;
+                webgazer.setGazeListener(handleGazeUpdate);
+            } catch (e) {
+                console.warn("WebGazer failed to initialize camera. Mouse fallback active.", e);
+            }
 
-        document.getElementById("calibration-banner").innerText = 
-            `Calibration (${calibrationStep + 1}/${calibrationKeys.length}) - Stare at '${activeChar}' and click dot 3 times (${clickCount}/3)`;
-    }
+            // Bind Global Control Listeners
+            setupUIControls();
 
-    // Calibration Dot Click Listener
-    document.getElementById("calibration-dot").addEventListener("click", function(e) {
-        if (!isCalibrating) return;
-        let activeChar = calibrationKeys[calibrationStep];
-        let coords = keyNodeCoords[activeChar];
+            // Initial Resize handling
+            window.addEventListener('resize', handleWindowResize);
 
-        webgazer.recordScreenPosition(coords.x, coords.y, 'click');
-        clickCount++;
+            // Start in Magnetic Mode
+            switchInputMode('magnetic');
+        };
 
-        if (clickCount >= 3) {
-            clickCount = 0;
-            calibrationStep++;
-            if (calibrationStep >= calibrationKeys.length) {
-                isCalibrating = false;
-                document.getElementById("calibration-dot").style.display = "none";
-                document.getElementById("calibration-banner").style.display = "none";
-                return;
+        /* =========================================================================
+           3. D3 Physics Engine & Canvas Setup
+           ========================================================================= */
+        function initD3Engine() {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+
+            // Create Primary SVG Container
+            d3Svg = d3.select("body").append("svg")
+                .attr("id", "gaze-svg")
+                .attr("width", width)
+                .attr("height", height);
+
+            // Layer Groups
+            radialSlicesGroup = d3Svg.append("g").attr("id", "radial-layer");
+            keyGroupsLayer = d3Svg.append("g").attr("id", "keyboard-layer");
+            
+            // Trajectory Polyline for Swipe Mode
+            trajectoryPath = d3Svg.append("path")
+                .attr("id", "swipe-path")
+                .attr("fill", "none")
+                .attr("stroke", "#ff0055")
+                .attr("stroke-width", 5)
+                .attr("stroke-linecap", "round")
+                .attr("stroke-linejoin", "round")
+                .style("filter", "drop-shadow(0px 0px 8px #ff0055)");
+
+            // Visual Gaze Pointer
+            gazePointCircle = d3Svg.append("circle")
+                .attr("id", "gaze-cursor")
+                .attr("r", 12)
+                .attr("fill", "rgba(0, 255, 204, 0.4)")
+                .attr("stroke", "#00ffcc")
+                .attr("stroke-width", 2)
+                .style("pointer-events", "none");
+
+            // Eye Vector Rays
+            gazeLinesGroup = d3Svg.append("g").attr("id", "gaze-lines");
+            gazeLinesGroup.append("line").attr("id", "eyeline1").attr("stroke-width", 1.5).attr("stroke", "#ff0055").attr("stroke-dasharray", "4,4");
+            gazeLinesGroup.append("line").attr("id", "eyeline2").attr("stroke-width", 1.5).attr("stroke", "#ff0055").attr("stroke-dasharray", "4,4");
+
+            // Build Layout Structures
+            buildKeyboardNodes(width, height);
+            buildRadialSlices(width, height);
+
+            // Mouse Fallback Listener
+            d3Svg.on("mousemove", function() {
+                if (isCalibrating) return;
+                const coords = d3.mouse(this);
+                processGazePoint(coords[0], coords[1]);
+            });
+        }
+
+        function buildKeyboardNodes(width, height) {
+            const rows = [
+                ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
+                ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
+                ["Z", "X", "C", "V", "B", "N", "M"]
+            ];
+
+            nodes = [];
+            keyNodeCoords = {};
+            const keySpacing = 72;
+            const startY = height * 0.42;
+
+            rows.forEach((row, rowIndex) => {
+                const startX = (width - (row.length * keySpacing)) / 2;
+                row.forEach((char, colIndex) => {
+                    const kx = startX + (colIndex * keySpacing) + (keySpacing / 2);
+                    const ky = startY + (rowIndex * 82);
+                    const node = {
+                        char: char,
+                        radius: 28, // Dynamic collision & magnet radius
+                        x0: kx, y0: ky,
+                        x: kx, y: ky
+                    };
+                    nodes.push(node);
+                    keyNodeCoords[char] = node;
+                });
+            });
+
+            // Index 0 reserved for gaze anchor node in D3 force system
+            nodes.unshift({ radius: 10, fixed: true, x: width / 2, y: height / 2 });
+
+            forceLayout = d3.layout.force()
+                .gravity(0)
+                .charge(0)
+                .nodes(nodes)
+                .size([width, height])
+                .start();
+
+            // Render SVG Key Elements
+            const keyGroups = keyGroupsLayer.selectAll(".key-group")
+                .data(nodes.slice(1))
+                .enter().append("g")
+                .attr("class", "key-group");
+
+            // Key Box
+            keyGroups.append("rect")
+                .attr("class", "key-box")
+                .attr("width", 62)
+                .attr("height", 62)
+                .attr("rx", 12)
+                .attr("fill", "#141414")
+                .attr("stroke", "#00ffcc")
+                .attr("stroke-width", 2);
+
+            // Dwell Progress Arc/Circle (Overlay)
+            keyGroups.append("circle")
+                .attr("class", "dwell-ring")
+                .attr("r", 26)
+                .attr("fill", "none")
+                .attr("stroke", "#ff0055")
+                .attr("stroke-width", 4)
+                .attr("stroke-dasharray", "163.36") // 2 * PI * 26
+                .attr("stroke-dashoffset", "163.36")
+                .style("transform", "rotate(-90deg)")
+                .style("transform-origin", "center");
+
+            // Key Character Label
+            keyGroups.append("text")
+                .attr("class", "key-text")
+                .attr("dy", ".35em")
+                .attr("text-anchor", "middle")
+                .attr("font-size", "22px")
+                .attr("fill", "#00ffcc")
+                .text(d => d.char);
+
+            // D3 Physics Tick Update
+            forceLayout.on("tick", function() {
+                const q = d3.geom.quadtree(nodes);
+                let i = 0;
+                const n = nodes.length;
+
+                while (++i < n) q.visit(collidePhysics(nodes[i]));
+
+                // Spring back keys to origin coordinates
+                for (let j = 1; j < nodes.length; j++) {
+                    const d = nodes[j];
+                    d.x += (d.x0 - d.x) * 0.25;
+                    d.y += (d.y0 - d.y) * 0.25;
+                }
+
+                // Update Key Positions
+                keyGroups.attr("transform", d => `translate(${d.x}, ${d.y})`);
+                keyGroups.select("rect").attr("x", -31).attr("y", -31);
+                keyGroups.select(".dwell-ring").attr("cx", 0).attr("cy", 0);
+            });
+        }
+
+        /* =========================================================================
+           4. Radial "Pie" Menu Layout
+           ========================================================================= */
+        let radialSlices = [];
+
+        function buildRadialSlices(width, height) {
+            radialSlicesGroup.selectAll("*").remove();
+
+            const slices = [
+                { id: "top-left", label: "COMMON WORDS", chars: ["THE", "AND", "YOU", "FOR"], x: 0, y: 0, w: width / 2, h: height * 0.45 },
+                { id: "top-right", label: "ACTIONS", chars: ["SPACE", "BACK", "CLEAR", "SPEAK"], x: width / 2, y: 0, w: width / 2, h: height * 0.45 },
+                { id: "mid-left", label: "VOWELS", chars: ["A", "E", "I", "O", "U"], x: 0, y: height * 0.45, w: width * 0.35, h: height * 0.3 },
+                { id: "mid-right", label: "CONSONANTS 1", chars: ["B", "C", "D", "F", "G", "H"], x: width * 0.65, y: height * 0.45, w: width * 0.35, h: height * 0.3 },
+                { id: "bot-left", label: "CONSONANTS 2", chars: ["L", "M", "N", "P", "R", "S", "T"], x: 0, y: height * 0.75, w: width / 2, h: height * 0.25 },
+                { id: "bot-right", label: "QUICK PHRASES", chars: ["YES", "NO", "THANKS", "HELP"], x: width / 2, y: height * 0.75, w: width / 2, h: height * 0.25 }
+            ];
+
+            radialSlices = slices;
+
+            const sliceGroups = radialSlicesGroup.selectAll(".radial-slice")
+                .data(slices)
+                .enter().append("g")
+                .attr("class", "radial-slice")
+                .attr("transform", d => `translate(${d.x}, ${d.y})`);
+
+            sliceGroups.append("rect")
+                .attr("class", "slice-bg")
+                .attr("width", d => d.w)
+                .attr("height", d => d.h)
+                .attr("rx", 16)
+                .attr("fill", "#121212")
+                .attr("stroke", "#00ffcc")
+                .attr("stroke-width", 2)
+                .attr("opacity", 0.9);
+
+            sliceGroups.append("text")
+                .attr("class", "slice-title")
+                .attr("x", d => d.w / 2)
+                .attr("y", 35)
+                .attr("text-anchor", "middle")
+                .attr("font-size", "16px")
+                .attr("font-weight", "bold")
+                .attr("fill", "#ff0055")
+                .text(d => d.label);
+
+            sliceGroups.each(function(d) {
+                const grp = d3.select(this);
+                const count = d.chars.length;
+                d.chars.forEach((c, idx) => {
+                    grp.append("text")
+                        .attr("x", d.w / 2)
+                        .attr("y", 70 + (idx * 30))
+                        .attr("text-anchor", "middle")
+                        .attr("font-size", "18px")
+                        .attr("font-weight", "bold")
+                        .attr("fill", "#00ffcc")
+                        .text(c);
+                });
+            });
+        }
+
+        /* =========================================================================
+           5. Physics Collision & Attraction Mechanics
+           ========================================================================= */
+        function collidePhysics(node) {
+            const r = node.radius + 16;
+            const nx1 = node.x - r, nx2 = node.x + r;
+            const ny1 = node.y - r, ny2 = node.y + r;
+
+            return function(quad, x1, y1, x2, y2) {
+                if (quad.point && (quad.point !== node)) {
+                    let x = node.x - quad.point.x;
+                    let y = node.y - quad.point.y;
+                    let l = Math.sqrt(x * x + y * y);
+                    const radiusSum = node.radius + quad.point.radius;
+
+                    if (l < radiusSum) {
+                        l = (l - radiusSum) / l * 0.5;
+                        node.x -= x *= l;
+                        node.y -= y *= l;
+                        quad.point.x += x;
+                        quad.point.y += y;
+                    }
+                }
+                return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
+            };
+        }
+
+        /* =========================================================================
+           6. Real-Time Gaze Processing & Mode Handlers
+           ========================================================================= */
+        function handleGazeUpdate(data, clock) {
+            if (!data || isCalibrating) return;
+
+            // Apply Exponential Smoothing Filter to dampen micro-jitter
+            if (smoothedGazeX === null || smoothedGazeY === null) {
+                smoothedGazeX = data.x;
+                smoothedGazeY = data.y;
+            } else {
+                smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
+                smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
+            }
+
+            // Draw Eye Lines to Face Landmarks if available
+            updateEyeRays();
+
+            // Process Active Input Paradigm
+            processGazePoint(smoothedGazeX, smoothedGazeY);
+        }
+
+        function processGazePoint(x, y) {
+            // Update Cursor Anchor
+            gazePointCircle.attr("cx", x).attr("cy", y);
+            nodes[0].x = nodes[0].px = x;
+            nodes[0].y = nodes[0].py = y;
+            forceLayout.resume();
+
+            if (currentMode === "magnetic") {
+                processMagneticMode(x, y);
+            } else if (currentMode === "swipe") {
+                processSwipeMode(x, y);
+            } else if (currentMode === "radial") {
+                processRadialMode(x, y);
             }
         }
-        updateCalibrationDotPosition();
-    });
 
-    function collide(node) {
-        var r = node.radius + 12,
-            nx1 = node.x - r, nx2 = node.x + r,
-            ny1 = node.y - r, ny2 = node.y + r;
-        return function(quad, x1, y1, x2, y2) {
-            if (quad.point && (quad.point !== node)) {
-                var x = node.x - quad.point.x,
-                    y = node.y - quad.point.y,
-                    l = Math.sqrt(x * x + y * y),
-                    r = node.radius + quad.point.radius;
-                if (l < r) {
-                    l = (l - r) / l * .5;
-                    node.x -= x *= l;
-                    node.y -= y *= l;
-                    quad.point.x += x;
-                    quad.point.y += y;
+        /* --- Mode 1: Magnetic Gravity Well --- */
+        function processMagneticMode(x, y) {
+            let closestNode = null;
+            let minDistance = 75; // Gravity capture radius in pixels
 
-                    if (!isCalibrating && (node === nodes[0] || quad.point === nodes[0])) {
-                        let hitKey = node === nodes[0] ? quad.point : node;
-                        handleKeyCollision(hitKey);
+            // Find closest key node within magnetic pull distance
+            for (let i = 1; i < nodes.length; i++) {
+                const node = nodes[i];
+                const dist = Math.hypot(node.x0 - x, node.y0 - y);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    closestNode = node;
+                }
+            }
+
+            if (closestNode) {
+                // Apply Magnetic Snap: Pull gaze anchor directly to center of key
+                nodes[0].x = closestNode.x0;
+                nodes[0].y = closestNode.y0;
+
+                if (activeHoverNode !== closestNode) {
+                    // New Key Hovered
+                    resetDwellProgress();
+                    activeHoverNode = closestNode;
+                    hoverStartTime = Date.now();
+                } else {
+                    // Continue Dwell
+                    const elapsed = Date.now() - hoverStartTime;
+                    const progress = Math.min(1.0, elapsed / dwellTimeMs);
+                    
+                    // Update Circular Fill
+                    const circumference = 163.36;
+                    const offset = circumference * (1 - progress);
+                    
+                    keyGroupsLayer.selectAll(".key-group")
+                        .filter(d => d === closestNode)
+                        .select(".dwell-ring")
+                        .attr("stroke-dashoffset", offset);
+
+                    // Trigger Typing on Completion
+                    if (progress >= 1.0) {
+                        appendOutputText(closestNode.char);
+                        resetDwellProgress();
+                        hoverStartTime = Date.now() + 400; // Pause threshold to prevent repeated triggers
+                    }
+                }
+            } else {
+                resetDwellProgress();
+            }
+        }
+
+        function resetDwellProgress() {
+            activeHoverNode = null;
+            hoverStartTime = null;
+            keyGroupsLayer.selectAll(".dwell-ring").attr("stroke-dashoffset", "163.36");
+        }
+
+        /* --- Mode 2: Gaze Swipe Trajectory --- */
+        function processSwipeMode(x, y) {
+            swipePathPoints.push([x, y]);
+            if (swipePathPoints.length > 40) swipePathPoints.shift(); // Keep trail tight
+
+            // Render SVG Path Polyline
+            if (swipePathPoints.length > 1) {
+                const pathData = "M " + swipePathPoints.map(p => `${p[0]},${p[1]}`).join(" L ");
+                trajectoryPath.attr("d", pathData);
+            }
+
+            // Check Collision with Keys
+            for (let i = 1; i < nodes.length; i++) {
+                const node = nodes[i];
+                if (Math.hypot(node.x0 - x, node.y0 - y) < 35) {
+                    if (visitedSwipeNodes[visitedSwipeNodes.length - 1] !== node.char) {
+                        visitedSwipeNodes.push(node.char);
+                        
+                        // Highlight key hit
+                        keyGroupsLayer.selectAll(".key-group")
+                            .filter(d => d === node)
+                            .select("rect")
+                            .attr("fill", "#ff0055");
                     }
                 }
             }
-            return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
-        };
-    }
 
-    function handleKeyCollision(keyNode) {
-        if (currentCollidingKey !== keyNode.char) {
-            currentCollidingKey = keyNode.char;
-            clearTimeout(dwellTimer);
-
-            keyGroups.select("rect").attr("fill", "#1e1e1e");
-            keyGroups.filter(d => d.char === currentCollidingKey).select("rect").attr("fill", "#00ffcc");
-
-            dwellTimer = setTimeout(() => {
-                appendCharacter(currentCollidingKey);
-                currentCollidingKey = null;
-            }, DWELL_TIME_MS);
-        }
-    }
-
-    function appendCharacter(char) {
-        const outputBar = document.getElementById("output-bar");
-        let currentText = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-
-        if (char === "⌫") {
-            currentText = currentText.slice(0, -1);
-        } else if (char === "SP") {
-            currentText += " ";
-        } else {
-            currentText += char;
+            // Debounce Pause Detection to resolve word
+            clearTimeout(swipePauseTimer);
+            swipePauseTimer = setTimeout(resolveSwipeWord, 600);
         }
 
-        outputBar.innerText = currentText || "Type here...";
-    }
+        function resolveSwipeWord() {
+            if (visitedSwipeNodes.length === 0) return;
 
-    var webgazerCanvas = null;
-    var collisionEyeListener = async function(data, clock) {
-        if (!data) return;
+            const rawPath = visitedSwipeNodes.join("");
+            let bestMatch = rawPath;
 
-        if (smoothedGazeX === null || smoothedGazeY === null) {
-            smoothedGazeX = data.x;
-            smoothedGazeY = data.y;
-        } else {
-            smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
-            smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
+            // Simple Distance Matcher against dictionary
+            let minScore = Infinity;
+            dictionary.forEach(word => {
+                if (word[0] === rawPath[0]) { // Match starting letter
+                    const score = Math.abs(word.length - rawPath.length);
+                    if (score < minScore) {
+                        minScore = score;
+                        bestMatch = word;
+                    }
+                }
+            });
+
+            appendOutputText(bestMatch + " ");
+
+            // Cleanup Trajectory
+            visitedSwipeNodes = [];
+            swipePathPoints = [];
+            trajectoryPath.attr("d", "");
+            keyGroupsLayer.selectAll("rect").attr("fill", "#141414");
         }
 
-        nodes[0].x = nodes[0].px = smoothedGazeX;
-        nodes[0].y = nodes[0].py = smoothedGazeY;
-        force.resume();
+        /* --- Mode 3: Predictive Radial Pie Menu --- */
+        let activeRadialSlice = null;
+        let radialHoverStart = null;
 
-        var tracker = webgazer.getTracker();
-        var fmPositions = tracker && tracker.getPositions ? await tracker.getPositions() : null;
-        var previewWidth = webgazer.params.videoViewerWidth || 320;
-        var whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
+        function processRadialMode(x, y) {
+            let hovered = null;
+            radialSlices.forEach(slice => {
+                if (x >= slice.x && x <= slice.x + slice.w && y >= slice.y && y <= slice.y + slice.h) {
+                    hovered = slice;
+                }
+            });
 
-        if (fmPositions && fmPositions[145] && fmPositions[374]) {
-            d3.select('#eyeline1')
-                .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
-                .attr("x2", previewWidth - fmPositions[145][0] * whr[0])
-                .attr("y2", fmPositions[145][1] * whr[1]);
-
-            d3.select("#eyeline2")
-                .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
-                .attr("x2", previewWidth - fmPositions[374][0] * whr[0])
-                .attr("y2", fmPositions[374][1] * whr[1]);
+            if (hovered) {
+                if (activeRadialSlice !== hovered) {
+                    activeRadialSlice = hovered;
+                    radialHoverStart = Date.now();
+                    highlightRadialSlice(hovered.id);
+                } else {
+                    const elapsed = Date.now() - radialHoverStart;
+                    if (elapsed >= dwellTimeMs) {
+                        // Select first item or drill-down action
+                        appendOutputText(hovered.chars[0] + " ");
+                        radialHoverStart = Date.now() + 500; // Pause
+                    }
+                }
+            } else {
+                activeRadialSlice = null;
+                highlightRadialSlice(null);
+            }
         }
-    };
-  </script>
+
+        function highlightRadialSlice(sliceId) {
+            radialSlicesGroup.selectAll(".slice-bg")
+                .attr("fill", d => d.id === sliceId ? "#ff0055" : "#121212")
+                .attr("stroke-width", d => d.id === sliceId ? 4 : 2);
+        }
+
+        /* =========================================================================
+           7. Calibration Subsystem
+           ========================================================================= */
+        function startCalibration() {
+            isCalibrating = true;
+            calibrationStep = 0;
+            clickCount = 0;
+
+            document.getElementById("calibration-marker").style.display = "flex";
+            document.getElementById("calibration-banner").style.display = "block";
+            updateCalibrationStep();
+        }
+
+        function updateCalibrationStep() {
+            if (calibrationStep >= calibrationTargets.length) {
+                // Calibration Complete
+                isCalibrating = false;
+                document.getElementById("calibration-marker").style.display = "none";
+                document.getElementById("calibration-banner").style.display = "none";
+                return;
+            }
+
+            const target = calibrationTargets[calibrationStep];
+            const marker = document.getElementById("calibration-marker");
+            const targetX = window.innerWidth * target.xRatio;
+            const targetY = window.innerHeight * target.yRatio;
+
+            marker.style.left = targetX + "px";
+            marker.style.top = targetY + "px";
+            marker.innerText = target.char;
+
+            document.getElementById("calibration-instruction").innerText = 
+                `Calibrating Target ${calibrationStep + 1} of ${calibrationTargets.length} (${target.char}): Look at marker and click 3 times (${clickCount}/3)`;
+        }
+
+        document.getElementById("calibration-marker").addEventListener("click", function(e) {
+            if (!isCalibrating) return;
+
+            const target = calibrationTargets[calibrationStep];
+            const targetX = window.innerWidth * target.xRatio;
+            const targetY = window.innerHeight * target.yRatio;
+
+            // Record Ground Truth to WebGazer
+            if (typeof webgazer !== 'undefined') {
+                webgazer.recordScreenPosition(targetX, targetY, 'click');
+            }
+
+            clickCount++;
+            if (clickCount >= 3) {
+                clickCount = 0;
+                calibrationStep++;
+            }
+            updateCalibrationStep();
+        });
+
+        /* =========================================================================
+           8. Helpers & UI Controllers
+           ========================================================================= */
+        function switchInputMode(mode) {
+            currentMode = mode;
+            resetDwellProgress();
+
+            // Toggle Tab UI Highlight
+            document.querySelectorAll(".mode-btn").forEach(btn => {
+                btn.className = "mode-btn px-4 py-2 rounded-lg font-bold text-sm text-neutral-400 hover:text-white transition-all flex items-center gap-1.5";
+            });
+
+            const activeBtn = document.getElementById(`mode-${mode}`);
+            activeBtn.className = "mode-btn px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-1.5 bg-emerald-400 text-black shadow-lg shadow-emerald-400/20";
+
+            // Toggle Layer Visibilities
+            if (mode === "radial") {
+                keyGroupsLayer.style("display", "none");
+                radialSlicesGroup.style("display", "block");
+                trajectoryPath.style("display", "none");
+            } else {
+                keyGroupsLayer.style("display", "block");
+                radialSlicesGroup.style("display", "none");
+                trajectoryPath.style("display", mode === "swipe" ? "block" : "none");
+            }
+        }
+
+        function appendOutputText(text) {
+            const bar = document.getElementById("output-bar");
+            if (bar.innerText === "Type here...") bar.innerText = "";
+            bar.innerText += text;
+            bar.scrollLeft = bar.scrollWidth;
+        }
+
+        function setupUIControls() {
+            document.getElementById("btn-clear").onclick = () => {
+                document.getElementById("output-bar").innerText = "Type here...";
+            };
+
+            document.getElementById("btn-backspace").onclick = () => {
+                const bar = document.getElementById("output-bar");
+                if (bar.innerText !== "Type here...") {
+                    bar.innerText = bar.innerText.slice(0, -1) || "Type here...";
+                }
+            };
+
+            document.getElementById("btn-speak").onclick = () => {
+                const text = document.getElementById("output-bar").innerText;
+                if (text && text !== "Type here..." && 'speechSynthesis' in window) {
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    window.speechSynthesis.speak(utterance);
+                }
+            };
+        }
+
+        function updateSettings() {
+            dwellTimeMs = parseInt(document.getElementById("slider-dwell").value);
+            document.getElementById("val-dwell").innerText = (dwellTimeMs / 1000).toFixed(1) + "s";
+
+            smoothingFactor = parseFloat(document.getElementById("slider-smooth").value);
+            document.getElementById("val-smooth").innerText = smoothingFactor.toFixed(2);
+        }
+
+        function toggleWebcamPreview() {
+            isVideoPreviewVisible = !isVideoPreviewVisible;
+            if (typeof webgazer !== 'undefined') {
+                webgazer.showVideoPreview(isVideoPreviewVisible);
+            }
+            document.getElementById("btn-toggle-video").innerText = isVideoPreviewVisible ? "📷 Camera Off" : "📷 Camera On";
+        }
+
+        async function updateEyeRays() {
+            if (typeof webgazer === 'undefined') return;
+            const tracker = webgazer.getTracker();
+            const fmPositions = tracker && tracker.getPositions ? await tracker.getPositions() : null;
+            const previewWidth = webgazer.params.videoViewerWidth || 320;
+            const whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
+
+            if (fmPositions && fmPositions[145] && fmPositions[374]) {
+                d3.select('#eyeline1')
+                    .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
+                    .attr("x2", previewWidth - fmPositions[145][0] * whr[0])
+                    .attr("y2", fmPositions[145][1] * whr[1]);
+
+                d3.select("#eyeline2")
+                    .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
+                    .attr("x2", previewWidth - fmPositions[374][0] * whr[0])
+                    .attr("y2", fmPositions[374][1] * whr[1]);
+            }
+        }
+
+        function handleWindowResize() {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+
+            d3Svg.attr("width", width).attr("height", height);
+            buildKeyboardNodes(width, height);
+            buildRadialSlices(width, height);
+        }
+    </script>
 </body>
 </html>
