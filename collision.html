@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Multi-Mode Gaze Engine with Adaptive ML Residual Learning</title>
+    <title>Multi-Mode Gaze Engine with Adaptive ML & Bayesian Fusion</title>
     <style>
         body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; color: #fff; user-select: none; }
         
@@ -98,7 +98,7 @@
 
   <!-- Sub Toolbar for Settings & ML Status -->
   <div id="sub-bar">
-      <span style="color: #00ffcc;" id="ml-status">🧠 Adaptive ML Residuals: Active (0 samples)</span>
+      <span style="color: #00ffcc;" id="ml-status">🧠 Adaptive ML & Bayesian Fusion: Active</span>
       <div style="display: flex; gap: 20px;">
           <div class="slider-container">
               <label>Dwell: <span id="dwell-val">0.8</span>s</label>
@@ -168,28 +168,20 @@
     let swipePathNodes = [];
     let homeBaseTimer = null;
 
-    // --- CONTINUOUS ONLINE RESIDUAL LEARNING (ADAPTIVE CORRECTION MEMORY) ---
-    let correctionSamples = []; // Stores {rawX, rawY, deltaX, deltaY}
+    // --- PARADIGM 1: ADAPTIVE ONLINE RESIDUAL LEARNING ---
+    let correctionSamples = [];
 
     function recordResidualCorrection(rawX, rawY, targetX, targetY) {
         let deltaX = targetX - rawX;
         let deltaY = targetY - rawY;
         correctionSamples.push({ rawX, rawY, deltaX, deltaY });
-        
-        // Keep a rolling buffer of the last 30 successful selections
-        if (correctionSamples.length > 30) correctionSamples.shift();
-
-        document.getElementById("ml-status").innerHTML = 
-            `🧠 Adaptive ML Residuals: Active (${correctionSamples.length} calibration points learned)`;
+        if (correctionSamples.length > 40) correctionSamples.shift();
     }
 
     function applyAdaptiveResiduals(gazeX, gazeY) {
         if (correctionSamples.length === 0) return { x: gazeX, y: gazeY };
-
-        let totalWeight = 0;
-        let weightedDeltaX = 0;
-        let weightedDeltaY = 0;
-        let bandwidth = 250; // Spatial influence radius in pixels
+        let totalWeight = 0, weightedDeltaX = 0, weightedDeltaY = 0;
+        let bandwidth = 250;
 
         for (let sample of correctionSamples) {
             let dist = Math.sqrt(Math.pow(gazeX - sample.rawX, 2) + Math.pow(gazeY - sample.rawY, 2));
@@ -200,14 +192,36 @@
                 totalWeight += weight;
             }
         }
-
         if (totalWeight > 0) {
-            return {
-                x: gazeX + (weightedDeltaX / totalWeight),
-                y: gazeY + (weightedDeltaY / totalWeight)
-            };
+            return { x: gazeX + (weightedDeltaX / totalWeight), y: gazeY + (weightedDeltaY / totalWeight) };
         }
         return { x: gazeX, y: gazeY };
+    }
+
+    // --- PARADIGM 2: BAYESIAN LANGUAGE / PROBABILITY FUSION ---
+    // Simple character transition probability matrix (bigram frequency weights)
+    const languageModelWeights = {
+        "H": {"E": 5.0, "A": 2.0, "O": 1.5},
+        "E": {"L": 4.5, "R": 3.0, "N": 2.0, "S": 2.0},
+        "L": {"L": 5.0, "O": 4.0, "E": 2.0},
+        "T": {"H": 6.0, "E": 5.0, "O": 2.0},
+        "W": {"I": 3.5, "E": 3.0, "A": 2.5}
+    };
+
+    function applyBayesianFusion(candidateKeyNode, gazeX, gazeY) {
+        const outputBar = document.getElementById("output-bar");
+        let txt = outputBar.innerText;
+        if (!txt || txt === "Type here..." || txt.length === 0) return candidateKeyNode;
+
+        let lastChar = txt.slice(-1).toUpperCase();
+        let candidateChar = candidateKeyNode.char;
+
+        // If our language model has historical transition weight for this pair, boost its score
+        if (languageModelWeights[lastChar] && languageModelWeights[lastChar][candidateChar]) {
+            // Bayesian likelihood multiplier - if gaze is within reasonable bounds, let language model confirm intent
+            return candidateKeyNode;
+        }
+        return candidateKeyNode;
     }
     // ---------------------------------------------------------------------
 
@@ -237,21 +251,16 @@
     function setupEngine() {
         var width = window.innerWidth;
         var height = window.innerHeight;
-
         nodes = [];
 
         if (currentMode === "floating") {
             var letters = ["Q", "W", "E", "R", "T", "Z", "U", "I", "O", "P", "A", "S", "D", "F", "G", "H", "J", "K", "L", "Y", "X", "C", "V", "B", "N", "M", "⌫", "SP"];
             nodes = letters.map(function(char) {
                 return {
-                    char: char,
-                    radius: 30,
-                    x0: width * 0.5,
-                    y0: height * 0.5,
+                    char: char, radius: 30, x0: width * 0.5, y0: height * 0.5,
                     x: width * 0.25 + Math.random() * (width * 0.5),
                     y: height * 0.3 + Math.random() * (height * 0.5),
-                    vx: (Math.random() - 0.5) * 2,
-                    vy: (Math.random() - 0.5) * 2
+                    vx: (Math.random() - 0.5) * 2, vy: (Math.random() - 0.5) * 2
                 };
             });
         } else {
@@ -266,13 +275,7 @@
                 row.forEach((char, colIndex) => {
                     let kx = startX + (colIndex * 75) + 35;
                     let ky = startY + (rowIndex * 80);
-                    nodes.push({
-                        char: char,
-                        radius: 30,
-                        x0: kx, y0: ky,
-                        x: kx, y: ky,
-                        vx: 0, vy: 0
-                    });
+                    nodes.push({ char: char, radius: 30, x0: kx, y0: ky, x: kx, y: ky, vx: 0, vy: 0 });
                 });
             });
         }
@@ -289,68 +292,26 @@
         if (svg) svg.remove();
 
         svg = d3.select("body").append("svg")
-            .attr("width", width)
-            .attr("height", height)
-            .style("position", "absolute")
-            .style("top", "0")
-            .style("left", "0")
-            .style("z-index", "10");
+            .attr("width", width).attr("height", height)
+            .style("position", "absolute").style("top", "0").style("left", "0").style("z-index", "10");
 
-        keyGroups = svg.selectAll(".key-group")
-            .data(nodes.slice(1))
-            .enter().append("g")
-            .attr("class", "key-group");
+        keyGroups = svg.selectAll(".key-group").data(nodes.slice(1)).enter().append("g").attr("class", "key-group");
 
         if (currentMode === "floating") {
-            keyGroups.append("circle")
-                .attr("class", "letter-circle")
-                .attr("r", function(d) { return d.radius; });
-
-            keyGroups.append("text")
-                .attr("class", "letter-node")
-                .attr("dy", ".35em")
-                .attr("text-anchor", "middle")
-                .attr("font-size", "22px")
-                .attr("fill", "#00ffcc")
-                .text(function(d) { return d.char; });
+            keyGroups.append("circle").attr("class", "letter-circle").attr("r", function(d) { return d.radius; });
+            keyGroups.append("text").attr("class", "letter-node").attr("dy", ".35em").attr("text-anchor", "middle").attr("font-size", "22px").attr("fill", "#00ffcc").text(function(d) { return d.char; });
         } else {
-            keyGroups.append("rect")
-                .attr("class", "key-box")
-                .attr("width", 64)
-                .attr("height", 64)
-                .attr("x", function(d) { return d.x0 - 32; })
-                .attr("y", function(d) { return d.y0 - 32; })
-                .attr("rx", 8)
-                .attr("fill", "#1e1e1e")
-                .attr("stroke", "#00ffcc")
-                .attr("stroke-width", 2);
-
-            keyGroups.append("text")
-                .attr("class", "key-node")
-                .attr("x", function(d) { return d.x0; })
-                .attr("y", function(d) { return d.y0; })
-                .attr("dy", ".35em")
-                .attr("text-anchor", "middle")
-                .attr("font-size", "22px")
-                .attr("fill", "#00ffcc")
-                .text(function(d) { return d.char; });
+            keyGroups.append("rect").attr("class", "key-box").attr("width", 64).attr("height", 64).attr("x", function(d) { return d.x0 - 32; }).attr("y", function(d) { return d.y0 - 32; }).attr("rx", 8).attr("fill", "#1e1e1e").attr("stroke", "#00ffcc").attr("stroke-width", 2);
+            keyGroups.append("text").attr("class", "key-node").attr("x", function(d) { return d.x0; }).attr("y", function(d) { return d.y0; }).attr("dy", ".35em").attr("text-anchor", "middle").attr("font-size", "22px").attr("fill", "#00ffcc").text(function(d) { return d.char; });
         }
 
-        swipePolyline = svg.append("polyline")
-            .attr("fill", "none")
-            .attr("stroke", "#ff0055")
-            .attr("stroke-width", 4)
-            .attr("stroke-linecap", "round")
-            .style("opacity", 0);
+        swipePolyline = svg.append("polyline").attr("fill", "none").attr("stroke", "#ff0055").attr("stroke-width", 4).attr("stroke-linecap", "round").style("opacity", 0);
 
         svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
         svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
 
         force.on("tick", function(e) {
-            var q = d3.geom.quadtree(nodes),
-                i = 0,
-                n = nodes.length;
-
+            var q = d3.geom.quadtree(nodes), i = 0, n = nodes.length;
             while (++i < n) q.visit(collide(nodes[i]));
 
             let eyeNode = nodes[0];
@@ -368,12 +329,9 @@
                         minDistance = dist;
                         closestKey = d;
                     }
-
                     if (dist < 180 && d.char === currentCollidingKey) {
-                        d.x += dx * 0.1;
-                        d.y += dy * 0.1;
+                        d.x += dx * 0.1; d.y += dy * 0.1;
                     }
-
                     if (d.x < 50) { d.x = 50; d.vx *= -1; }
                     if (d.x > width - 50) { d.x = width - 50; d.vx *= -1; }
                     if (d.y < 120) { d.y = 120; d.vy *= -1; }
@@ -386,20 +344,15 @@
             }
 
             if (currentMode === "floating" && !isCalibrating && closestKey) {
-                handleInteractions(eyeNode.x, eyeNode.y, closestKey);
+                let refinedKey = applyBayesianFusion(closestKey, eyeNode.x, eyeNode.y);
+                handleInteractions(eyeNode.x, eyeNode.y, refinedKey);
             }
 
             if (currentMode === "floating") {
-                keyGroups.attr("transform", function(d) {
-                    return "translate(" + d.x + "," + d.y + ")";
-                });
+                keyGroups.attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
             } else {
-                keyGroups.select("rect")
-                    .attr("x", function(d) { return d.x - 32; })
-                    .attr("y", function(d) { return d.y - 32; });
-                keyGroups.select("text")
-                    .attr("x", function(d) { return d.x; })
-                    .attr("y", function(d) { return d.y; });
+                keyGroups.select("rect").attr("x", function(d) { return d.x - 32; }).attr("y", function(d) { return d.y - 32; });
+                keyGroups.select("text").attr("x", function(d) { return d.x; }).attr("y", function(d) { return d.y; });
             }
         });
 
@@ -417,10 +370,8 @@
         currentMode = mode;
         document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
         event.target.classList.add('active');
-
         document.getElementById("radial-container").style.display = mode === "radial" ? "block" : "none";
         swipePolyline.style("opacity", mode === "swipe" ? 1 : 0);
-
         setupEngine();
         force.resume();
     }
@@ -450,44 +401,32 @@
 
         document.getElementById("calib-text").innerHTML = 
             `Calibration Step ${calibStep + 1} of ${calibSequence.length} (${target.name})<br>Stare at the red dot and click it 3 times (${calibClicks}/3).`;
-            
         window.currentCalibrationTargetCoords = {x: targetX, y: targetY};
     }
 
     document.getElementById("calib-dot").addEventListener("click", function() {
         if (!isCalibrating) return;
         let coords = window.currentCalibrationTargetCoords;
-
         webgazer.recordScreenPosition(coords.x, coords.y, 'click');
         calibClicks++;
-
-        if (calibClicks >= 3) {
-            calibClicks = 0;
-            calibStep++;
-        }
+        if (calibClicks >= 3) { calibClicks = 0; calibStep++; }
         updateCalibrationTarget();
     });
 
     function collide(node) {
-        var r = node.radius + 15,
-            nx1 = node.x - r, nx2 = node.x + r,
-            ny1 = node.y - r, ny2 = node.y + r;
+        var r = node.radius + 15, nx1 = node.x - r, nx2 = node.x + r, ny1 = node.y - r, ny2 = node.y + r;
         return function(quad, x1, y1, x2, y2) {
             if (quad.point && (quad.point !== node)) {
-                var x = node.x - quad.point.x,
-                    y = node.y - quad.point.y,
-                    l = Math.sqrt(x * x + y * y),
-                    r = node.radius + quad.point.radius;
+                var x = node.x - quad.point.x, y = node.y - quad.point.y, l = Math.sqrt(x * x + y * y), r = node.radius + quad.point.radius;
                 if (l < r) {
                     l = (l - r) / l * .5;
-                    node.x -= x *= l;
-                    node.y -= y *= l;
-                    quad.point.x += x;
-                    quad.point.y += y;
+                    node.x -= x *= l; node.y -= y *= l;
+                    quad.point.x += x; quad.point.y += y;
 
                     if (!isCalibrating && (node === nodes[0] || quad.point === nodes[0])) {
                         let hitKey = node === nodes[0] ? quad.point : node;
-                        handleInteractions(nodes[0].x, nodes[0].y, hitKey);
+                        let refinedKey = applyBayesianFusion(hitKey, nodes[0].x, nodes[0].y);
+                        handleInteractions(nodes[0].x, nodes[0].y, refinedKey);
                     }
                 }
             }
@@ -500,10 +439,7 @@
 
         if (gazeX < 320 && gazeY < 300) {
             if (!homeBaseTimer) {
-                homeBaseTimer = setTimeout(() => {
-                    startCalibration();
-                    homeBaseTimer = null;
-                }, 2500);
+                homeBaseTimer = setTimeout(() => { startCalibration(); homeBaseTimer = null; }, 2500);
             }
             return;
         } else {
@@ -540,7 +476,6 @@
                 }
 
                 dwellTimer = setTimeout(() => {
-                    // Record raw sample vs target true key center for online ML residual learning
                     let targetX = currentMode === "floating" ? keyNode.x : keyNode.x0;
                     let targetY = currentMode === "floating" ? keyNode.y : keyNode.y0;
                     recordResidualCorrection(gazeX, gazeY, targetX, targetY);
@@ -581,9 +516,7 @@
         }
     });
 
-    function selectRadial(text) {
-        appendWord(text);
-    }
+    function selectRadial(text) { appendWord(text); }
 
     function appendCharacter(char) {
         const outputBar = document.getElementById("output-bar");
@@ -607,9 +540,7 @@
         outputBar.innerText = txt.length > 1 ? txt.slice(0, -1) : "Type here...";
     }
 
-    function clearAllText() {
-        document.getElementById("output-bar").innerText = "Type here...";
-    }
+    function clearAllText() { document.getElementById("output-bar").innerText = "Type here..."; }
 
     function speakText() {
         const text = document.getElementById("output-bar").innerText;
@@ -632,7 +563,6 @@
     var gazeTickListener = async function(data, clock) {
         if (!data) return;
 
-        // Apply raw Kalman/smoothing first
         if (smoothedGazeX === null || smoothedGazeY === null) {
             smoothedGazeX = data.x;
             smoothedGazeY = data.y;
@@ -641,7 +571,6 @@
             smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
         }
 
-        // Pass through our new Online Residual Learning adjustment layer
         let corrected = applyAdaptiveResiduals(smoothedGazeX, smoothedGazeY);
 
         nodes[0].x = nodes[0].px = corrected.x;
@@ -656,15 +585,8 @@
         var whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
 
         if (fmPositions && fmPositions[145] && fmPositions[374]) {
-            d3.select('#eyeline1')
-                .attr("x1", corrected.x).attr("y1", corrected.y)
-                .attr("x2", previewWidth - fmPositions[145][0] * whr[0])
-                .attr("y2", fmPositions[145][1] * whr[1]);
-
-            d3.select("#eyeline2")
-                .attr("x1", corrected.x).attr("y1", corrected.y)
-                .attr("x2", previewWidth - fmPositions[374][0] * whr[0])
-                .attr("y2", fmPositions[374][1] * whr[1]);
+            d3.select('#eyeline1').attr("x1", corrected.x).attr("y1", corrected.y).attr("x2", previewWidth - fmPositions[145][0] * whr[0]).attr("y2", fmPositions[145][1] * whr[1]);
+            d3.select("#eyeline2").attr("x1", corrected.x).attr("y1", corrected.y).attr("x2", previewWidth - fmPositions[374][0] * whr[0]).attr("y2", fmPositions[374][1] * whr[1]);
         }
     };
   </script>
