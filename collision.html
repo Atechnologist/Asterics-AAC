@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Multi-Mode Gaze Engine with Virtual Cursor Snap-Assist</title>
+    <title>Multi-Mode Gaze Engine with Hover Macro-Regions</title>
     <style>
         body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; color: #fff; user-select: none; }
         
@@ -19,20 +19,20 @@
             font-size: 20px; display: flex; align-items: center; padding: 0 15px;
             margin-right: 20px; overflow: hidden; white-space: nowrap;
         }
-        .control-group { display: flex; align-items: center; gap: 10px; }
+        .control-group { display: flex; align-items: center; gap: 8px; }
         .mode-btn {
-            background: #1e1e1e; color: #00ffcc; border: 1px solid #00ffcc; padding: 8px 14px;
-            border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s;
+            background: #1e1e1e; color: #00ffcc; border: 1px solid #00ffcc; padding: 6px 10px;
+            border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 13px;
         }
         .mode-btn.active { background: #00ffcc; color: #000; box-shadow: 0 0 12px rgba(0,255,204,0.5); }
         .action-btn {
-            background: #222; color: #fff; border: 1px solid #555; padding: 8px 12px;
-            border-radius: 6px; font-weight: bold; cursor: pointer;
+            background: #222; color: #fff; border: 1px solid #555; padding: 7px 10px;
+            border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px;
         }
         .action-btn.danger { border-color: #ff4444; color: #ff4444; }
         .action-btn.primary { border-color: #00ffcc; color: #00ffcc; }
 
-        /* Secondary Toolbar for Settings & ML Status */
+        /* Secondary Toolbar for Settings & Status */
         #sub-bar {
             position: fixed; top: 75px; left: 0; width: 100vw; height: 45px;
             background: rgba(25, 25, 25, 0.9); border-bottom: 1px solid #333;
@@ -47,36 +47,28 @@
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
             background: rgba(10, 10, 10, 0.85); z-index: 30000;
             display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-            padding-top: 130px; text-align: center;
-            pointer-events: none;
+            padding-top: 130px; text-align: center; pointer-events: none;
         }
         #calib-dot {
             width: 50px; height: 50px; background: #ff0055; border-radius: 50%;
             position: absolute; transform: translate(-50%, -50%); cursor: pointer;
             box-shadow: 0 0 35px #ff0055; display: flex; align-items: center; justify-content: center;
             font-weight: bold; font-size: 18px; color: #fff; border: 3px solid #fff;
-            pointer-events: auto;
-            z-index: 35000;
+            pointer-events: auto; z-index: 35000;
         }
 
-        /* Radial Pie Menu Overlay */
-        #radial-container {
-            position: fixed; top: 55%; left: 50%; transform: translate(-50%, -50%);
-            width: 450px; height: 450px; display: none; z-index: 5000; pointer-events: none;
+        /* Macro Region Containers */
+        .macro-zone {
+            position: absolute; border: 2px dashed rgba(0, 255, 204, 0.3); border-radius: 12px;
+            display: flex; align-items: center; justify-content: center; transition: all 0.3s;
+            background: rgba(0, 255, 204, 0.03);
         }
-        .radial-sector {
-            position: absolute; width: 160px; height: 160px; border: 2px solid #00ffcc;
-            background: rgba(0, 255, 204, 0.15); border-radius: 50%; display: flex;
-            align-items: center; justify-content: center; font-size: 20px; font-weight: bold;
-            pointer-events: auto; cursor: pointer; transition: background 0.2s;
-        }
-        .radial-sector:hover { background: rgba(0, 255, 204, 0.5); }
+        .macro-zone.active-region { background: rgba(0, 255, 204, 0.15); border-color: #ff0055; box-shadow: 0 0 20px rgba(255,0,85,0.3); }
 
         .key-box { rx: 8; transition: fill 0.15s, stroke 0.15s; }
         .letter-circle { stroke: #00ffcc; stroke-width: 2px; fill: #1e1e1e; transition: fill 0.15s, stroke 0.15s; }
         .letter-node { font-weight: bold; cursor: pointer; user-select: none; }
         
-        /* Glowing Virtual Gaze Cursor Reticle */
         #virtual-cursor {
             position: absolute; width: 24px; height: 24px; border: 3px solid #ff0055;
             border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none;
@@ -94,21 +86,20 @@
       <div id="output-bar">Type here...</div>
       <div class="control-group">
           <button class="mode-btn active" onclick="switchMode('magnetic')">Magnetic QWERTY</button>
+          <button class="mode-btn" onclick="switchMode('regions')">Macro Regions</button>
           <button class="mode-btn" onclick="switchMode('swipe')">Gaze Swipe</button>
-          <button class="mode-btn" onclick="switchMode('radial')">Radial Pie</button>
           <button class="mode-btn" onclick="switchMode('floating')">Floating Letters</button>
       </div>
-      <div class="control-group" style="margin-left: 15px;">
+      <div class="control-group" style="margin-left: 10px;">
           <button class="action-btn primary" onclick="speakText()">🔊 Speak</button>
           <button class="action-btn danger" onclick="clearText()">Delete</button>
-          <button class="action-btn" onclick="clearAllText()">Clear</button>
           <button class="action-btn primary" onclick="startCalibration()">Recalibrate</button>
       </div>
   </div>
 
-  <!-- Sub Toolbar for Settings & ML Status -->
+  <!-- Sub Toolbar -->
   <div id="sub-bar">
-      <span style="color: #00ffcc;" id="ml-status">🎯 Virtual Magnetic Snap-Assist: Active</span>
+      <span style="color: #00ffcc;" id="status-msg">🎯 Hover Reticle & Macro-Region Mode Active</span>
       <div style="display: flex; gap: 20px;">
           <div class="slider-container">
               <label>Dwell: <span id="dwell-val">0.8</span>s</label>
@@ -128,14 +119,6 @@
           Stare directly at the red glowing circle and click it <strong>3 times</strong> with your mouse.
       </p>
       <div id="calib-dot">1</div>
-  </div>
-
-  <!-- Radial Menu Overlay -->
-  <div id="radial-container">
-      <div class="radial-sector" style="top: 0; left: 145px;" onclick="selectRadial('AEIOU')">Vowels (AEIOU)</div>
-      <div class="radial-sector" style="top: 145px; right: 0;" onclick="selectRadial('RSTLN')">Common (RSTLN)</div>
-      <div class="radial-sector" style="bottom: 0; left: 145px;" onclick="selectRadial('BCDFG')">Consonants (BCDFG)</div>
-      <div class="radial-sector" style="top: 145px; left: 0;" onclick="appendCharacter('SP');">SPACE</div>
   </div>
 
   <!-- Dependencies -->
@@ -166,7 +149,7 @@
     const calibSequence = [
         {name: "Top-Left Zone", x: 0.15, y: 0.3},
         {name: "Top-Right Zone", x: 0.85, y: 0.3},
-        {name: "Center Zone (Key G)", key: "G"},
+        {name: "Center Zone", x: 0.5, y: 0.5},
         {name: "Bottom-Left Zone", x: 0.15, y: 0.8},
         {name: "Bottom-Right Zone", x: 0.85, y: 0.8}
     ];
@@ -177,6 +160,7 @@
     let svg, keyGroups, swipePolyline;
     let swipePathNodes = [];
     let homeBaseTimer = null;
+    let activeMacroRegion = null;
 
     let correctionSamples = [];
 
@@ -207,9 +191,6 @@
         return { x: gazeX, y: gazeY };
     }
 
-    let lastGazeSamples = [];
-    const VARIANCE_THRESHOLD = 500; 
-
     window.onload = async function() {
         if (!window.saveDataAcrossSessions) {
             localforage.setItem('webgazerGlobalData', null);
@@ -235,6 +216,8 @@
         var height = window.innerHeight;
         nodes = [];
 
+        d3.selectAll(".macro-zone").remove();
+
         if (currentMode === "floating") {
             var letters = ["Q", "W", "E", "R", "T", "Z", "U", "I", "O", "P", "A", "S", "D", "F", "G", "H", "J", "K", "L", "Y", "X", "C", "V", "B", "N", "M", "⌫", "SP"];
             nodes = letters.map(function(char) {
@@ -257,9 +240,24 @@
                 row.forEach((char, colIndex) => {
                     let kx = startX + (colIndex * 75) + 35;
                     let ky = startY + (rowIndex * 80);
-                    nodes.push({ char: char, radius: 30, x0: kx, y0: ky, x: kx, y: ky, vx: 0, vy: 0 });
+                    let region = colIndex < 5 ? "left" : "right";
+                    if (rowIndex === 2) region = colIndex < 5 ? "bottom-left" : "bottom-right";
+                    
+                    nodes.push({ char: char, radius: 30, x0: kx, y0: ky, x: kx, y: ky, vx: 0, vy: 0, region: region });
                 });
             });
+
+            if (currentMode === "regions") {
+                // Render Macro Region Overlays
+                let bodySel = d3.select("body");
+                bodySel.append("div").attr("class", "macro-zone").attr("id", "zone-left")
+                    .style("left", "15vw").style("top", "38vh").style("width", "35vw").style("height", "45vh")
+                    .html("<span style='color:rgba(0,255,204,0.4); font-size:24px; font-weight:bold;'>LEFT CLUSTER</span>");
+                
+                bodySel.append("div").attr("class", "macro-zone").attr("id", "zone-right")
+                    .style("left", "52vw").style("top", "38vh").style("width", "35vw").style("height", "45vh")
+                    .html("<span style='color:rgba(0,255,204,0.4); font-size:24px; font-weight:bold;'>RIGHT CLUSTER</span>");
+            }
         }
 
         nodes.unshift({ radius: 0, fixed: true, x: width/2, y: height/2 });
@@ -284,7 +282,7 @@
             keyGroups.append("text").attr("class", "letter-node").attr("dy", ".35em").attr("text-anchor", "middle").attr("font-size", "22px").attr("fill", "#00ffcc").text(function(d) { return d.char; });
         } else {
             keyGroups.append("rect").attr("class", "key-box").attr("width", 64).attr("height", 64).attr("x", function(d) { return d.x0 - 32; }).attr("y", function(d) { return d.y0 - 32; }).attr("rx", 8).attr("fill", "#1e1e1e").attr("stroke", "#00ffcc").attr("stroke-width", 2);
-            keyGroups.append("text").attr("class", "letter-node").attr("x", function(d) { return d.x0; }).attr("y", function(d) { return d.y0; }).attr("dy", ".35em").attr("text-anchor", "middle").attr("font-size", "22px").attr("fill", "#00ffcc").text(function(d) { return d.char; });
+            keyGroups.append("text").attr("class", "key-node").attr("x", function(d) { return d.x0; }).attr("y", function(d) { return d.y0; }).attr("dy", ".35em").attr("text-anchor", "middle").attr("font-size", "22px").attr("fill", "#00ffcc").text(function(d) { return d.char; });
         }
 
         swipePolyline = svg.append("polyline").attr("fill", "none").attr("stroke", "#ff0055").attr("stroke-width", 4).attr("stroke-linecap", "round").style("opacity", 0);
@@ -299,7 +297,7 @@
             let eyeNode = nodes[0];
             let closestKey = null;
             let minDistance = 9999;
-            let snapRadius = 65; // Magnetic snap radius threshold in pixels
+            let snapRadius = currentMode === "regions" ? 120 : 65;
 
             for (let j = 1; j < nodes.length; j++) {
                 let d = nodes[j];
@@ -310,7 +308,6 @@
                 let dy = eyeNode.y - targetY;
                 let dist = Math.sqrt(dx * dx + dy * dy);
 
-                // Virtual Magnetic Snap: if eye reticle is near a key, magnetically pull eye node toward key center
                 if (dist < snapRadius && dist < minDistance) {
                     minDistance = dist;
                     closestKey = d;
@@ -331,17 +328,30 @@
                 }
             }
 
-            // Apply magnetic snap interpolation if a key is within range
+            // Macro region active highlighting
+            if (currentMode === "regions") {
+                let leftZone = document.getElementById("zone-left");
+                let rightZone = document.getElementById("zone-right");
+                if (leftZone && rightZone) {
+                    if (eyeNode.x < width / 2) {
+                        leftZone.classList.add("active-region");
+                        rightZone.classList.remove("active-region");
+                    } else {
+                        rightZone.classList.add("active-region");
+                        leftZone.classList.remove("active-region");
+                    }
+                }
+            }
+
             if (closestKey && !isCalibrating) {
                 let tx = currentMode === "floating" ? closestKey.x : closestKey.x0;
                 let ty = currentMode === "floating" ? closestKey.y : closestKey.y0;
-                eyeNode.x += (tx - eyeNode.x) * 0.25; // Smooth magnetic pull factor
-                eyeNode.y += (ty - eyeNode.y) * 0.25;
+                eyeNode.x += (tx - eyeNode.x) * 0.2; 
+                eyeNode.y += (ty - eyeNode.y) * 0.2;
                 
                 handleInteractions(eyeNode.x, eyeNode.y, closestKey);
             }
 
-            // Update DOM position for visible virtual gaze reticle
             let vCursor = document.getElementById("virtual-cursor");
             vCursor.style.left = eyeNode.x + "px";
             vCursor.style.top = eyeNode.y + "px";
@@ -368,7 +378,6 @@
         currentMode = mode;
         document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
         event.target.classList.add('active');
-        document.getElementById("radial-container").style.display = mode === "radial" ? "block" : "none";
         swipePolyline.style("opacity", mode === "swipe" ? 1 : 0);
         setupEngine();
         force.resume();
@@ -439,8 +448,6 @@
             homeBaseTimer = null;
         }
 
-        if (currentMode === "radial") return;
-
         if (keyNode) {
             if (currentCollidingKey !== keyNode.char) {
                 currentCollidingKey = keyNode.char;
@@ -473,32 +480,8 @@
                     currentCollidingKey = null;
                 }, DWELL_TIME_MS);
             }
-        } else if (currentMode === "swipe" && keyNode) {
-            if (!swipePathNodes.includes(keyNode.char)) {
-                swipePathNodes.push(keyNode.char);
-                updateSwipeVisual();
-            }
         }
     }
-
-    function updateSwipeVisual() {
-        let pts = swipePathNodes.map(char => {
-            let n = nodes.find(item => item.char === char);
-            return `${n.x},${n.y}`;
-        }).join(" ");
-        swipePolyline.attr("points", pts);
-    }
-
-    window.addEventListener("mouseup", () => {
-        if (currentMode === "swipe" && swipePathNodes.length > 0) {
-            let word = swipePathNodes.join("");
-            appendWord(word);
-            swipePathNodes = [];
-            swipePolyline.attr("points", "");
-        }
-    });
-
-    function selectRadial(text) { appendWord(text); }
 
     function appendCharacter(char) {
         const outputBar = document.getElementById("output-bar");
@@ -509,20 +492,11 @@
         outputBar.innerText = txt || "Type here...";
     }
 
-    function appendWord(word) {
-        const outputBar = document.getElementById("output-bar");
-        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-        txt += (txt.length ? " " : "") + word;
-        outputBar.innerText = txt;
-    }
-
     function clearText() {
         const outputBar = document.getElementById("output-bar");
         let txt = outputBar.innerText;
         outputBar.innerText = txt.length > 1 ? txt.slice(0, -1) : "Type here...";
     }
-
-    function clearAllText() { document.getElementById("output-bar").innerText = "Type here..."; }
 
     function speakText() {
         const text = document.getElementById("output-bar").innerText;
