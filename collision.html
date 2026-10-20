@@ -2,77 +2,58 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Multi-Mode Zero-Lag Gaze Engine with Home Base Reset</title>
+    <title>WebGazer D3 Quantum Circular Alphabet Collision Keyboard</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; color: #fff; user-select: none; }
+        body { margin: 0; overflow: hidden; background: #111; font-family: sans-serif; color: #fff; user-select: none; }
         
         /* Top Control Bar */
         #top-bar {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 75px;
+            position: fixed; top: 0; left: 0; width: 100vw; height: 65px;
             background: rgba(15, 15, 15, 0.95); border-bottom: 2px solid #00ffcc;
             display: flex; align-items: center; justify-content: space-between; padding: 0 20px;
             z-index: 10000; box-sizing: border-box;
         }
         #output-bar {
-            flex-grow: 1; height: 45px; background: rgba(5, 5, 5, 0.9);
+            flex-grow: 1; height: 40px; background: rgba(5, 5, 5, 0.9);
             border: 2px solid #00ffcc; border-radius: 6px; color: #00ffcc;
-            font-size: 20px; display: flex; align-items: center; padding: 0 15px;
+            font-size: 18px; display: flex; align-items: center; padding: 0 15px;
             margin-right: 20px; overflow: hidden; white-space: nowrap;
         }
         .control-group { display: flex; align-items: center; gap: 10px; }
-        .mode-btn {
-            background: #1e1e1e; color: #00ffcc; border: 1px solid #00ffcc; padding: 8px 14px;
-            border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s;
-        }
-        .mode-btn.active { background: #00ffcc; color: #000; box-shadow: 0 0 12px rgba(0,255,204,0.5); }
         .action-btn {
-            background: #222; color: #fff; border: 1px solid #555; padding: 8px 12px;
-            border-radius: 6px; font-weight: bold; cursor: pointer;
+            background: #222; color: #fff; border: 1px solid #555; padding: 7px 12px;
+            border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 14px;
         }
         .action-btn.danger { border-color: #ff4444; color: #ff4444; }
         .action-btn.primary { border-color: #00ffcc; color: #00ffcc; }
 
-        /* Secondary Toolbar for Sliders */
+        /* Sub Toolbar for Settings */
         #sub-bar {
-            position: fixed; top: 75px; left: 0; width: 100vw; height: 45px;
+            position: fixed; top: 65px; left: 0; width: 100vw; height: 38px;
             background: rgba(25, 25, 25, 0.9); border-bottom: 1px solid #333;
-            display: flex; align-items: center; justify-content: flex-end; padding: 0 20px;
-            z-index: 9999; gap: 20px; font-size: 14px; color: #aaa; box-sizing: border-box;
+            display: flex; align-items: center; justify-content: space-between; padding: 0 20px;
+            z-index: 9999; font-size: 13px; color: #aaa; box-sizing: border-box;
         }
         .slider-container { display: flex; align-items: center; gap: 8px; }
         input[type=range] { accent-color: #00ffcc; cursor: pointer; }
 
-        /* Calibration Overlay Fix */
+        /* Calibration Overlay */
         #calibration-overlay {
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(10, 10, 10, 0.85); z-index: 30000;
+            background: rgba(10, 10, 10, 0.88); z-index: 30000;
             display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-            padding-top: 130px; text-align: center;
-            pointer-events: none;
+            padding-top: 130px; text-align: center; pointer-events: none;
         }
         #calib-dot {
             width: 50px; height: 50px; background: #ff0055; border-radius: 50%;
             position: absolute; transform: translate(-50%, -50%); cursor: pointer;
             box-shadow: 0 0 35px #ff0055; display: flex; align-items: center; justify-content: center;
             font-weight: bold; font-size: 18px; color: #fff; border: 3px solid #fff;
-            pointer-events: auto;
-            z-index: 35000;
+            pointer-events: auto; z-index: 35000;
         }
 
-        /* Radial Pie Menu Overlay */
-        #radial-container {
-            position: fixed; top: 55%; left: 50%; transform: translate(-50%, -50%);
-            width: 450px; height: 450px; display: none; z-index: 5000; pointer-events: none;
-        }
-        .radial-sector {
-            position: absolute; width: 160px; height: 160px; border: 2px solid #00ffcc;
-            background: rgba(0, 255, 204, 0.15); border-radius: 50%; display: flex;
-            align-items: center; justify-content: center; font-size: 20px; font-weight: bold;
-            pointer-events: auto; cursor: pointer; transition: background 0.2s;
-        }
-        .radial-sector:hover { background: rgba(0, 255, 204, 0.5); }
-
-        .key-box { rx: 8; transition: fill 0.15s, stroke 0.15s; }
+        .letter-node { font-weight: bold; cursor: pointer; user-select: none; }
+        .letter-circle { stroke: #00ffcc; stroke-width: 2px; fill: #1e1e1e; transition: fill 0.15s, stroke 0.15s; }
     </style>
 </head>
 <body>
@@ -81,12 +62,6 @@
   <div id="top-bar">
       <div id="output-bar">Type here...</div>
       <div class="control-group">
-          <button class="mode-btn active" onclick="switchMode('magnetic')">Magnetic QWERTY</button>
-          <button class="mode-btn" onclick="switchMode('swipe')">Gaze Swipe</button>
-          <button class="mode-btn" onclick="switchMode('radial')">Radial Pie</button>
-          <button class="mode-btn" onclick="switchMode('floating')">Floating Letters</button>
-      </div>
-      <div class="control-group" style="margin-left: 15px;">
           <button class="action-btn primary" onclick="speakText()">🔊 Speak</button>
           <button class="action-btn danger" onclick="clearText()">Delete</button>
           <button class="action-btn" onclick="clearAllText()">Clear</button>
@@ -96,34 +71,26 @@
 
   <!-- Sub Toolbar for Settings -->
   <div id="sub-bar">
-      <div class="slider-container" style="color: #00ffcc; font-weight: bold;">
-          💡 Stare at Camera Preview Box (Top-Left) for 1s to Reset/Recalibrate
-      </div>
-      <div class="slider-container">
-          <label>Dwell: <span id="dwell-val">0.8</span>s</label>
-          <input type="range" id="dwell-slider" min="0.3" max="2.0" step="0.1" value="0.8" oninput="updateDwell(this.value)">
-      </div>
-      <div class="slider-container">
-          <label>Smooth: <span id="smooth-val">0.4</span></label>
-          <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.4" oninput="updateSmooth(this.value)">
+      <span style="color: #00ffcc;">💡 Stare at Camera Preview (Top-Left) for <strong>2.5s</strong> to Recalibrate</span>
+      <div style="display: flex; gap: 20px;">
+          <div class="slider-container">
+              <label>Dwell: <span id="dwell-val">0.8</span>s</label>
+              <input type="range" id="dwell-slider" min="0.3" max="2.0" step="0.1" value="0.8" oninput="updateDwell(this.value)">
+          </div>
+          <div class="slider-container">
+              <label>Smooth: <span id="smooth-val">0.4</span></label>
+              <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.4" oninput="updateSmooth(this.value)">
+          </div>
       </div>
   </div>
 
   <!-- Calibration Overlay Modal -->
   <div id="calibration-overlay">
-      <h2 style="color: #00ffcc; margin-bottom: 10px;">Gaze Calibration Required</h2>
+      <h2 style="color: #00ffcc; margin-bottom: 10px;">Quantum Circular Collision Calibration</h2>
       <p id="calib-text" style="color: #bbb; max-width: 450px; line-height: 1.5; margin-bottom: 30px;">
           Stare directly at the red glowing circle and click it <strong>3 times</strong> with your mouse.
       </p>
       <div id="calib-dot">1</div>
-  </div>
-
-  <!-- Radial Menu Overlay -->
-  <div id="radial-container">
-      <div class="radial-sector" style="top: 0; left: 145px;" onclick="selectRadial('AEIOU')">Vowels (AEIOU)</div>
-      <div class="radial-sector" style="top: 145px; right: 0;" onclick="selectRadial('RSTLN')">Common (RSTLN)</div>
-      <div class="radial-sector" style="bottom: 0; left: 145px;" onclick="selectRadial('BCDFG')">Consonants (BCDFG)</div>
-      <div class="radial-sector" style="top: 145px; left: 0;" onclick="appendCharacter('SP');">SPACE</div>
   </div>
 
   <!-- Dependencies -->
@@ -145,7 +112,6 @@
     var force, nodes = [];
     var smoothedGazeX = null, smoothedGazeY = null;
     let smoothingFactor = 0.4;
-    let currentMode = "magnetic"; 
 
     let isCalibrating = true;
     let calibStep = 0;
@@ -154,7 +120,7 @@
     const calibSequence = [
         {name: "Top-Left Zone", x: 0.15, y: 0.3},
         {name: "Top-Right Zone", x: 0.85, y: 0.3},
-        {name: "Center Zone (Key G)", key: "G"},
+        {name: "Center Zone", x: 0.5, y: 0.5},
         {name: "Bottom-Left Zone", x: 0.15, y: 0.8},
         {name: "Bottom-Right Zone", x: 0.85, y: 0.8}
     ];
@@ -162,12 +128,11 @@
     let currentCollidingKey = null;
     let dwellTimer = null;
     let DWELL_TIME_MS = 800;
-    let svg, keyGroups, swipePolyline;
-    let swipePathNodes = [];
+    let svg, nodeGroups;
     let homeBaseTimer = null;
 
     let lastGazeSamples = [];
-    const VARIANCE_THRESHOLD = 500; 
+    const VARIANCE_THRESHOLD = 500;
 
     window.onload = async function() {
         if (!window.saveDataAcrossSessions) {
@@ -175,7 +140,7 @@
             localforage.setItem('webgazerGlobalSettings', null);
         }
 
-        setupEngine();
+        setupAlphabetCollisionSystem();
 
         const webgazerInstance = await webgazer.setRegression('ridge')
             .setTracker('TFFacemesh')
@@ -185,45 +150,33 @@
             .showPredictionPoints(false)
             .applyKalmanFilter(true);
 
-        webgazer.setGazeListener(gazeTickListener);
+        webgazer.setGazeListener(collisionEyeListener);
         startCalibration();
     };
 
-    function setupEngine() {
+    function setupAlphabetCollisionSystem() {
         var width = window.innerWidth;
         var height = window.innerHeight;
 
-        var rows = [
-            ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
-            ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
-            ["Z", "X", "C", "V", "B", "N", "M", "⌫", "SP"]
-        ];
-
-        nodes = [];
-        let startY = height * 0.45;
-
-        rows.forEach((row, rowIndex) => {
-            let startX = (width - (row.length * 75)) / 2;
-            row.forEach((char, colIndex) => {
-                let kx = startX + (colIndex * 75) + 35;
-                let ky = startY + (rowIndex * 80);
-                nodes.push({
-                    char: char,
-                    radius: 30,
-                    x0: kx, y0: ky,
-                    x: currentMode === "floating" ? (width * 0.2 + Math.random() * (width * 0.6)) : kx,
-                    y: currentMode === "floating" ? (height * 0.4 + Math.random() * (height * 0.4)) : ky,
-                    vx: (Math.random() - 0.5) * 2,
-                    vy: (Math.random() - 0.5) * 2
-                });
-            });
+        var letters = ["Q", "W", "E", "R", "T", "Z", "U", "I", "O", "P", "A", "S", "D", "F", "G", "H", "J", "K", "L", "Y", "X", "C", "V", "B", "N", "M", "⌫", "SP"];
+        
+        nodes = letters.map(function(char) {
+            return {
+                char: char,
+                radius: 32,
+                x: width * 0.25 + Math.random() * (width * 0.5),
+                y: height * 0.3 + Math.random() * (height * 0.5),
+                vx: (Math.random() - 0.5) * 2,
+                vy: (Math.random() - 0.5) * 2
+            };
         });
 
+        // Index 0 is the eye/gaze anchor node
         nodes.unshift({ radius: 0, fixed: true, x: width/2, y: height/2 });
 
         force = d3.layout.force()
-            .gravity(0)
-            .charge(function(d, i) { return i ? 0 : (currentMode === 'magnetic' ? -1500 : 0); })
+            .gravity(0.06)
+            .charge(function(d, i) { return i ? -30 : -2500; })
             .nodes(nodes)
             .size([width, height])
             .start();
@@ -235,41 +188,25 @@
             .attr("height", height)
             .style("position", "absolute")
             .style("top", "0")
-            .style("left", "0")
-            .style("z-index", "10");
+            .style("left", "0");
 
-        keyGroups = svg.selectAll(".key-group")
+        // Render circular node containers holding both background circle and text
+        nodeGroups = svg.selectAll(".node-group")
             .data(nodes.slice(1))
             .enter().append("g")
-            .attr("class", "key-group");
+            .attr("class", "node-group");
 
-        keyGroups.append("rect")
-            .attr("class", "key-box")
-            .attr("width", 64)
-            .attr("height", 64)
-            .attr("x", function(d) { return d.x0 - 32; })
-            .attr("y", function(d) { return d.y0 - 32; })
-            .attr("rx", 8)
-            .attr("fill", "#1e1e1e")
-            .attr("stroke", "#00ffcc")
-            .attr("stroke-width", 2);
+        nodeGroups.append("circle")
+            .attr("class", "letter-circle")
+            .attr("r", function(d) { return d.radius; });
 
-        keyGroups.append("text")
-            .attr("class", "key-node")
-            .attr("x", function(d) { return d.x0; })
-            .attr("y", function(d) { return d.y0; })
+        nodeGroups.append("text")
+            .attr("class", "letter-node")
             .attr("dy", ".35em")
             .attr("text-anchor", "middle")
             .attr("font-size", "22px")
             .attr("fill", "#00ffcc")
             .text(function(d) { return d.char; });
-
-        swipePolyline = svg.append("polyline")
-            .attr("fill", "none")
-            .attr("stroke", "#ff0055")
-            .attr("stroke-width", 4)
-            .attr("stroke-linecap", "round")
-            .style("opacity", 0);
 
         svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
         svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
@@ -281,56 +218,41 @@
 
             while (++i < n) q.visit(collide(nodes[i]));
 
+            // Dual Quantum Attraction/Repulsion Physics & Strict Containment Walls
+            let eyeNode = nodes[0];
             for (let j = 1; j < nodes.length; j++) {
                 let d = nodes[j];
-                if (currentMode === "floating") {
-                    d.x += d.vx; d.y += d.vy;
-                    if (d.x < 80 || d.x > width - 80) d.vx *= -1;
-                    if (d.y < 200 || d.y > height - 80) d.vy *= -1;
-                } else {
-                    let pull = currentMode === "magnetic" ? 0.25 : 0.15;
-                    d.x += (d.x0 - d.x) * pull;
-                    d.y += (d.y0 - d.y) * pull;
+
+                // Quantum Attraction: Gently pull the letter closest to the eye directly toward gaze center
+                let dx = eyeNode.x - d.x;
+                let dy = eyeNode.y - d.y;
+                let dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 180 && d.char === currentCollidingKey) {
+                    d.x += dx * 0.1;
+                    d.y += dy * 0.1;
                 }
+
+                // Strict Boundary Walls (Keep letters locked safely inside usable screen)
+                if (d.x < 50) { d.x = 50; d.vx *= -1; }
+                if (d.x > width - 50) { d.x = width - 50; d.vx *= -1; }
+                if (d.y < 120) { d.y = 120; d.vy *= -1; }
+                if (d.y > height - 50) { d.y = height - 50; d.vy *= -1; }
             }
 
-            keyGroups.select("rect")
-                .attr("x", function(d) { return d.x - 32; })
-                .attr("y", function(d) { return d.y - 32; });
-
-            keyGroups.select("text")
-                .attr("x", function(d) { return d.x; })
-                .attr("y", function(d) { return d.y; });
+            nodeGroups.attr("transform", function(d) {
+                return "translate(" + d.x + "," + d.y + ")";
+            });
         });
 
+        // Mouse fallback for testing
         svg.on("mousemove", function() {
             if (isCalibrating) return;
             var p1 = d3.mouse(this);
             nodes[0].x = nodes[0].px = p1[0];
             nodes[0].y = nodes[0].py = p1[1];
             force.resume();
-            handleInteractions(p1[0], p1[1]);
+            handleInteractions(p1[0], p1[1], null);
         });
-    }
-
-    function switchMode(mode) {
-        currentMode = mode;
-        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-        event.target.classList.add('active');
-
-        document.getElementById("radial-container").style.display = mode === "radial" ? "block" : "none";
-        swipePolyline.style("opacity", mode === "swipe" ? 1 : 0);
-
-        if (mode === "floating") {
-            let width = window.innerWidth, height = window.innerHeight;
-            nodes.slice(1).forEach(d => {
-                d.x = width * 0.2 + Math.random() * (width * 0.6);
-                d.y = height * 0.4 + Math.random() * (height * 0.4);
-                d.vx = (Math.random() - 0.5) * 3;
-                d.vy = (Math.random() - 0.5) * 3;
-            });
-        }
-        force.resume();
     }
 
     function startCalibration() {
@@ -348,13 +270,13 @@
             return;
         }
         let target = calibSequence[calibStep];
-        let targetX = target.key ? nodes.find(n => n.char === target.key).x0 : window.innerWidth * target.x;
-        let targetY = target.key ? nodes.find(n => n.char === target.key).y0 : window.innerHeight * target.y;
+        let targetX = window.innerWidth * target.x;
+        let targetY = window.innerHeight * target.y;
 
         let dot = document.getElementById("calib-dot");
         dot.style.left = targetX + "px";
         dot.style.top = targetY + "px";
-        dot.innerText = target.key || (calibStep + 1);
+        dot.innerText = (calibStep + 1);
 
         document.getElementById("calib-text").innerHTML = 
             `Calibration Step ${calibStep + 1} of ${calibSequence.length} (${target.name})<br>Stare at the red dot and click it 3 times (${calibClicks}/3).`;
@@ -377,7 +299,7 @@
     });
 
     function collide(node) {
-        var r = node.radius + 15,
+        var r = node.radius + 16,
             nx1 = node.x - r, nx2 = node.x + r,
             ny1 = node.y - r, ny2 = node.y + r;
         return function(quad, x1, y1, x2, y2) {
@@ -406,21 +328,19 @@
     function handleInteractions(gazeX, gazeY, keyNode) {
         if (isCalibrating) return;
 
-        // HOME BASE CHECK: If gaze rests in top-left camera preview box (X < 320, Y < 300) for 1s -> Recalibrate!
+        // HOME BASE CHECK: Stare at top-left camera preview box (X < 320, Y < 300) for 2.5s to trigger Recalibration
         if (gazeX < 320 && gazeY < 300) {
             if (!homeBaseTimer) {
                 homeBaseTimer = setTimeout(() => {
                     startCalibration();
                     homeBaseTimer = null;
-                }, 1000);
+                }, 2500);
             }
             return;
         } else {
             clearTimeout(homeBaseTimer);
             homeBaseTimer = null;
         }
-
-        if (currentMode === "radial") return;
 
         // Check gaze variance
         lastGazeSamples.push({x: gazeX, y: gazeY});
@@ -433,48 +353,26 @@
             if (variance > VARIANCE_THRESHOLD) return;
         }
 
-        if (currentMode === "magnetic" && keyNode) {
+        if (keyNode) {
             if (currentCollidingKey !== keyNode.char) {
                 currentCollidingKey = keyNode.char;
                 clearTimeout(dwellTimer);
 
-                keyGroups.select("rect").attr("fill", "#1e1e1e");
-                keyGroups.filter(d => d.char === currentCollidingKey).select("rect").attr("fill", "#00ffcc");
+                nodeGroups.select("circle").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
+                nodeGroups.select("text").attr("fill", "#00ffcc");
+
+                let activeGroup = nodeGroups.filter(d => d.char === currentCollidingKey);
+                activeGroup.select("circle").attr("fill", "#00ffcc").attr("stroke", "#ff0055");
+                activeGroup.select("text").attr("fill", "#000");
 
                 dwellTimer = setTimeout(() => {
                     appendCharacter(currentCollidingKey);
-                    keyGroups.select("rect").attr("fill", "#1e1e1e");
+                    nodeGroups.select("circle").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
+                    nodeGroups.select("text").attr("fill", "#00ffcc");
                     currentCollidingKey = null;
                 }, DWELL_TIME_MS);
             }
-        } else if (currentMode === "swipe" && keyNode) {
-            if (!swipePathNodes.includes(keyNode.char)) {
-                swipePathNodes.push(keyNode.char);
-                updateSwipeVisual();
-            }
         }
-    }
-
-    function updateSwipeVisual() {
-        let pts = swipePathNodes.map(char => {
-            let n = nodes.find(item => item.char === char);
-            return `${n.x},${n.y}`;
-        }).join(" ");
-        swipePolyline.attr("points", pts);
-    }
-
-    // Swipe mode auto-triggers word completion on a short pause or mouse up
-    window.addEventListener("mouseup", () => {
-        if (currentMode === "swipe" && swipePathNodes.length > 0) {
-            let word = swipePathNodes.join("");
-            appendWord(word);
-            swipePathNodes = [];
-            swipePolyline.attr("points", "");
-        }
-    });
-
-    function selectRadial(text) {
-        appendWord(text);
     }
 
     function appendCharacter(char) {
@@ -484,13 +382,6 @@
         else if (char === "SP") txt += " ";
         else txt += char;
         outputBar.innerText = txt || "Type here...";
-    }
-
-    function appendWord(word) {
-        const outputBar = document.getElementById("output-bar");
-        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-        txt += (txt.length ? " " : "") + word;
-        outputBar.innerText = txt;
     }
 
     function clearText() {
@@ -521,7 +412,7 @@
         document.getElementById("smooth-val").innerText = val;
     }
 
-    var gazeTickListener = async function(data, clock) {
+    var collisionEyeListener = async function(data, clock) {
         if (!data) return;
 
         if (smoothedGazeX === null || smoothedGazeY === null) {
@@ -536,7 +427,6 @@
         nodes[0].y = nodes[0].py = smoothedGazeY;
         force.resume();
 
-        // Feed gaze directly into interaction engine even if not colliding with a node yet
         handleInteractions(smoothedGazeX, smoothedGazeY, null);
 
         var tracker = webgazer.getTracker();
