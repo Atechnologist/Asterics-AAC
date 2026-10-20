@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Multi-Mode Zero-Lag Gaze Engine with Quantum Collision</title>
+    <title>Multi-Mode Gaze Engine with Adaptive ML Residual Learning</title>
     <style>
         body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; color: #fff; user-select: none; }
         
@@ -32,7 +32,7 @@
         .action-btn.danger { border-color: #ff4444; color: #ff4444; }
         .action-btn.primary { border-color: #00ffcc; color: #00ffcc; }
 
-        /* Secondary Toolbar for Sliders */
+        /* Secondary Toolbar for Settings & ML Status */
         #sub-bar {
             position: fixed; top: 75px; left: 0; width: 100vw; height: 45px;
             background: rgba(25, 25, 25, 0.9); border-bottom: 1px solid #333;
@@ -96,9 +96,9 @@
       </div>
   </div>
 
-  <!-- Sub Toolbar for Settings -->
+  <!-- Sub Toolbar for Settings & ML Status -->
   <div id="sub-bar">
-      <span style="color: #00ffcc;">💡 Stare at Camera Preview (Top-Left) for <strong>2.5s</strong> to Recalibrate</span>
+      <span style="color: #00ffcc;" id="ml-status">🧠 Adaptive ML Residuals: Active (0 samples)</span>
       <div style="display: flex; gap: 20px;">
           <div class="slider-container">
               <label>Dwell: <span id="dwell-val">0.8</span>s</label>
@@ -168,6 +168,49 @@
     let swipePathNodes = [];
     let homeBaseTimer = null;
 
+    // --- CONTINUOUS ONLINE RESIDUAL LEARNING (ADAPTIVE CORRECTION MEMORY) ---
+    let correctionSamples = []; // Stores {rawX, rawY, deltaX, deltaY}
+
+    function recordResidualCorrection(rawX, rawY, targetX, targetY) {
+        let deltaX = targetX - rawX;
+        let deltaY = targetY - rawY;
+        correctionSamples.push({ rawX, rawY, deltaX, deltaY });
+        
+        // Keep a rolling buffer of the last 30 successful selections
+        if (correctionSamples.length > 30) correctionSamples.shift();
+
+        document.getElementById("ml-status").innerHTML = 
+            `🧠 Adaptive ML Residuals: Active (${correctionSamples.length} calibration points learned)`;
+    }
+
+    function applyAdaptiveResiduals(gazeX, gazeY) {
+        if (correctionSamples.length === 0) return { x: gazeX, y: gazeY };
+
+        let totalWeight = 0;
+        let weightedDeltaX = 0;
+        let weightedDeltaY = 0;
+        let bandwidth = 250; // Spatial influence radius in pixels
+
+        for (let sample of correctionSamples) {
+            let dist = Math.sqrt(Math.pow(gazeX - sample.rawX, 2) + Math.pow(gazeY - sample.rawY, 2));
+            if (dist < bandwidth) {
+                let weight = Math.exp(-(dist * dist) / (2 * bandwidth * bandwidth));
+                weightedDeltaX += sample.deltaX * weight;
+                weightedDeltaY += sample.deltaY * weight;
+                totalWeight += weight;
+            }
+        }
+
+        if (totalWeight > 0) {
+            return {
+                x: gazeX + (weightedDeltaX / totalWeight),
+                y: gazeY + (weightedDeltaY / totalWeight)
+            };
+        }
+        return { x: gazeX, y: gazeY };
+    }
+    // ---------------------------------------------------------------------
+
     let lastGazeSamples = [];
     const VARIANCE_THRESHOLD = 500; 
 
@@ -198,7 +241,6 @@
         nodes = [];
 
         if (currentMode === "floating") {
-            // Circular Collision Letters from Alphabet Test Version
             var letters = ["Q", "W", "E", "R", "T", "Z", "U", "I", "O", "P", "A", "S", "D", "F", "G", "H", "J", "K", "L", "Y", "X", "C", "V", "B", "N", "M", "⌫", "SP"];
             nodes = letters.map(function(char) {
                 return {
@@ -213,7 +255,6 @@
                 };
             });
         } else {
-            // Standard QWERTY Layout for Magnetic & Swipe
             var rows = [
                 ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
                 ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
@@ -236,7 +277,6 @@
             });
         }
 
-        // Gaze Anchor at Index 0
         nodes.unshift({ radius: 0, fixed: true, x: width/2, y: height/2 });
 
         force = d3.layout.force()
@@ -306,63 +346,63 @@
         svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
         svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
 
-        // Replace the collide function and add direct gaze proximity checking in tick
-    force.on("tick", function(e) {
-        var q = d3.geom.quadtree(nodes),
-            i = 0,
-            n = nodes.length;
+        force.on("tick", function(e) {
+            var q = d3.geom.quadtree(nodes),
+                i = 0,
+                n = nodes.length;
 
-        while (++i < n) q.visit(collide(nodes[i]));
+            while (++i < n) q.visit(collide(nodes[i]));
 
-        let eyeNode = nodes[0];
-        let closestKey = null;
-        let minDistance = 9999;
+            let eyeNode = nodes[0];
+            let closestKey = null;
+            let minDistance = 9999;
 
-        for (let j = 1; j < nodes.length; j++) {
-            let d = nodes[j];
-            
-            // Calculate distance from eye to each letter node
-            let dx = eyeNode.x - d.x;
-            let dy = eyeNode.y - d.y;
-            let dist = Math.sqrt(dx * dx + dy * dy);
+            for (let j = 1; j < nodes.length; j++) {
+                let d = nodes[j];
+                if (currentMode === "floating") {
+                    let dx = eyeNode.x - d.x;
+                    let dy = eyeNode.y - d.y;
+                    let dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < d.radius + 15 && dist < minDistance) {
+                        minDistance = dist;
+                        closestKey = d;
+                    }
+
+                    if (dist < 180 && d.char === currentCollidingKey) {
+                        d.x += dx * 0.1;
+                        d.y += dy * 0.1;
+                    }
+
+                    if (d.x < 50) { d.x = 50; d.vx *= -1; }
+                    if (d.x > width - 50) { d.x = width - 50; d.vx *= -1; }
+                    if (d.y < 120) { d.y = 120; d.vy *= -1; }
+                    if (d.y > height - 50) { d.y = height - 50; d.vy *= -1; }
+                } else {
+                    let pull = currentMode === "magnetic" ? 0.25 : 0.15;
+                    d.x += (d.x0 - d.x) * pull;
+                    d.y += (d.y0 - d.y) * pull;
+                }
+            }
+
+            if (currentMode === "floating" && !isCalibrating && closestKey) {
+                handleInteractions(eyeNode.x, eyeNode.y, closestKey);
+            }
 
             if (currentMode === "floating") {
-                // Find if eye is directly hovering over this letter node's circle
-                if (dist < d.radius + 10 && dist < minDistance) {
-                    minDistance = dist;
-                    closestKey = d;
-                }
-
-                // Strict Containment Walls
-                if (d.x < 50) { d.x = 50; d.vx *= -1; }
-                if (d.x > width - 50) { d.x = width - 50; d.vx *= -1; }
-                if (d.y < 120) { d.y = 120; d.vy *= -1; }
-                if (d.y > height - 50) { d.y = height - 50; d.vy *= -1; }
+                keyGroups.attr("transform", function(d) {
+                    return "translate(" + d.x + "," + d.y + ")";
+                });
             } else {
-                let pull = currentMode === "magnetic" ? 0.25 : 0.15;
-                d.x += (d.x0 - d.x) * pull;
-                d.y += (d.y0 - d.y) * pull;
+                keyGroups.select("rect")
+                    .attr("x", function(d) { return d.x - 32; })
+                    .attr("y", function(d) { return d.y - 32; });
+                keyGroups.select("text")
+                    .attr("x", function(d) { return d.x; })
+                    .attr("y", function(d) { return d.y; });
             }
-        }
+        });
 
-        // If we are in floating mode and looking at a letter, trigger interaction directly
-        if (currentMode === "floating" && !isCalibrating) {
-            handleInteractions(eyeNode.x, eyeNode.y, closestKey);
-        }
-
-        if (currentMode === "floating") {
-            keyGroups.attr("transform", function(d) {
-                return "translate(" + d.x + "," + d.y + ")";
-            });
-        } else {
-            keyGroups.select("rect")
-                .attr("x", function(d) { return d.x - 32; })
-                .attr("y", function(d) { return d.y - 32; });
-            keyGroups.select("text")
-                .attr("x", function(d) { return d.x; })
-                .attr("y", function(d) { return d.y; });
-        }
-    });
         svg.on("mousemove", function() {
             if (isCalibrating) return;
             var p1 = d3.mouse(this);
@@ -458,7 +498,6 @@
     function handleInteractions(gazeX, gazeY, keyNode) {
         if (isCalibrating) return;
 
-        // HOME BASE CHECK: Stare at top-left camera preview box (X < 320, Y < 300) for 2.5s to trigger Recalibration
         if (gazeX < 320 && gazeY < 300) {
             if (!homeBaseTimer) {
                 homeBaseTimer = setTimeout(() => {
@@ -501,7 +540,13 @@
                 }
 
                 dwellTimer = setTimeout(() => {
+                    // Record raw sample vs target true key center for online ML residual learning
+                    let targetX = currentMode === "floating" ? keyNode.x : keyNode.x0;
+                    let targetY = currentMode === "floating" ? keyNode.y : keyNode.y0;
+                    recordResidualCorrection(gazeX, gazeY, targetX, targetY);
+
                     appendCharacter(currentCollidingKey);
+                    
                     if (currentMode === "floating") {
                         keyGroups.select("circle").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
                         keyGroups.select("text").attr("fill", "#00ffcc");
@@ -587,6 +632,7 @@
     var gazeTickListener = async function(data, clock) {
         if (!data) return;
 
+        // Apply raw Kalman/smoothing first
         if (smoothedGazeX === null || smoothedGazeY === null) {
             smoothedGazeX = data.x;
             smoothedGazeY = data.y;
@@ -595,11 +641,14 @@
             smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
         }
 
-        nodes[0].x = nodes[0].px = smoothedGazeX;
-        nodes[0].y = nodes[0].py = smoothedGazeY;
+        // Pass through our new Online Residual Learning adjustment layer
+        let corrected = applyAdaptiveResiduals(smoothedGazeX, smoothedGazeY);
+
+        nodes[0].x = nodes[0].px = corrected.x;
+        nodes[0].y = nodes[0].py = corrected.y;
         force.resume();
 
-        handleInteractions(smoothedGazeX, smoothedGazeY, null);
+        handleInteractions(corrected.x, corrected.y, null);
 
         var tracker = webgazer.getTracker();
         var fmPositions = tracker && tracker.getPositions ? await tracker.getPositions() : null;
@@ -608,12 +657,12 @@
 
         if (fmPositions && fmPositions[145] && fmPositions[374]) {
             d3.select('#eyeline1')
-                .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
+                .attr("x1", corrected.x).attr("y1", corrected.y)
                 .attr("x2", previewWidth - fmPositions[145][0] * whr[0])
                 .attr("y2", fmPositions[145][1] * whr[1]);
 
             d3.select("#eyeline2")
-                .attr("x1", smoothedGazeX).attr("y1", smoothedGazeY)
+                .attr("x1", corrected.x).attr("y1", corrected.y)
                 .attr("x2", previewWidth - fmPositions[374][0] * whr[0])
                 .attr("y2", fmPositions[374][1] * whr[1]);
         }
