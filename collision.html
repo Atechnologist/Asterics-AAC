@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Multi-Mode Gaze Engine with Human-Speed Iris Shutter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Mode Gaze Engine with Self-Learning ML Calibration</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; color: #fff; user-select: none; }
+        body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: 'Inter', system-ui, sans-serif; color: #fff; user-select: none; }
         
-        /* Top Control Bar */
+        /* Layout Header & Nav */
         #top-bar {
             position: fixed; top: 0; left: 0; width: 100vw; height: 75px;
             background: rgba(15, 15, 15, 0.95); border-bottom: 2px solid #00ffcc;
@@ -17,20 +19,23 @@
             flex-grow: 1; height: 45px; background: rgba(5, 5, 5, 0.9);
             border: 2px solid #00ffcc; border-radius: 6px; color: #00ffcc;
             font-size: 20px; display: flex; align-items: center; padding: 0 15px;
-            margin-right: 20px; overflow: hidden; white-space: nowrap;
+            margin-right: 20px; overflow: hidden; white-space: nowrap; font-family: monospace;
         }
-        .control-group { display: flex; align-items: center; gap: 8px; }
+        .control-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
         .mode-btn {
             background: #1e1e1e; color: #00ffcc; border: 1px solid #00ffcc; padding: 6px 10px;
-            border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 13px;
+            border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 12px;
         }
         .mode-btn.active { background: #00ffcc; color: #000; box-shadow: 0 0 12px rgba(0,255,204,0.5); }
         .action-btn {
-            background: #222; color: #fff; border: 1px solid #555; padding: 7px 10px;
-            border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px;
+            background: #222; color: #fff; border: 1px solid #555; padding: 6px 10px;
+            border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; transition: all 0.2s;
         }
+        .action-btn:hover { background: #333; }
         .action-btn.danger { border-color: #ff4444; color: #ff4444; }
         .action-btn.primary { border-color: #00ffcc; color: #00ffcc; }
+        .action-btn.ml { border-color: #ff00ff; color: #ff00ff; }
+        .action-btn.ml:hover { background: rgba(255,0,255,0.2); }
 
         /* Secondary Toolbar */
         #sub-bar {
@@ -42,27 +47,28 @@
         .slider-container { display: flex; align-items: center; gap: 8px; }
         input[type=range] { accent-color: #00ffcc; cursor: pointer; }
 
-        /* Calibration Overlay Fix */
+        /* Calibration Overlay Modal */
         #calibration-overlay {
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(10, 10, 10, 0.85); z-index: 30000;
+            background: rgba(10, 10, 10, 0.9); z-index: 30000;
             display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-            padding-top: 130px; text-align: center; pointer-events: none;
+            padding-top: 100px; text-align: center; pointer-events: none; display: none;
         }
         #calib-dot {
-            width: 50px; height: 50px; background: #ff0055; border-radius: 50%;
+            width: 55px; height: 55px; background: #ff0055; border-radius: 50%;
             position: absolute; transform: translate(-50%, -50%); cursor: pointer;
             box-shadow: 0 0 35px #ff0055; display: flex; align-items: center; justify-content: center;
             font-weight: bold; font-size: 18px; color: #fff; border: 3px solid #fff;
-            pointer-events: auto; z-index: 35000;
+            pointer-events: auto; z-index: 35000; transition: transform 0.1s;
         }
+        #calib-dot:active { transform: translate(-50%, -50%) scale(0.9); }
 
-        /* Decremental Iris Shutter Ring with smooth transition */
+        /* Decremental Iris Shutter Ring */
         #iris-shutter {
             position: absolute; border: 3px dashed #ff0055; border-radius: 50%;
             transform: translate(-50%, -50%); pointer-events: none;
             box-shadow: 0 0 25px rgba(255,0,85,0.4); background: rgba(255,0,85,0.05);
-            z-index: 15000; display: none; transition: width 0.4s ease-out, height 0.4s ease-out;
+            z-index: 15000; display: none; transition: width 0.3s ease-out, height 0.3s ease-out;
         }
 
         .key-box { rx: 8; transition: fill 0.15s, stroke 0.15s; }
@@ -74,60 +80,85 @@
             border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none;
             box-shadow: 0 0 10px #00ffcc; z-index: 20000; display: none;
         }
+
+        /* Raw vs Corrected Cursor Indicators */
+        #raw-cursor {
+            position: absolute; width: 14px; height: 14px; border: 2px solid #ff0055;
+            border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none;
+            z-index: 19999; display: none; opacity: 0.75;
+        }
+
+        /* ML Training Status Glow Header */
+        .training-active {
+            animation: pulse-border 1.5s infinite;
+        }
+        @keyframes pulse-border {
+            0% { border-color: #ff00ff; box-shadow: 0 0 10px rgba(255,0,255,0.5); }
+            50% { border-color: #00ffcc; box-shadow: 0 0 20px rgba(0,255,204,0.8); }
+            100% { border-color: #ff00ff; box-shadow: 0 0 10px rgba(255,0,255,0.5); }
+        }
     </style>
 </head>
 <body>
 
-  <!-- Virtual Gaze Reticle & Shutter Ring -->
+  <!-- Cursor Reticles -->
   <div id="virtual-cursor"></div>
+  <div id="raw-cursor"></div>
   <div id="iris-shutter"></div>
 
-  <!-- Top Control Bar -->
+  <!-- Top Navigation & Controls Bar -->
   <div id="top-bar">
       <div id="output-bar">Type here...</div>
       <div class="control-group">
-          <button class="mode-btn active" onclick="switchMode('magnetic')">Magnetic QWERTY</button>
-          <button class="mode-btn" onclick="switchMode('iris')">Iris Shutter Zoom</button>
-          <button class="mode-btn" onclick="switchMode('swipe')">Gaze Swipe</button>
-          <button class="mode-btn" onclick="switchMode('floating')">Floating Letters</button>
+          <button class="mode-btn active" onclick="switchMode('magnetic')">Magnetic</button>
+          <button class="mode-btn" onclick="switchMode('iris')">Iris Zoom</button>
+          <button class="mode-btn" onclick="switchMode('swipe')">Swipe</button>
+          <button class="mode-btn" onclick="switchMode('floating')">Floating</button>
       </div>
       <div class="control-group" style="margin-left: 10px;">
+          <button class="action-btn ml" onclick="start9ZoneTraining()">🎯 9-Zone Grid</button>
+          <button class="action-btn ml" onclick="startPerKeySweep()">⌨️ Per-Key Sweep</button>
           <button class="action-btn primary" onclick="speakText()">🔊 Speak</button>
           <button class="action-btn danger" onclick="clearText()">Delete</button>
-          <button class="action-btn primary" onclick="startCalibration()">Recalibrate</button>
       </div>
   </div>
 
-  <!-- Sub Toolbar -->
+  <!-- Secondary Bar for Tuning Sliders & ML Indicators -->
   <div id="sub-bar">
-      <span style="color: #00ffcc;" id="status-msg">🌀 Human-Speed Iris Shutter Ready</span>
-      <div style="display: flex; gap: 20px;">
+      <span style="color: #00ffcc;" id="status-msg">🌀 System Ready. Select Mode or Run ML Training.</span>
+      <div style="display: flex; gap: 15px; align-items: center;">
+          <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; color: #ff00ff;">
+              <input type="checkbox" id="vector-toggle" onchange="toggleVectorViz(this.checked)" checked>
+              Show Offset Vectors
+          </label>
           <div class="slider-container">
               <label>Dwell: <span id="dwell-val">1.2</span>s</label>
-              <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.2" oninput="updateDwell(this.value)">
+              <input type="range" id="dwell-slider" min="0.4" max="3.0" step="0.1" value="1.2" oninput="updateDwell(this.value)">
           </div>
           <div class="slider-container">
               <label>Smooth: <span id="smooth-val">0.5</span></label>
               <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.5" oninput="updateSmooth(this.value)">
           </div>
+          <button class="action-btn danger" style="padding: 2px 6px; font-size: 11px;" onclick="resetMLData()">Reset Weights</button>
       </div>
   </div>
 
-  <!-- Calibration Overlay Modal -->
+  <!-- Calibration / Training Overlay Modal -->
   <div id="calibration-overlay">
-      <h2 style="color: #00ffcc; margin-bottom: 10px;">Gaze Calibration Required</h2>
-      <p id="calib-text" style="color: #bbb; max-width: 450px; line-height: 1.5; margin-bottom: 30px;">
-          Stare directly at the red glowing circle and click it <strong>3 times</strong> with your mouse.
+      <h2 id="calib-title" style="color: #00ffcc; font-size: 22px; font-weight: bold; margin-bottom: 6px;">Supervised ML Training Mode</h2>
+      <p id="calib-text" style="color: #bbb; max-width: 500px; line-height: 1.4; margin-bottom: 20px; font-size: 14px;">
+          Stare directly at the glowing dot and click it to record true optical offsets.
       </p>
       <div id="calib-dot">1</div>
   </div>
 
-  <!-- Dependencies -->
+  <!-- Core Libraries -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.8.1/localforage.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
 
   <script>
+    // Polyfill canvas contexts for WebGazer performance
     const originalGetContext = HTMLCanvasElement.prototype.getContext;
     HTMLCanvasElement.prototype.getContext = function(type, attributes) {
         if (type === '2d') {
@@ -137,70 +168,134 @@
         return originalGetContext.call(this, type, attributes);
     };
 
-    window.saveDataAcrossSessions = false;
+    window.saveDataAcrossSessions = true;
     var force, nodes = [];
     var smoothedGazeX = null, smoothedGazeY = null;
+    var rawGazeX = 0, rawGazeY = 0;
     let smoothingFactor = 0.5;
     let currentMode = "magnetic"; 
 
-    let isCalibrating = true;
+    // Calibration & ML State Management
+    let isCalibrating = false;
+    let trainingType = null; // '9zone' or 'perkey'
     let calibStep = 0;
     let calibClicks = 0;
-    
-    const calibSequence = [
-        {name: "Top-Left Zone", x: 0.15, y: 0.3},
-        {name: "Top-Right Zone", x: 0.85, y: 0.3},
-        {name: "Center Zone", x: 0.5, y: 0.5},
-        {name: "Bottom-Left Zone", x: 0.15, y: 0.8},
-        {name: "Bottom-Right Zone", x: 0.85, y: 0.8}
+    let keySweepIndex = 0;
+    let showVectorViz = true;
+
+    // ML Data Models
+    // 1) 9-Zone Anchor Grid offsets (bilinear spatial warping matrix)
+    let zoneMatrix = [
+        { id: 0, xRatio: 0.15, yRatio: 0.25, dx: 0, dy: 0, samples: 0 }, // Top-Left
+        { id: 1, xRatio: 0.50, yRatio: 0.25, dx: 0, dy: 0, samples: 0 }, // Top-Center
+        { id: 2, xRatio: 0.85, yRatio: 0.25, dx: 0, dy: 0, samples: 0 }, // Top-Right
+        { id: 3, xRatio: 0.15, yRatio: 0.55, dx: 0, dy: 0, samples: 0 }, // Mid-Left
+        { id: 4, xRatio: 0.50, yRatio: 0.55, dx: 0, dy: 0, samples: 0 }, // Center
+        { id: 5, xRatio: 0.85, yRatio: 0.55, dx: 0, dy: 0, samples: 0 }, // Mid-Right
+        { id: 6, xRatio: 0.15, yRatio: 0.85, dx: 0, dy: 0, samples: 0 }, // Bottom-Left
+        { id: 7, xRatio: 0.50, yRatio: 0.85, dx: 0, dy: 0, samples: 0 }, // Bottom-Center
+        { id: 8, xRatio: 0.85, yRatio: 0.85, dx: 0, dy: 0, samples: 0 }  // Bottom-Right
     ];
+
+    // 2) Per-Key Ground-Truth Offset Vectors Map
+    let perKeyOffsetMap = {}; // { 'A': { dx, dy, count }, ... }
 
     let currentCollidingKey = null;
     let dwellTimer = null;
-    let DWELL_TIME_MS = 1200; // Default bumped up to 1.2s for comfortable human reaction window
+    let DWELL_TIME_MS = 1200; 
     let svg, keyGroups, swipePolyline;
-    let swipePathNodes = [];
     let homeBaseTimer = null;
 
+    // Iris Shutter Parameters
     let irisRadius = 260; 
     let irisTargetKey = null;
     let irisStartTime = null;
 
-    let correctionSamples = [];
+    // Load persisted ML model parameters on boot
+    async function loadPersistedMLModels() {
+        try {
+            const savedZone = await localforage.getItem('gaze_9zone_matrix');
+            if (savedZone) zoneMatrix = savedZone;
 
-    function recordResidualCorrection(rawX, rawY, targetX, targetY) {
-        let deltaX = targetX - rawX;
-        let deltaY = targetY - rawY;
-        correctionSamples.push({ rawX, rawY, deltaX, deltaY });
-        if (correctionSamples.length > 40) correctionSamples.shift();
+            const savedPerKey = await localforage.getItem('gaze_perkey_map');
+            if (savedPerKey) perKeyOffsetMap = savedPerKey;
+
+            updateStatusMsg("✨ Persisted ML Accuracy Models Loaded Successfully.");
+        } catch(e) {
+            console.warn("Could not load persisted gaze ML matrices", e);
+        }
     }
 
-    function applyAdaptiveResiduals(gazeX, gazeY) {
-        if (correctionSamples.length === 0) return { x: gazeX, y: gazeY };
-        let totalWeight = 0, weightedDeltaX = 0, weightedDeltaY = 0;
-        let bandwidth = 250;
+    async function persistMLModels() {
+        try {
+            await localforage.setItem('gaze_9zone_matrix', zoneMatrix);
+            await localforage.setItem('gaze_perkey_map', perKeyOffsetMap);
+        } catch(e) {
+            console.error("Error saving ML models", e);
+        }
+    }
 
-        for (let sample of correctionSamples) {
-            let dist = Math.sqrt(Math.pow(gazeX - sample.rawX, 2) + Math.pow(gazeY - sample.rawY, 2));
-            if (dist < bandwidth) {
-                let weight = Math.exp(-(dist * dist) / (2 * bandwidth * bandwidth));
-                weightedDeltaX += sample.deltaX * weight;
-                weightedDeltaY += sample.deltaY * weight;
-                totalWeight += weight;
-            }
+    async function resetMLData() {
+        zoneMatrix.forEach(z => { z.dx = 0; z.dy = 0; z.samples = 0; });
+        perKeyOffsetMap = {};
+        await localforage.removeItem('gaze_9zone_matrix');
+        await localforage.removeItem('gaze_perkey_map');
+        updateStatusMsg("🧹 ML Models and Weights Reset to Zero.");
+    }
+
+    // Bilinear Spatial Interpolation Engine for 9-Zone Grid Warping
+    function computeBilinearOffset(gx, gy) {
+        let w = window.innerWidth;
+        let h = window.innerHeight;
+        let normX = Math.max(0, Math.min(1, gx / w));
+        let normY = Math.max(0, Math.min(1, gy / h));
+
+        // Find surrounding 4 grid points
+        let cols = [0.15, 0.50, 0.85];
+        let rows = [0.25, 0.55, 0.85];
+
+        let colIdx = normX < cols[1] ? 0 : 1;
+        let rowIdx = normY < rows[1] ? 0 : 1;
+
+        let zTL = zoneMatrix[rowIdx * 3 + colIdx];
+        let zTR = zoneMatrix[rowIdx * 3 + (colIdx + 1)];
+        let zBL = zoneMatrix[(rowIdx + 1) * 3 + colIdx];
+        let zBR = zoneMatrix[(rowIdx + 1) * 3 + (colIdx + 1)];
+
+        let u = (normX - cols[colIdx]) / (cols[colIdx + 1] - cols[colIdx]);
+        let v = (normY - rows[rowIdx]) / (rows[rowIdx + 1] - rows[rowIdx]);
+        u = Math.max(0, Math.min(1, u));
+        v = Math.max(0, Math.min(1, v));
+
+        // Interpolate dx and dy offset vectors
+        let dx = (1 - u) * (1 - v) * zTL.dx + u * (1 - v) * zTR.dx + (1 - u) * v * zBL.dx + u * v * zBR.dx;
+        let dy = (1 - u) * (1 - v) * zTL.dy + u * (1 - v) * zTR.dy + (1 - u) * v * zBL.dy + u * v * zBR.dy;
+
+        return { dx, dy };
+    }
+
+    // Combined ML Spatial Correction Pipeline
+    function applyMLGazeCorrections(rawX, rawY, closestChar) {
+        let finalX = rawX;
+        let finalY = rawY;
+
+        // 1. Apply Bilinear 9-Zone Grid Correction
+        let gridCorrection = computeBilinearOffset(rawX, rawY);
+        finalX += gridCorrection.dx;
+        finalY += gridCorrection.dy;
+
+        // 2. Apply Specific Per-Key Error Vector Correction if key learned
+        if (closestChar && perKeyOffsetMap[closestChar]) {
+            let keyML = perKeyOffsetMap[closestChar];
+            finalX += keyML.dx * 0.65; // Blend weight
+            finalY += keyML.dy * 0.65;
         }
-        if (totalWeight > 0) {
-            return { x: gazeX + (weightedDeltaX / totalWeight), y: gazeY + (weightedDeltaY / totalWeight) };
-        }
-        return { x: gazeX, y: gazeY };
+
+        return { x: finalX, y: finalY };
     }
 
     window.onload = async function() {
-        if (!window.saveDataAcrossSessions) {
-            localforage.setItem('webgazerGlobalData', null);
-            localforage.setItem('webgazerGlobalSettings', null);
-        }
-
+        await loadPersistedMLModels();
         setupEngine();
 
         const webgazerInstance = await webgazer.setRegression('ridge')
@@ -212,7 +307,6 @@
             .applyKalmanFilter(true);
 
         webgazer.setGazeListener(gazeTickListener);
-        startCalibration();
     };
 
     function setupEngine() {
@@ -274,6 +368,9 @@
 
         swipePolyline = svg.append("polyline").attr("fill", "none").attr("stroke", "#ff0055").attr("stroke-width", 4).attr("stroke-linecap", "round").style("opacity", 0);
 
+        // Vector Viz Line between raw gaze and corrected gaze
+        svg.append("line").attr("id", "ml-vector-line").attr("stroke-width", 3).attr("stroke", "#ff00ff").attr("stroke-dasharray", "4,4");
+
         svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
         svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
 
@@ -315,7 +412,7 @@
                 }
             }
 
-            // Human-Speed Gradual Iris Shutter Contraction
+            // Iris Shutter Decremental Shrinking Logic
             let iris = document.getElementById("iris-shutter");
             if (currentMode === "iris") {
                 iris.style.display = isCalibrating ? "none" : "block";
@@ -325,17 +422,13 @@
                 if (closestKey) {
                     if (irisTargetKey !== closestKey) {
                         irisTargetKey = closestKey;
-                        irisStartTime = performance.now(); // Mark start of human reaction window
+                        irisStartTime = performance.now();
                     }
 
-                    // Calculate elapsed time ratio relative to total dwell time
                     let elapsed = performance.now() - irisStartTime;
                     let progress = Math.min(elapsed / DWELL_TIME_MS, 1.0);
-
-                    // Smoothly shrink iris radius from macro (240px) down to micro key size (45px) over full dwell duration
                     irisRadius = 240 - (195 * progress);
 
-                    // Gentle magnetic pull matching human pacing
                     let tx = currentMode === "floating" ? closestKey.x : closestKey.x0;
                     let ty = currentMode === "floating" ? closestKey.y : closestKey.y0;
                     eyeNode.x += (tx - eyeNode.x) * 0.1;
@@ -345,7 +438,7 @@
                 } else {
                     irisTargetKey = null;
                     irisStartTime = null;
-                    irisRadius = 260; // Reset to wide macro search ring
+                    irisRadius = 260;
                 }
                 iris.style.width = (irisRadius * 2) + "px";
                 iris.style.height = (irisRadius * 2) + "px";
@@ -361,10 +454,26 @@
                 handleInteractions(eyeNode.x, eyeNode.y, closestKey);
             }
 
+            // Update Cursors and Vector Visualization
             let vCursor = document.getElementById("virtual-cursor");
+            let rCursor = document.getElementById("raw-cursor");
+
             vCursor.style.left = eyeNode.x + "px";
             vCursor.style.top = eyeNode.y + "px";
             vCursor.style.display = isCalibrating ? "none" : "block";
+
+            rCursor.style.left = rawGazeX + "px";
+            rCursor.style.top = rawGazeY + "px";
+            rCursor.style.display = (isCalibrating || !showVectorViz) ? "none" : "block";
+
+            if (showVectorViz && !isCalibrating) {
+                d3.select('#ml-vector-line')
+                    .attr("x1", rawGazeX).attr("y1", rawGazeY)
+                    .attr("x2", eyeNode.x).attr("y2", eyeNode.y)
+                    .style("opacity", 1);
+            } else {
+                d3.select('#ml-vector-line').style("opacity", 0);
+            }
 
             if (currentMode === "floating") {
                 keyGroups.attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
@@ -377,8 +486,12 @@
         svg.on("mousemove", function() {
             if (isCalibrating) return;
             var p1 = d3.mouse(this);
-            nodes[0].x = nodes[0].px = p1[0];
-            nodes[0].y = nodes[0].py = p1[1];
+            rawGazeX = p1[0];
+            rawGazeY = p1[1];
+            
+            let corrected = applyMLGazeCorrections(rawGazeX, rawGazeY, currentCollidingKey);
+            nodes[0].x = nodes[0].px = corrected.x;
+            nodes[0].y = nodes[0].py = corrected.y;
             force.resume();
         });
     }
@@ -392,42 +505,126 @@
         force.resume();
     }
 
-    function startCalibration() {
+    // ------------------- ML SUPERVISED TRAINING MODES ------------------- //
+
+    // Mode 1: Fast 9-Zone Bounding Grid Calibration Pass
+    function start9ZoneTraining() {
+        trainingType = '9zone';
         isCalibrating = true;
         calibStep = 0;
         calibClicks = 0;
         document.getElementById("calibration-overlay").style.display = "flex";
-        updateCalibrationTarget();
+        document.getElementById("top-bar").classList.add("training-active");
+        document.getElementById("calib-title").innerText = "🎯 9-Zone Grid ML Training";
+        update9ZoneTarget();
     }
 
-    function updateCalibrationTarget() {
-        if (calibStep >= calibSequence.length) {
-            isCalibrating = false;
-            document.getElementById("calibration-overlay").style.display = "none";
+    function update9ZoneTarget() {
+        if (calibStep >= zoneMatrix.length) {
+            finishMLTraining();
             return;
         }
-        let target = calibSequence[calibStep];
-        let targetX = target.key && currentMode !== "floating" ? nodes.find(n => n.char === target.key).x0 : window.innerWidth * target.x;
-        let targetY = target.key && currentMode !== "floating" ? nodes.find(n => n.char === target.key).y0 : window.innerHeight * target.y;
+        let targetZone = zoneMatrix[calibStep];
+        let targetX = window.innerWidth * targetZone.xRatio;
+        let targetY = window.innerHeight * targetZone.yRatio;
 
         let dot = document.getElementById("calib-dot");
         dot.style.left = targetX + "px";
         dot.style.top = targetY + "px";
-        dot.innerText = target.key || (calibStep + 1);
+        dot.innerText = calibStep + 1;
 
         document.getElementById("calib-text").innerHTML = 
-            `Calibration Step ${calibStep + 1} of ${calibSequence.length} (${target.name})<br>Stare at the red dot and click it 3 times (${calibClicks}/3).`;
-        window.currentCalibrationTargetCoords = {x: targetX, y: targetY};
+            `Calibrating Anchor Zone <strong>${calibStep + 1} of 9</strong>.<br>Look directly at the red dot and click it <strong>3 times</strong> (${calibClicks}/3).`;
+        window.currentCalibrationTargetCoords = { x: targetX, y: targetY, zoneIndex: calibStep };
     }
 
+    // Mode 2: Full Per-Key Sweep Calibration Pass
+    function startPerKeySweep() {
+        trainingType = 'perkey';
+        isCalibrating = true;
+        keySweepIndex = 0;
+        calibClicks = 0;
+        document.getElementById("calibration-overlay").style.display = "flex";
+        document.getElementById("top-bar").classList.add("training-active");
+        document.getElementById("calib-title").innerText = "⌨️ Full Per-Key Sweep ML Training";
+        updatePerKeyTarget();
+    }
+
+    function updatePerKeyTarget() {
+        let keyNodes = nodes.slice(1);
+        if (keySweepIndex >= keyNodes.length) {
+            finishMLTraining();
+            return;
+        }
+        let keyData = keyNodes[keySweepIndex];
+        let targetX = currentMode === "floating" ? keyData.x : keyData.x0;
+        let targetY = currentMode === "floating" ? keyData.y : keyData.y0;
+
+        let dot = document.getElementById("calib-dot");
+        dot.style.left = targetX + "px";
+        dot.style.top = targetY + "px";
+        dot.innerText = keyData.char;
+
+        // Highlight key on background canvas
+        keyGroups.select("rect").attr("fill", "#1e1e1e");
+        keyGroups.filter(d => d.char === keyData.char).select("rect").attr("fill", "#ff00ff");
+
+        document.getElementById("calib-text").innerHTML = 
+            `Target Key: <strong style="color:#00ffcc; font-size: 18px;">[ ${keyData.char} ]</strong> (${keySweepIndex + 1}/${keyNodes.length})<br>Stare at the glowing key dot and click it to train its offset vector (${calibClicks}/2).`;
+        window.currentCalibrationTargetCoords = { x: targetX, y: targetY, keyChar: keyData.char };
+    }
+
+    // Unified Ground-Truth Click Handler
     document.getElementById("calib-dot").addEventListener("click", function() {
         if (!isCalibrating) return;
         let coords = window.currentCalibrationTargetCoords;
+
+        // Sample WebGazer prediction ground truth
         webgazer.recordScreenPosition(coords.x, coords.y, 'click');
-        calibClicks++;
-        if (calibClicks >= 3) { calibClicks = 0; calibStep++; }
-        updateCalibrationTarget();
+
+        if (trainingType === '9zone') {
+            let zone = zoneMatrix[coords.zoneIndex];
+            // Calculate spatial error vector (ground truth minus raw gaze)
+            let errorX = coords.x - rawGazeX;
+            let errorY = coords.y - rawGazeY;
+
+            // Running average update of offset vectors
+            zone.dx = (zone.dx * zone.samples + errorX) / (zone.samples + 1);
+            zone.dy = (zone.dy * zone.samples + errorY) / (zone.samples + 1);
+            zone.samples++;
+
+            calibClicks++;
+            if (calibClicks >= 3) { calibClicks = 0; calibStep++; }
+            update9ZoneTarget();
+
+        } else if (trainingType === 'perkey') {
+            let char = coords.keyChar;
+            let errorX = coords.x - rawGazeX;
+            let errorY = coords.y - rawGazeY;
+
+            if (!perKeyOffsetMap[char]) {
+                perKeyOffsetMap[char] = { dx: errorX, dy: errorY, count: 1 };
+            } else {
+                let existing = perKeyOffsetMap[char];
+                existing.dx = (existing.dx * existing.count + errorX) / (existing.count + 1);
+                existing.dy = (existing.dy * existing.count + errorY) / (existing.count + 1);
+                existing.count++;
+            }
+
+            calibClicks++;
+            if (calibClicks >= 2) { calibClicks = 0; keySweepIndex++; }
+            updatePerKeyTarget();
+        }
     });
+
+    async function finishMLTraining() {
+        isCalibrating = false;
+        document.getElementById("calibration-overlay").style.display = "none";
+        document.getElementById("top-bar").classList.remove("training-active");
+        keyGroups.select("rect").attr("fill", "#1e1e1e");
+        await persistMLModels();
+        updateStatusMsg("✅ ML Training Complete! Spatial offset matrices saved to LocalForage.");
+    }
 
     function collide(node) {
         var r = node.radius + 15, nx1 = node.x - r, nx2 = node.x + r, ny1 = node.y - r, ny2 = node.y + r;
@@ -449,7 +646,7 @@
 
         if (gazeX < 320 && gazeY < 300) {
             if (!homeBaseTimer) {
-                homeBaseTimer = setTimeout(() => { startCalibration(); homeBaseTimer = null; }, 2500);
+                homeBaseTimer = setTimeout(() => { start9ZoneTraining(); homeBaseTimer = null; }, 2500);
             }
             return;
         } else {
@@ -474,10 +671,6 @@
                 }
 
                 dwellTimer = setTimeout(() => {
-                    let targetX = currentMode === "floating" ? keyNode.x : keyNode.x0;
-                    let targetY = currentMode === "floating" ? keyNode.y : keyNode.y0;
-                    recordResidualCorrection(gazeX, gazeY, targetX, targetY);
-
                     appendCharacter(currentCollidingKey);
                     
                     if (currentMode === "floating") {
@@ -527,18 +720,29 @@
         document.getElementById("smooth-val").innerText = val;
     }
 
+    function toggleVectorViz(enabled) {
+        showVectorViz = enabled;
+    }
+
+    function updateStatusMsg(msg) {
+        document.getElementById("status-msg").innerText = msg;
+    }
+
     var gazeTickListener = async function(data, clock) {
         if (!data) return;
 
+        rawGazeX = data.x;
+        rawGazeY = data.y;
+
         if (smoothedGazeX === null || smoothedGazeY === null) {
-            smoothedGazeX = data.x;
-            smoothedGazeY = data.y;
+            smoothedGazeX = rawGazeX;
+            smoothedGazeY = rawGazeY;
         } else {
-            smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
-            smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
+            smoothedGazeX += (rawGazeX - smoothedGazeX) * smoothingFactor;
+            smoothedGazeY += (rawGazeY - smoothedGazeY) * smoothingFactor;
         }
 
-        let corrected = applyAdaptiveResiduals(smoothedGazeX, smoothedGazeY);
+        let corrected = applyMLGazeCorrections(smoothedGazeX, smoothedGazeY, currentCollidingKey);
 
         nodes[0].x = nodes[0].px = corrected.x;
         nodes[0].y = nodes[0].py = corrected.y;
