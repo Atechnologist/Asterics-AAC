@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Multi-Mode Gaze Engine with Supervised Mouse-Guided Training</title>
+    <title>Multi-Mode Gaze Engine - Full Calibration & Supervised ML Suite</title>
     <style>
         body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; color: #fff; user-select: none; }
         
@@ -10,24 +10,24 @@
         #top-bar {
             position: fixed; top: 0; left: 0; width: 100vw; height: 75px;
             background: rgba(15, 15, 15, 0.95); border-bottom: 2px solid #00ffcc;
-            display: flex; align-items: center; justify-content: space-between; padding: 0 20px;
+            display: flex; align-items: center; justify-content: space-between; padding: 0 15px;
             z-index: 10000; box-sizing: border-box;
         }
         #output-bar {
             flex-grow: 1; height: 45px; background: rgba(5, 5, 5, 0.9);
             border: 2px solid #00ffcc; border-radius: 6px; color: #00ffcc;
             font-size: 20px; display: flex; align-items: center; padding: 0 15px;
-            margin-right: 20px; overflow: hidden; white-space: nowrap;
+            margin-right: 15px; overflow: hidden; white-space: nowrap;
         }
-        .control-group { display: flex; align-items: center; gap: 8px; }
+        .control-group { display: flex; align-items: center; gap: 6px; }
         .mode-btn {
             background: #1e1e1e; color: #00ffcc; border: 1px solid #00ffcc; padding: 6px 10px;
-            border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 13px;
+            border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 12px;
         }
         .mode-btn.active { background: #00ffcc; color: #000; box-shadow: 0 0 12px rgba(0,255,204,0.5); }
         .action-btn {
-            background: #222; color: #fff; border: 1px solid #555; padding: 7px 10px;
-            border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px;
+            background: #222; color: #fff; border: 1px solid #555; padding: 6px 10px;
+            border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px;
         }
         .action-btn.danger { border-color: #ff4444; color: #ff4444; }
         .action-btn.primary { border-color: #00ffcc; color: #00ffcc; }
@@ -43,12 +43,12 @@
         .slider-container { display: flex; align-items: center; gap: 8px; }
         input[type=range] { accent-color: #00ffcc; cursor: pointer; }
 
-        /* Calibration Overlay */
+        /* Calibration Overlay Modal */
         #calibration-overlay {
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(10, 10, 10, 0.85); z-index: 30000;
+            background: rgba(10, 10, 10, 0.92); z-index: 30000;
             display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-            padding-top: 130px; text-align: center; pointer-events: none;
+            padding-top: 100px; text-align: center; pointer-events: none;
         }
         #calib-dot {
             width: 50px; height: 50px; background: #ff0055; border-radius: 50%;
@@ -92,9 +92,10 @@
       </div>
       <div class="control-group" style="margin-left: 10px;">
           <button id="train-toggle-btn" class="action-btn training" onclick="toggleSupervisedTraining()">🎓 Training Mode: ON</button>
+          <button class="action-btn primary" onclick="startCalibration('9zone')">🎯 9-Zone Grid</button>
+          <button class="action-btn primary" onclick="startCalibration('perkey')">⌨️ Per-Key Sweep</button>
           <button class="action-btn primary" onclick="speakText()">🔊 Speak</button>
           <button class="action-btn danger" onclick="clearText()">Delete</button>
-          <button class="action-btn primary" onclick="startCalibration()">Recalibrate</button>
       </div>
   </div>
 
@@ -115,9 +116,9 @@
 
   <!-- Calibration Overlay Modal -->
   <div id="calibration-overlay">
-      <h2 style="color: #00ffcc; margin-bottom: 10px;">Gaze Calibration Required</h2>
-      <p id="calib-text" style="color: #bbb; max-width: 450px; line-height: 1.5; margin-bottom: 30px;">
-          Stare directly at the red glowing circle and click it <strong>3 times</strong> with your mouse.
+      <h2 style="color: #00ffcc; margin-bottom: 10px;" id="calib-title">Gaze Calibration Required</h2>
+      <p id="calib-text" style="color: #bbb; max-width: 500px; line-height: 1.5; margin-bottom: 25px;">
+          Stare directly at the glowing circle and click it <strong>3 times</strong> with your mouse.
       </p>
       <div id="calib-dot">1</div>
   </div>
@@ -143,15 +144,15 @@
     let currentMode = "magnetic"; 
 
     let isCalibrating = true;
+    let calibModeType = "9zone"; // "9zone" or "perkey"
     let calibStep = 0;
     let calibClicks = 0;
-    
-    const calibSequence = [
-        {name: "Top-Left Zone", x: 0.15, y: 0.3},
-        {name: "Top-Right Zone", x: 0.85, y: 0.3},
-        {name: "Center Zone", x: 0.5, y: 0.5},
-        {name: "Bottom-Left Zone", x: 0.15, y: 0.8},
-        {name: "Bottom-Right Zone", x: 0.85, y: 0.8}
+    let calibSequence = [];
+
+    const zone9Sequence = [
+        {name: "Top-Left", x: 0.1, y: 0.2}, {name: "Top-Center", x: 0.5, y: 0.2}, {name: "Top-Right", x: 0.9, y: 0.2},
+        {name: "Mid-Left", x: 0.1, y: 0.5}, {name: "Center Screen", x: 0.5, y: 0.5}, {name: "Mid-Right", x: 0.9, y: 0.5},
+        {name: "Bottom-Left", x: 0.1, y: 0.8}, {name: "Bottom-Center", x: 0.5, y: 0.8}, {name: "Bottom-Right", x: 0.9, y: 0.8}
     ];
 
     let currentCollidingKey = null;
@@ -165,7 +166,12 @@
     let irisTargetKey = null;
     let irisStartTime = null;
 
-    // --- SUPERVISED MOUSE-GUIDED TRAINING STATE ---
+    // Saccadic Snap Capture state
+    let lastVelocity = 0;
+    let saccadeFreezeTimer = null;
+    let isSaccadeLocked = false;
+
+    // Supervised ML Training state
     let supervisedTrainingActive = true;
     let lastRawWebcamX = null;
     let lastRawWebcamY = null;
@@ -192,12 +198,11 @@
     function recordSupervisedGroundTruth(trueTargetX, trueTargetY) {
         if (!supervisedTrainingActive || lastRawWebcamX === null || lastRawWebcamY === null) return;
 
-        // Calculate exact error vector between what webcam saw vs where the mouse proved you were looking
         let deltaX = trueTargetX - lastRawWebcamX;
         let deltaY = trueTargetY - lastRawWebcamY;
 
         correctionSamples.push({ rawX: lastRawWebcamX, rawY: lastRawWebcamY, deltaX, deltaY });
-        if (correctionSamples.length > 60) correctionSamples.shift();
+        if (correctionSamples.length > 80) correctionSamples.shift();
         trainingSampleCount = correctionSamples.length;
 
         let status = document.getElementById("status-msg");
@@ -209,7 +214,7 @@
     function applyAdaptiveResiduals(gazeX, gazeY) {
         if (correctionSamples.length === 0) return { x: gazeX, y: gazeY };
         let totalWeight = 0, weightedDeltaX = 0, weightedDeltaY = 0;
-        let bandwidth = 300; // Expanded spatial influence radius
+        let bandwidth = 350; // Wide interpolation radius
 
         for (let sample of correctionSamples) {
             let dist = Math.sqrt(Math.pow(gazeX - sample.rawX, 2) + Math.pow(gazeY - sample.rawY, 2));
@@ -243,7 +248,7 @@
             .applyKalmanFilter(true);
 
         webgazer.setGazeListener(gazeTickListener);
-        startCalibration();
+        startCalibration("9zone");
     };
 
     function setupEngine() {
@@ -400,12 +405,9 @@
             }
         });
 
-        // Mouse Fallback & Supervised Training Hook
         svg.on("mousemove", function() {
             if (isCalibrating) return;
             var p1 = d3.mouse(this);
-            // When moving mouse over keys in training mode, we register ground truth instruction
-            // (Handled via key dwell or clicks)
         });
     }
 
@@ -418,10 +420,26 @@
         force.resume();
     }
 
-    function startCalibration() {
+    // --- RESTORED CALIBRATION ENGINE (9-ZONE & PER-KEY SWEEP) ---
+    function startCalibration(type) {
+        calibModeType = type;
         isCalibrating = true;
         calibStep = 0;
         calibClicks = 0;
+
+        if (calibModeType === "perkey") {
+            calibSequence = nodes.slice(1).map(n => ({
+                name: `Key '${n.char}'`,
+                x0: n.x0,
+                y0: n.y0,
+                key: n.char
+            }));
+            document.getElementById("calib-title").innerText = "⌨️ Per-Key Sweep Calibration";
+        } else {
+            calibSequence = zone9Sequence;
+            document.getElementById("calib-title").innerText = "🎯 9-Zone Grid Calibration";
+        }
+
         document.getElementById("calibration-overlay").style.display = "flex";
         updateCalibrationTarget();
     }
@@ -433,8 +451,8 @@
             return;
         }
         let target = calibSequence[calibStep];
-        let targetX = target.key && currentMode !== "floating" ? nodes.find(n => n.char === target.key).x0 : window.innerWidth * target.x;
-        let targetY = target.key && currentMode !== "floating" ? nodes.find(n => n.char === target.key).y0 : window.innerHeight * target.y;
+        let targetX = target.x0 !== undefined ? target.x0 : window.innerWidth * target.x;
+        let targetY = target.y0 !== undefined ? target.y0 : window.innerHeight * target.y;
 
         let dot = document.getElementById("calib-dot");
         dot.style.left = targetX + "px";
@@ -442,7 +460,7 @@
         dot.innerText = target.key || (calibStep + 1);
 
         document.getElementById("calib-text").innerHTML = 
-            `Calibration Step ${calibStep + 1} of ${calibSequence.length} (${target.name})<br>Stare at the red dot and click it 3 times (${calibClicks}/3).`;
+            `Step ${calibStep + 1} of ${calibSequence.length} (${target.name})<br>Stare directly at the red dot and click it 3 times (${calibClicks}/3).`;
         window.currentCalibrationTargetCoords = {x: targetX, y: targetY};
     }
 
@@ -475,7 +493,7 @@
 
         if (gazeX < 320 && gazeY < 300) {
             if (!homeBaseTimer) {
-                homeBaseTimer = setTimeout(() => { startCalibration(); homeBaseTimer = null; }, 2500);
+                homeBaseTimer = setTimeout(() => { startCalibration('9zone'); homeBaseTimer = null; }, 2500);
             }
             return;
         } else {
@@ -503,11 +521,7 @@
                     let targetX = currentMode === "floating" ? keyNode.x : keyNode.x0;
                     let targetY = currentMode === "floating" ? keyNode.y : keyNode.y0;
                     
-                    // SUPERSVISED MOUSE-GUIDED TRAINING TRIGGER:
-                    // If your mouse is hovering over this key, record this as absolute ground truth!
-                    let mouseEvent = d3.event;
                     recordSupervisedGroundTruth(targetX, targetY);
-
                     appendCharacter(currentCollidingKey);
                     
                     if (currentMode === "floating") {
@@ -560,19 +574,30 @@
     var gazeTickListener = async function(data, clock) {
         if (!data) return;
 
-        // Store raw uncorrected webcam prediction for supervised training reference
         lastRawWebcamX = data.x;
         lastRawWebcamY = data.y;
 
-        if (smoothedGazeX === null || smoothedGazeY === null) {
+        // --- SACCADIC SNAP EXPLOITATION & JITTER FREEZE ---
+        if (smoothedGazeX !== null && smoothedGazeY !== null) {
+            let instVelocity = Math.sqrt(Math.pow(data.x - smoothedGazeX, 2) + Math.pow(data.y - smoothedGazeY, 2));
+            
+            // Detect sudden ballistic eye shift (Saccade > 180px)
+            if (instVelocity > 180 && !isSaccadeLocked) {
+                isSaccadeLocked = true;
+                // Snap directly to velocity peak, then momentarily freeze smoothing to prevent post-saccade drift jitter
+                smoothedGazeX = data.x;
+                smoothedGazeY = data.y;
+                clearTimeout(saccadeFreezeTimer);
+                saccadeFreezeTimer = setTimeout(() => { isSaccadeLocked = false; }, 350);
+            } else if (!isSaccadeLocked) {
+                smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
+                smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
+            }
+        } else {
             smoothedGazeX = data.x;
             smoothedGazeY = data.y;
-        } else {
-            smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
-            smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
         }
 
-        // Apply trained supervised spatial residuals
         let corrected = applyAdaptiveResiduals(smoothedGazeX, smoothedGazeY);
 
         nodes[0].x = nodes[0].px = corrected.x;
