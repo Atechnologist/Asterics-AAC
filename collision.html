@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Multi-Mode Gaze Engine with Decremental Iris Shutter Zoom</title>
+    <title>Multi-Mode Gaze Engine with Human-Speed Iris Shutter</title>
     <style>
         body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; color: #fff; user-select: none; }
         
@@ -57,12 +57,12 @@
             pointer-events: auto; z-index: 35000;
         }
 
-        /* Decremental Iris Shutter Ring */
+        /* Decremental Iris Shutter Ring with smooth transition */
         #iris-shutter {
             position: absolute; border: 3px dashed #ff0055; border-radius: 50%;
             transform: translate(-50%, -50%); pointer-events: none;
             box-shadow: 0 0 25px rgba(255,0,85,0.4); background: rgba(255,0,85,0.05);
-            z-index: 15000; display: none; transition: width 0.2s, height 0.2s;
+            z-index: 15000; display: none; transition: width 0.4s ease-out, height 0.4s ease-out;
         }
 
         .key-box { rx: 8; transition: fill 0.15s, stroke 0.15s; }
@@ -100,15 +100,15 @@
 
   <!-- Sub Toolbar -->
   <div id="sub-bar">
-      <span style="color: #00ffcc;" id="status-msg">🌀 Decremental Iris Shutter Zoom Ready</span>
+      <span style="color: #00ffcc;" id="status-msg">🌀 Human-Speed Iris Shutter Ready</span>
       <div style="display: flex; gap: 20px;">
           <div class="slider-container">
-              <label>Dwell: <span id="dwell-val">0.8</span>s</label>
-              <input type="range" id="dwell-slider" min="0.3" max="2.0" step="0.1" value="0.8" oninput="updateDwell(this.value)">
+              <label>Dwell: <span id="dwell-val">1.2</span>s</label>
+              <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.2" oninput="updateDwell(this.value)">
           </div>
           <div class="slider-container">
-              <label>Smooth: <span id="smooth-val">0.4</span></label>
-              <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.4" oninput="updateSmooth(this.value)">
+              <label>Smooth: <span id="smooth-val">0.5</span></label>
+              <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.5" oninput="updateSmooth(this.value)">
           </div>
       </div>
   </div>
@@ -140,7 +140,7 @@
     window.saveDataAcrossSessions = false;
     var force, nodes = [];
     var smoothedGazeX = null, smoothedGazeY = null;
-    let smoothingFactor = 0.4;
+    let smoothingFactor = 0.5;
     let currentMode = "magnetic"; 
 
     let isCalibrating = true;
@@ -157,15 +157,14 @@
 
     let currentCollidingKey = null;
     let dwellTimer = null;
-    let DWELL_TIME_MS = 800;
+    let DWELL_TIME_MS = 1200; // Default bumped up to 1.2s for comfortable human reaction window
     let svg, keyGroups, swipePolyline;
     let swipePathNodes = [];
     let homeBaseTimer = null;
 
-    // Iris Shutter State Variables
-    let irisRadius = 220; // Starts large (macro region)
+    let irisRadius = 260; 
     let irisTargetKey = null;
-    let irisHoldTimer = null;
+    let irisStartTime = null;
 
     let correctionSamples = [];
 
@@ -285,7 +284,7 @@
             let eyeNode = nodes[0];
             let closestKey = null;
             let minDistance = 9999;
-            let snapRadius = currentMode === "iris" ? 140 : 65;
+            let snapRadius = currentMode === "iris" ? 160 : 65;
 
             for (let j = 1; j < nodes.length; j++) {
                 let d = nodes[j];
@@ -316,7 +315,7 @@
                 }
             }
 
-            // Iris Shutter Decremental Shrinking Logic
+            // Human-Speed Gradual Iris Shutter Contraction
             let iris = document.getElementById("iris-shutter");
             if (currentMode === "iris") {
                 iris.style.display = isCalibrating ? "none" : "block";
@@ -326,23 +325,27 @@
                 if (closestKey) {
                     if (irisTargetKey !== closestKey) {
                         irisTargetKey = closestKey;
-                        irisRadius = 180; // Reset shutter macro state
-                        clearTimeout(irisHoldTimer);
-                        
-                        // Decremental Shutter Contraction Sequence
-                        irisHoldTimer = setTimeout(() => { irisRadius = 110; }, 250);
-                        setTimeout(() => { irisRadius = 60; }, 500);
+                        irisStartTime = performance.now(); // Mark start of human reaction window
                     }
-                    // Smoothly interpolate iris size and center onto target key
+
+                    // Calculate elapsed time ratio relative to total dwell time
+                    let elapsed = performance.now() - irisStartTime;
+                    let progress = Math.min(elapsed / DWELL_TIME_MS, 1.0);
+
+                    // Smoothly shrink iris radius from macro (240px) down to micro key size (45px) over full dwell duration
+                    irisRadius = 240 - (195 * progress);
+
+                    // Gentle magnetic pull matching human pacing
                     let tx = currentMode === "floating" ? closestKey.x : closestKey.x0;
                     let ty = currentMode === "floating" ? closestKey.y : closestKey.y0;
-                    eyeNode.x += (tx - eyeNode.x) * 0.15;
-                    eyeNode.y += (ty - eyeNode.y) * 0.15;
+                    eyeNode.x += (tx - eyeNode.x) * 0.1;
+                    eyeNode.y += (ty - eyeNode.y) * 0.1;
 
                     handleInteractions(eyeNode.x, eyeNode.y, closestKey);
                 } else {
                     irisTargetKey = null;
-                    irisRadius = 220; // Expand back to macro search ring
+                    irisStartTime = null;
+                    irisRadius = 260; // Reset to wide macro search ring
                 }
                 iris.style.width = (irisRadius * 2) + "px";
                 iris.style.height = (irisRadius * 2) + "px";
@@ -484,6 +487,8 @@
                         keyGroups.select("rect").attr("fill", "#1e1e1e");
                     }
                     currentCollidingKey = null;
+                    irisTargetKey = null;
+                    irisStartTime = null;
                 }, DWELL_TIME_MS);
             }
         }
