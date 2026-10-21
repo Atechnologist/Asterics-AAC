@@ -184,6 +184,11 @@
     let trainingSampleCount = 0;
     let correctionSamples = [];
 
+    // Added for moving-key version
+    let keySelectionHistory = [];
+    let keyHoverStartedAt = null;
+    let currentHoverKey = null;
+
     function toggleSupervisedTraining() {
         supervisedTrainingActive = !supervisedTrainingActive;
         let btn = document.getElementById("train-toggle-btn");
@@ -317,13 +322,12 @@
             keyGroups.append("circle").attr("class", "letter-circle").attr("r", function(d) { return d.radius; });
             keyGroups.append("text").attr("class", "letter-node").attr("dy", ".35em").attr("text-anchor", "middle").attr("font-size", "22px").attr("fill", "#00ffcc").text(function(d) { return d.char; });
         } else {
-            keyGroups.append("rect").attr("class", "key-box").attr("width", 64).attr("height", 64).attr("x", function(d) { return d.x0 - 32; }).attr("y", function(d) { return d.y0 - 32; }).attr("rx", 8).attr("fill", "#1e1e1e").attr("stroke", "#00ffcc").attr("stroke-width", 2);
+            keyGroups.append("rect").attr("class", "key-box").attr("width", 64).attr("height", 64).attr("x", function(d) { return d.x0 - 32; }).attr("y", function(d) { return d.y0 - 32; }).attr("rx", 8).attr("ry", 8).attr("fill", "#1e1e1e").attr("stroke", "#00ffcc").attr("stroke-width", 2);
             keyGroups.append("text").attr("class", "key-node").attr("x", function(d) { return d.x0; }).attr("y", function(d) { return d.y0; }).attr("dy", ".35em").attr("text-anchor", "middle").attr("font-size", "22px").attr("fill", "#00ffcc").text(function(d) { return d.char; });
         }
 
         swipePolyline = svg.append("polyline").attr("fill", "none").attr("stroke", "#ff0055").attr("stroke-width", 4).attr("stroke-linecap", "round").style("opacity", 0);
 
-        // Diagnostic Group embedded inside SVG (non-blocking)
         let diagGroup = svg.append("g").attr("id", "diag-group").style("display", "none");
         diagGroup.append("line").attr("id", "diag-vector-line").attr("stroke", "#ff0055").attr("stroke-width", 3).attr("stroke-dasharray", "4,4");
         diagGroup.append("circle").attr("id", "diag-raw-circle").attr("r", 12).attr("fill", "none").attr("stroke", "#ffff00").attr("stroke-width", 2);
@@ -338,7 +342,7 @@
             let eyeNode = nodes[0];
             let closestKey = null;
             let minDistance = 9999;
-            let snapRadius = currentMode === "iris" ? 160 : 65;
+            let snapRadius = currentMode === "iris" ? 120 : 90;
 
             for (let j = 1; j < nodes.length; j++) {
                 let d = nodes[j];
@@ -363,9 +367,19 @@
                     if (d.y < 120) { d.y = 120; d.vy *= -1; }
                     if (d.y > height - 50) { d.y = height - 50; d.vy *= -1; }
                 } else {
-                    let pull = currentMode === "magnetic" ? 0.25 : 0.15;
-                    d.x += (d.x0 - d.x) * pull;
-                    d.y += (d.y0 - d.y) * pull;
+                    let magneticStrength = currentMode === "magnetic" ? 0.18 : 0.12;
+                    let distToEye = Math.hypot(eyeNode.x - d.x, eyeNode.y - d.y);
+
+                    // Moving-key version: only the key nearest the gaze is pulled toward it.
+                    // All other keys stay near their home positions.
+                    if (distToEye < 180) {
+                        let pull = (1 - distToEye / 180) * magneticStrength;
+                        d.x += (eyeNode.x - d.x) * pull;
+                        d.y += (eyeNode.y - d.y) * pull;
+                    } else {
+                        d.x += (d.x0 - d.x) * 0.12;
+                        d.y += (d.y0 - d.y) * 0.12;
+                    }
                 }
             }
 
@@ -405,8 +419,9 @@
             if (closestKey && currentMode !== "iris" && !isCalibrating) {
                 let tx = currentMode === "floating" ? closestKey.x : closestKey.x0;
                 let ty = currentMode === "floating" ? closestKey.y : closestKey.y0;
-                eyeNode.x += (tx - eyeNode.x) * 0.2; 
-                eyeNode.y += (ty - eyeNode.y) * 0.2;
+                // Spring toward the gaze while maintaining a stable home position.
+                closestKey.x += (eyeNode.x - closestKey.x) * 0.08;
+                closestKey.y += (eyeNode.y - closestKey.y) * 0.08;
                 handleInteractions(eyeNode.x, eyeNode.y, closestKey);
             }
 
@@ -415,7 +430,6 @@
             vCursor.style.top = eyeNode.y + "px";
             vCursor.style.display = isCalibrating ? "none" : "block";
 
-            // Update live non-blocking diagnostic vector line
             if (diagnosticsVisible && lastRawWebcamX !== null) {
                 d3.select("#diag-raw-circle").attr("cx", lastRawWebcamX).attr("cy", lastRawWebcamY);
                 d3.select("#diag-vector-line")
@@ -431,7 +445,6 @@
             }
         });
 
-        // Mouse listener for ground-truth training and manual fallback
         svg.on("mousemove", function() {
             var p1 = d3.mouse(this);
             mouseX = p1[0]; mouseY = p1[1];
@@ -440,7 +453,6 @@
         svg.on("click", function() {
             if (isCalibrating) return;
             var p1 = d3.mouse(this);
-            // Clicking anywhere on screen in training mode records mouse position as exact ground truth
             recordSupervisedGroundTruth(p1[0], p1[1]);
         });
     }
@@ -534,40 +546,72 @@
             homeBaseTimer = null;
         }
 
-        if (keyNode) {
-            if (currentCollidingKey !== keyNode.char) {
-                currentCollidingKey = keyNode.char;
+        if (!keyNode) {
+            if (currentCollidingKey) {
+                currentCollidingKey = null;
                 clearTimeout(dwellTimer);
+            }
+            return;
+        }
 
+        const targetX = currentMode === "floating" ? keyNode.x : keyNode.x0;
+        const targetY = currentMode === "floating" ? keyNode.y : keyNode.y0;
+        const dx = gazeX - targetX;
+        const dy = gazeY - targetY;
+        const dist = Math.hypot(dx, dy);
+
+        // Stabilize selection: the key must stay near the gaze for a moment before dwell begins.
+        if (dist < 65) {
+            if (currentHoverKey !== keyNode.char) {
+                currentHoverKey = keyNode.char;
+                keyHoverStartedAt = performance.now();
+            }
+        } else {
+            currentHoverKey = null;
+            keyHoverStartedAt = null;
+        }
+
+        if (keyNode && currentCollidingKey !== keyNode.char && currentHoverKey === keyNode.char && keyHoverStartedAt && (performance.now() - keyHoverStartedAt) > 120) {
+            currentCollidingKey = keyNode.char;
+            clearTimeout(dwellTimer);
+
+            if (currentMode === "floating") {
+                keyGroups.select("circle").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
+                keyGroups.select("text").attr("fill", "#00ffcc");
+                let activeGroup = keyGroups.filter(d => d.char === currentCollidingKey);
+                activeGroup.select("circle").attr("fill", "#00ffcc").attr("stroke", "#ff0055");
+                activeGroup.select("text").attr("fill", "#000");
+            } else {
+                keyGroups.select("rect").attr("fill", "#1e1e1e");
+                keyGroups.filter(d => d.char === currentCollidingKey).select("rect").attr("fill", "#00ffcc");
+            }
+
+            dwellTimer = setTimeout(() => {
+                let targetX = currentMode === "floating" ? keyNode.x : keyNode.x0;
+                let targetY = currentMode === "floating" ? keyNode.y : keyNode.y0;
+                
+                recordSupervisedGroundTruth(targetX, targetY);
+                appendCharacter(currentCollidingKey);
+                
                 if (currentMode === "floating") {
                     keyGroups.select("circle").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
                     keyGroups.select("text").attr("fill", "#00ffcc");
-                    let activeGroup = keyGroups.filter(d => d.char === currentCollidingKey);
-                    activeGroup.select("circle").attr("fill", "#00ffcc").attr("stroke", "#ff0055");
-                    activeGroup.select("text").attr("fill", "#000");
                 } else {
                     keyGroups.select("rect").attr("fill", "#1e1e1e");
-                    keyGroups.filter(d => d.char === currentCollidingKey).select("rect").attr("fill", "#00ffcc");
                 }
+                currentCollidingKey = null;
+                currentHoverKey = null;
+                keyHoverStartedAt = null;
+                irisTargetKey = null;
+                irisStartTime = null;
+            }, DWELL_TIME_MS);
+        }
 
-                dwellTimer = setTimeout(() => {
-                    let targetX = currentMode === "floating" ? keyNode.x : keyNode.x0;
-                    let targetY = currentMode === "floating" ? keyNode.y : keyNode.y0;
-                    
-                    recordSupervisedGroundTruth(targetX, targetY);
-                    appendCharacter(currentCollidingKey);
-                    
-                    if (currentMode === "floating") {
-                        keyGroups.select("circle").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
-                        keyGroups.select("text").attr("fill", "#00ffcc");
-                    } else {
-                        keyGroups.select("rect").attr("fill", "#1e1e1e");
-                    }
-                    currentCollidingKey = null;
-                    irisTargetKey = null;
-                    irisStartTime = null;
-                }, DWELL_TIME_MS);
-            }
+        // Gently pull the actively hovered key toward the eye to improve hit-rate without leaving a static grid.
+        if (keyNode && currentHoverKey === keyNode.char) {
+            const pull = 0.12;
+            keyNode.x += (gazeX - keyNode.x) * pull;
+            keyNode.y += (gazeY - keyNode.y) * pull;
         }
     }
 
