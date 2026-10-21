@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Multi-Mode Gaze Engine with Hover Macro-Regions</title>
+    <title>Multi-Mode Gaze Engine with Decremental Iris Shutter Zoom</title>
     <style>
         body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; color: #fff; user-select: none; }
         
@@ -32,7 +32,7 @@
         .action-btn.danger { border-color: #ff4444; color: #ff4444; }
         .action-btn.primary { border-color: #00ffcc; color: #00ffcc; }
 
-        /* Secondary Toolbar for Settings & Status */
+        /* Secondary Toolbar */
         #sub-bar {
             position: fixed; top: 75px; left: 0; width: 100vw; height: 45px;
             background: rgba(25, 25, 25, 0.9); border-bottom: 1px solid #333;
@@ -57,36 +57,37 @@
             pointer-events: auto; z-index: 35000;
         }
 
-        /* Macro Region Containers */
-        .macro-zone {
-            position: absolute; border: 2px dashed rgba(0, 255, 204, 0.3); border-radius: 12px;
-            display: flex; align-items: center; justify-content: center; transition: all 0.3s;
-            background: rgba(0, 255, 204, 0.03);
+        /* Decremental Iris Shutter Ring */
+        #iris-shutter {
+            position: absolute; border: 3px dashed #ff0055; border-radius: 50%;
+            transform: translate(-50%, -50%); pointer-events: none;
+            box-shadow: 0 0 25px rgba(255,0,85,0.4); background: rgba(255,0,85,0.05);
+            z-index: 15000; display: none; transition: width 0.2s, height 0.2s;
         }
-        .macro-zone.active-region { background: rgba(0, 255, 204, 0.15); border-color: #ff0055; box-shadow: 0 0 20px rgba(255,0,85,0.3); }
 
         .key-box { rx: 8; transition: fill 0.15s, stroke 0.15s; }
         .letter-circle { stroke: #00ffcc; stroke-width: 2px; fill: #1e1e1e; transition: fill 0.15s, stroke 0.15s; }
         .letter-node { font-weight: bold; cursor: pointer; user-select: none; }
         
         #virtual-cursor {
-            position: absolute; width: 24px; height: 24px; border: 3px solid #ff0055;
+            position: absolute; width: 20px; height: 20px; border: 2px solid #00ffcc;
             border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none;
-            box-shadow: 0 0 15px #ff0055; z-index: 20000; display: none;
+            box-shadow: 0 0 10px #00ffcc; z-index: 20000; display: none;
         }
     </style>
 </head>
 <body>
 
-  <!-- Virtual Gaze Reticle -->
+  <!-- Virtual Gaze Reticle & Shutter Ring -->
   <div id="virtual-cursor"></div>
+  <div id="iris-shutter"></div>
 
   <!-- Top Control Bar -->
   <div id="top-bar">
       <div id="output-bar">Type here...</div>
       <div class="control-group">
           <button class="mode-btn active" onclick="switchMode('magnetic')">Magnetic QWERTY</button>
-          <button class="mode-btn" onclick="switchMode('regions')">Macro Regions</button>
+          <button class="mode-btn" onclick="switchMode('iris')">Iris Shutter Zoom</button>
           <button class="mode-btn" onclick="switchMode('swipe')">Gaze Swipe</button>
           <button class="mode-btn" onclick="switchMode('floating')">Floating Letters</button>
       </div>
@@ -99,7 +100,7 @@
 
   <!-- Sub Toolbar -->
   <div id="sub-bar">
-      <span style="color: #00ffcc;" id="status-msg">🎯 Hover Reticle & Macro-Region Mode Active</span>
+      <span style="color: #00ffcc;" id="status-msg">🌀 Decremental Iris Shutter Zoom Ready</span>
       <div style="display: flex; gap: 20px;">
           <div class="slider-container">
               <label>Dwell: <span id="dwell-val">0.8</span>s</label>
@@ -160,7 +161,11 @@
     let svg, keyGroups, swipePolyline;
     let swipePathNodes = [];
     let homeBaseTimer = null;
-    let activeMacroRegion = null;
+
+    // Iris Shutter State Variables
+    let irisRadius = 220; // Starts large (macro region)
+    let irisTargetKey = null;
+    let irisHoldTimer = null;
 
     let correctionSamples = [];
 
@@ -216,8 +221,6 @@
         var height = window.innerHeight;
         nodes = [];
 
-        d3.selectAll(".macro-zone").remove();
-
         if (currentMode === "floating") {
             var letters = ["Q", "W", "E", "R", "T", "Z", "U", "I", "O", "P", "A", "S", "D", "F", "G", "H", "J", "K", "L", "Y", "X", "C", "V", "B", "N", "M", "⌫", "SP"];
             nodes = letters.map(function(char) {
@@ -240,24 +243,9 @@
                 row.forEach((char, colIndex) => {
                     let kx = startX + (colIndex * 75) + 35;
                     let ky = startY + (rowIndex * 80);
-                    let region = colIndex < 5 ? "left" : "right";
-                    if (rowIndex === 2) region = colIndex < 5 ? "bottom-left" : "bottom-right";
-                    
-                    nodes.push({ char: char, radius: 30, x0: kx, y0: ky, x: kx, y: ky, vx: 0, vy: 0, region: region });
+                    nodes.push({ char: char, radius: 30, x0: kx, y0: ky, x: kx, y: ky, vx: 0, vy: 0 });
                 });
             });
-
-            if (currentMode === "regions") {
-                // Render Macro Region Overlays
-                let bodySel = d3.select("body");
-                bodySel.append("div").attr("class", "macro-zone").attr("id", "zone-left")
-                    .style("left", "15vw").style("top", "38vh").style("width", "35vw").style("height", "45vh")
-                    .html("<span style='color:rgba(0,255,204,0.4); font-size:24px; font-weight:bold;'>LEFT CLUSTER</span>");
-                
-                bodySel.append("div").attr("class", "macro-zone").attr("id", "zone-right")
-                    .style("left", "52vw").style("top", "38vh").style("width", "35vw").style("height", "45vh")
-                    .html("<span style='color:rgba(0,255,204,0.4); font-size:24px; font-weight:bold;'>RIGHT CLUSTER</span>");
-            }
         }
 
         nodes.unshift({ radius: 0, fixed: true, x: width/2, y: height/2 });
@@ -297,7 +285,7 @@
             let eyeNode = nodes[0];
             let closestKey = null;
             let minDistance = 9999;
-            let snapRadius = currentMode === "regions" ? 120 : 65;
+            let snapRadius = currentMode === "iris" ? 140 : 65;
 
             for (let j = 1; j < nodes.length; j++) {
                 let d = nodes[j];
@@ -328,27 +316,45 @@
                 }
             }
 
-            // Macro region active highlighting
-            if (currentMode === "regions") {
-                let leftZone = document.getElementById("zone-left");
-                let rightZone = document.getElementById("zone-right");
-                if (leftZone && rightZone) {
-                    if (eyeNode.x < width / 2) {
-                        leftZone.classList.add("active-region");
-                        rightZone.classList.remove("active-region");
-                    } else {
-                        rightZone.classList.add("active-region");
-                        leftZone.classList.remove("active-region");
+            // Iris Shutter Decremental Shrinking Logic
+            let iris = document.getElementById("iris-shutter");
+            if (currentMode === "iris") {
+                iris.style.display = isCalibrating ? "none" : "block";
+                iris.style.left = eyeNode.x + "px";
+                iris.style.top = eyeNode.y + "px";
+
+                if (closestKey) {
+                    if (irisTargetKey !== closestKey) {
+                        irisTargetKey = closestKey;
+                        irisRadius = 180; // Reset shutter macro state
+                        clearTimeout(irisHoldTimer);
+                        
+                        // Decremental Shutter Contraction Sequence
+                        irisHoldTimer = setTimeout(() => { irisRadius = 110; }, 250);
+                        setTimeout(() => { irisRadius = 60; }, 500);
                     }
+                    // Smoothly interpolate iris size and center onto target key
+                    let tx = currentMode === "floating" ? closestKey.x : closestKey.x0;
+                    let ty = currentMode === "floating" ? closestKey.y : closestKey.y0;
+                    eyeNode.x += (tx - eyeNode.x) * 0.15;
+                    eyeNode.y += (ty - eyeNode.y) * 0.15;
+
+                    handleInteractions(eyeNode.x, eyeNode.y, closestKey);
+                } else {
+                    irisTargetKey = null;
+                    irisRadius = 220; // Expand back to macro search ring
                 }
+                iris.style.width = (irisRadius * 2) + "px";
+                iris.style.height = (irisRadius * 2) + "px";
+            } else {
+                iris.style.display = "none";
             }
 
-            if (closestKey && !isCalibrating) {
+            if (closestKey && currentMode !== "iris" && !isCalibrating) {
                 let tx = currentMode === "floating" ? closestKey.x : closestKey.x0;
                 let ty = currentMode === "floating" ? closestKey.y : closestKey.y0;
                 eyeNode.x += (tx - eyeNode.x) * 0.2; 
                 eyeNode.y += (ty - eyeNode.y) * 0.2;
-                
                 handleInteractions(eyeNode.x, eyeNode.y, closestKey);
             }
 
