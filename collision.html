@@ -1,131 +1,272 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <title>Multi-Mode Gaze Engine with Integrated Diagnostics</title>
-    <style>
-        body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; color: #fff; user-select: none; }
+  <meta charset="utf-8" />
+  <title>Real Gaze Keyboard</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --panel: rgba(15,15,15,0.95);
+      --cyan: #00ffcc;
+      --magenta: #ff0055;
+      --text: #ffffff;
+      --muted: #bbbbbb;
+      --key: #1e1e1e;
+      --key-border: #00ffcc;
+    }
 
-        /* Top Control Bar */
-        #top-bar {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 75px;
-            background: rgba(15, 15, 15, 0.95); border-bottom: 2px solid #00ffcc;
-            display: flex; align-items: center; justify-content: space-between; padding: 0 15px;
-            z-index: 10000; box-sizing: border-box;
-        }
-        #output-bar {
-            flex-grow: 1; height: 45px; background: rgba(5, 5, 5, 0.9);
-            border: 2px solid #00ffcc; border-radius: 6px; color: #00ffcc;
-            font-size: 20px; display: flex; align-items: center; padding: 0 15px;
-            margin-right: 15px; overflow: hidden; white-space: nowrap;
-        }
-        .control-group { display: flex; align-items: center; gap: 6px; }
-        .mode-btn {
-            background: #1e1e1e; color: #00ffcc; border: 1px solid #00ffcc; padding: 6px 10px;
-            border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 12px;
-        }
-        .mode-btn.active { background: #00ffcc; color: #000; box-shadow: 0 0 12px rgba(0,255,204,0.5); }
-        .action-btn {
-            background: #222; color: #fff; border: 1px solid #555; padding: 6px 10px;
-            border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px;
-        }
-        .action-btn.danger { border-color: #ff4444; color: #ff4444; }
-        .action-btn.primary { border-color: #00ffcc; color: #00ffcc; }
-        .action-btn.training { background: #ff0055; border-color: #ff0055; color: #fff; box-shadow: 0 0 10px #ff0055; }
+    html, body {
+      margin: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: sans-serif;
+      user-select: none;
+    }
 
-        /* Secondary Toolbar */
-        #sub-bar {
-            position: fixed; top: 75px; left: 0; width: 100vw; height: 45px;
-            background: rgba(25, 25, 25, 0.9); border-bottom: 1px solid #333;
-            display: flex; align-items: center; justify-content: space-between; padding: 0 20px;
-            z-index: 9999; font-size: 13px; color: #aaa; box-sizing: border-box;
-        }
-        .slider-container { display: flex; align-items: center; gap: 8px; }
-        input[type=range] { accent-color: #00ffcc; cursor: pointer; }
+    #top-bar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 75px;
+      background: var(--panel);
+      border-bottom: 2px solid var(--cyan);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 15px;
+      box-sizing: border-box;
+      z-index: 10000;
+    }
 
-        /* Calibration Overlay Modal */
-        #calibration-overlay {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(10, 10, 10, 0.92); z-index: 30000;
-            display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-            padding-top: 100px; text-align: center; pointer-events: none;
-        }
-        #calib-dot {
-            width: 50px; height: 50px; background: #ff0055; border-radius: 50%;
-            position: absolute; transform: translate(-50%, -50%); cursor: pointer;
-            box-shadow: 0 0 35px #ff0055; display: flex; align-items: center; justify-content: center;
-            font-weight: bold; font-size: 18px; color: #fff; border: 3px solid #fff;
-            pointer-events: auto; z-index: 35000;
-        }
+    #output-bar {
+      flex: 1;
+      height: 45px;
+      background: rgba(5,5,5,0.9);
+      border: 2px solid var(--cyan);
+      border-radius: 6px;
+      color: var(--cyan);
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      padding: 0 15px;
+      margin-right: 15px;
+      overflow: hidden;
+      white-space: nowrap;
+      box-sizing: border-box;
+    }
 
-        #iris-shutter {
-            position: absolute; border: 3px dashed #ff0055; border-radius: 50%;
-            transform: translate(-50%, -50%); pointer-events: none;
-            box-shadow: 0 0 25px rgba(255,0,85,0.4); background: rgba(255,0,85,0.05);
-            z-index: 15000; display: none; transition: width 0.4s ease-out, height 0.4s ease-out;
-        }
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
 
-        .key-box { rx: 8; transition: fill 0.15s, stroke 0.15s; }
-        .letter-circle { stroke: #00ffcc; stroke-width: 2px; fill: #1e1e1e; transition: fill 0.15s, stroke 0.15s; }
-        .letter-node { font-weight: bold; cursor: pointer; user-select: none; }
+    .mode-btn, .action-btn {
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.18s ease;
+      border: 1px solid var(--cyan);
+      background: #1e1e1e;
+      color: var(--cyan);
+      padding: 6px 10px;
+    }
 
-        #virtual-cursor {
-            position: absolute; width: 20px; height: 20px; border: 2px solid #00ffcc;
-            border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none;
-            box-shadow: 0 0 10px #00ffcc; z-index: 20000; display: none;
-        }
+    .mode-btn.active {
+      background: var(--cyan);
+      color: #000;
+      box-shadow: 0 0 12px rgba(0,255,204,0.5);
+    }
 
-        #diagnostic-layer {
-            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-            pointer-events: none; z-index: 12000;
-        }
-    </style>
+    .action-btn.primary {
+      color: var(--cyan);
+    }
+
+    .action-btn.danger {
+      border-color: #ff4444;
+      color: #ff4444;
+    }
+
+    .action-btn.training {
+      background: var(--magenta);
+      border-color: var(--magenta);
+      color: #fff;
+      box-shadow: 0 0 10px rgba(255,0,85,0.7);
+    }
+
+    #sub-bar {
+      position: fixed;
+      top: 75px; left: 0; right: 0;
+      height: 45px;
+      background: rgba(25,25,25,0.9);
+      border-bottom: 1px solid #333;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      box-sizing: border-box;
+      z-index: 9999;
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    .slider-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    input[type=range] {
+      accent-color: var(--cyan);
+      cursor: pointer;
+    }
+
+    #calibration-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(10,10,10,0.92);
+      z-index: 30000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding-top: 100px;
+      text-align: center;
+      pointer-events: none;
+    }
+
+    #calib-dot {
+      position: absolute;
+      width: 50px; height: 50px;
+      background: var(--magenta);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+      box-shadow: 0 0 35px rgba(255,0,85,0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 18px;
+      color: #fff;
+      border: 3px solid #fff;
+      pointer-events: auto;
+      z-index: 35000;
+    }
+
+    #iris-shutter {
+      position: absolute;
+      border: 3px dashed var(--magenta);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      box-shadow: 0 0 25px rgba(255,0,85,0.4);
+      background: rgba(255,0,85,0.05);
+      z-index: 15000;
+      display: none;
+      transition: width 0.35s ease-out, height 0.35s ease-out;
+    }
+
+    #virtual-cursor {
+      position: absolute;
+      width: 20px; height: 20px;
+      border: 2px solid var(--cyan);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      box-shadow: 0 0 10px rgba(0,255,204,0.9);
+      z-index: 20000;
+      display: none;
+    }
+
+    svg {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 10;
+    }
+
+    .key-box {
+      fill: #1e1e1e;
+      stroke: #00ffcc;
+      stroke-width: 2;
+      transition: fill 0.12s ease, stroke 0.12s ease;
+    }
+
+    .key-text {
+      fill: #00ffcc;
+      font-size: 22px;
+      text-anchor: middle;
+      dominant-baseline: middle;
+      font-weight: bold;
+      user-select: none;
+    }
+
+    .letter-circle {
+      fill: #1e1e1e;
+      stroke: #00ffcc;
+      stroke-width: 2;
+      transition: fill 0.12s ease, stroke 0.12s ease;
+    }
+
+    .letter-text {
+      fill: #00ffcc;
+      font-size: 22px;
+      text-anchor: middle;
+      dominant-baseline: middle;
+      font-weight: bold;
+    }
+  </style>
 </head>
 <body>
 
   <div id="virtual-cursor"></div>
   <div id="iris-shutter"></div>
 
-  <!-- Top Control Bar -->
   <div id="top-bar">
-      <div id="output-bar">Type here...</div>
-      <div class="control-group">
-          <button class="mode-btn active" onclick="switchMode('magnetic')">Magnetic QWERTY</button>
-          <button class="mode-btn" onclick="switchMode('iris')">Iris Shutter Zoom</button>
-          <button class="mode-btn" onclick="switchMode('swipe')">Gaze Swipe</button>
-          <button class="mode-btn" onclick="switchMode('floating')">Floating Letters</button>
-      </div>
-      <div class="control-group" style="margin-left: 10px;">
-          <button id="train-toggle-btn" class="action-btn training" onclick="toggleSupervisedTraining()">🎓 Training Mode: ON</button>
-          <button id="diag-toggle-btn" class="action-btn primary" onclick="toggleDiagnostics()">📊 Diag Overlay: OFF</button>
-          <button class="action-btn primary" onclick="startCalibration('9zone')">🎯 9-Zone Grid</button>
-          <button class="action-btn primary" onclick="startCalibration('perkey')">⌨️ Per-Key Sweep</button>
-          <button class="action-btn danger" onclick="clearText()">Delete</button>
-      </div>
+    <div id="output-bar">Type here...</div>
+
+    <div class="control-group">
+      <button class="mode-btn active" onclick="switchMode('magnetic')">Magnetic QWERTY</button>
+      <button class="mode-btn" onclick="switchMode('iris')">Iris Shutter Zoom</button>
+      <button class="mode-btn" onclick="switchMode('swipe')">Gaze Swipe</button>
+      <button class="mode-btn" onclick="switchMode('floating')">Floating Letters</button>
+    </div>
+
+    <div class="control-group" style="margin-left: 10px;">
+      <button id="train-toggle-btn" class="action-btn training" onclick="toggleSupervisedTraining()">🎓 Training Mode: ON</button>
+      <button id="diag-toggle-btn" class="action-btn primary" onclick="toggleDiagnostics()">📊 Diag Overlay: OFF</button>
+      <button class="action-btn primary" onclick="startCalibration('9zone')">🎯 9-Zone Grid</button>
+      <button class="action-btn primary" onclick="startCalibration('perkey')">⌨️ Per-Key Sweep</button>
+      <button class="action-btn danger" onclick="clearText()">Delete</button>
+    </div>
   </div>
 
-  <!-- Sub Toolbar -->
   <div id="sub-bar">
-      <span style="color: #ff0055;" id="status-msg">🎓 Supervised Training Active: Hover mouse over key and click/look to record ground-truth</span>
-      <div style="display: flex; gap: 20px;">
-          <div class="slider-container">
-              <label>Dwell: <span id="dwell-val">1.2</span>s</label>
-              <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.2" oninput="updateDwell(this.value)">
-          </div>
-          <div class="slider-container">
-              <label>Smooth: <span id="smooth-val">0.5</span></label>
-              <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.5" oninput="updateSmooth(this.value)">
-          </div>
+    <span style="color: #ff0055;" id="status-msg">🎓 Supervised Training Active: Hover mouse over key and click/look to record ground-truth</span>
+    <div style="display: flex; gap: 20px;">
+      <div class="slider-container">
+        <label>Dwell: <span id="dwell-val">1.2</span>s</label>
+        <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.2" oninput="updateDwell(this.value)">
       </div>
+      <div class="slider-container">
+        <label>Smooth: <span id="smooth-val">0.5</span></label>
+        <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.5" oninput="updateSmooth(this.value)">
+      </div>
+    </div>
   </div>
 
-  <!-- Calibration Overlay Modal -->
   <div id="calibration-overlay">
-      <h2 style="color: #00ffcc; margin-bottom: 10px;" id="calib-title">Gaze Calibration Required</h2>
-      <p id="calib-text" style="color: #bbb; max-width: 500px; line-height: 1.5; margin-bottom: 25px;">
-          Stare directly at the glowing circle and click it <strong>3 times</strong> with your mouse.
-      </p>
-      <div id="calib-dot">1</div>
+    <h2 style="color: #00ffcc; margin-bottom: 10px;" id="calib-title">Gaze Calibration Required</h2>
+    <p id="calib-text" style="color: #bbb; max-width: 500px; line-height: 1.5; margin-bottom: 25px;">
+      Stare directly at the glowing circle and click it <strong>3 times</strong> with your mouse.
+    </p>
+    <div id="calib-dot">1</div>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
@@ -135,654 +276,622 @@
   <script>
     const originalGetContext = HTMLCanvasElement.prototype.getContext;
     HTMLCanvasElement.prototype.getContext = function(type, attributes) {
-        if (type === '2d') {
-            attributes = attributes || {};
-            attributes.willReadFrequently = true;
-        }
-        return originalGetContext.call(this, type, attributes);
+      if (type === '2d') {
+        attributes = attributes || {};
+        attributes.willReadFrequently = true;
+      }
+      return originalGetContext.call(this, type, attributes);
     };
 
-    window.saveDataAcrossSessions = false;
-
-    var force, nodes = [];
-    var smoothedGazeX = null, smoothedGazeY = null;
-    let smoothingFactor = 0.5;
     let currentMode = "magnetic";
-
     let isCalibrating = true;
     let calibModeType = "9zone";
     let calibStep = 0;
     let calibClicks = 0;
     let calibSequence = [];
-
     const zone9Sequence = [
-        {name: "Top-Left", x: 0.1, y: 0.2}, {name: "Top-Center", x: 0.5, y: 0.2}, {name: "Top-Right", x: 0.9, y: 0.2},
-        {name: "Mid-Left", x: 0.1, y: 0.5}, {name: "Center Screen", x: 0.5, y: 0.5}, {name: "Mid-Right", x: 0.9, y: 0.5},
-        {name: "Bottom-Left", x: 0.1, y: 0.8}, {name: "Bottom-Center", x: 0.5, y: 0.8}, {name: "Bottom-Right", x: 0.9, y: 0.8}
+      { name: "Top-Left", x: 0.1, y: 0.2 },
+      { name: "Top-Center", x: 0.5, y: 0.2 },
+      { name: "Top-Right", x: 0.9, y: 0.2 },
+      { name: "Mid-Left", x: 0.1, y: 0.5 },
+      { name: "Center Screen", x: 0.5, y: 0.5 },
+      { name: "Mid-Right", x: 0.9, y: 0.5 },
+      { name: "Bottom-Left", x: 0.1, y: 0.8 },
+      { name: "Bottom-Center", x: 0.5, y: 0.8 },
+      { name: "Bottom-Right", x: 0.9, y: 0.8 }
     ];
 
-    let currentCollidingKey = null;
-    let dwellTimer = null;
     let DWELL_TIME_MS = 1200;
-    let svg, keyGroups, swipePolyline;
-    let homeBaseTimer = null;
-
-    let irisRadius = 260;
-    let irisTargetKey = null;
-    let irisStartTime = null;
-
-    let saccadeFreezeTimer = null;
-    let isSaccadeLocked = false;
-
+    let smoothingFactor = 0.5;
     let supervisedTrainingActive = true;
     let diagnosticsVisible = false;
     let lastRawWebcamX = null;
     let lastRawWebcamY = null;
-    let mouseX = 0, mouseY = 0;
     let trainingSampleCount = 0;
     let correctionSamples = [];
 
-    // New hover/settling state
+    let nodes = [];
+    let svg = null;
+    let keyGroups = null;
+    let swipePolyline = null;
+
+    let gazeHistory = [];
+    let gazeCursor = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    let selection = null;
+    let homeBaseTimer = null;
+    let irisRadius = 260;
+    let irisTargetKey = null;
+    let irisStartTime = null;
+
+    // For floating-key motion
+    let jitterPhase = 0;
     let activeHoverKey = null;
     let hoverStartedAt = null;
-    let hoverDistance = null;
+
+    const KEY_ROWS = [
+      ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
+      ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
+      ["Z", "X", "C", "V", "B", "N", "M", "⌫", "SP"]
+    ];
+
+    function setStatus(msg, color) {
+      const status = document.getElementById("status-msg");
+      status.innerText = msg;
+      if (color) status.style.color = color;
+    }
 
     function toggleSupervisedTraining() {
-        supervisedTrainingActive = !supervisedTrainingActive;
-        let btn = document.getElementById("train-toggle-btn");
-        let status = document.getElementById("status-msg");
-        if (supervisedTrainingActive) {
-            btn.className = "action-btn training";
-            btn.innerText = "🎓 Training Mode: ON";
-            status.style.color = "#ff0055";
-            status.innerText = `🎓 Supervised Training Active: Hover mouse on target key & click/look (${trainingSampleCount} learned)`;
-        } else {
-            btn.className = "action-btn primary";
-            btn.innerText = "🔒 Training Mode: OFF";
-            status.style.color = "#00ffcc";
-            status.innerText = `🔒 Live Inference Mode (${trainingSampleCount} samples active)`;
-        }
+      supervisedTrainingActive = !supervisedTrainingActive;
+      const btn = document.getElementById("train-toggle-btn");
+      if (supervisedTrainingActive) {
+        btn.className = "action-btn training";
+        btn.innerText = "🎓 Training Mode: ON";
+        setStatus(`🎓 Supervised Training Active: Hover mouse on target key & click/look (${trainingSampleCount} learned)`, "#ff0055");
+      } else {
+        btn.className = "action-btn primary";
+        btn.innerText = "🔒 Training Mode: OFF";
+        setStatus(`🔒 Live Inference Mode (${trainingSampleCount} samples active)`, "#00ffcc");
+      }
     }
 
     function toggleDiagnostics() {
-        diagnosticsVisible = !diagnosticsVisible;
-        let btn = document.getElementById("diag-toggle-btn");
-        btn.innerText = diagnosticsVisible ? "📊 Diag Overlay: ON" : "📊 Diag Overlay: OFF";
-        d3.select("#diag-group").style("display", diagnosticsVisible ? "block" : "none");
+      diagnosticsVisible = !diagnosticsVisible;
+      const btn = document.getElementById("diag-toggle-btn");
+      btn.innerText = diagnosticsVisible ? "📊 Diag Overlay: ON" : "📊 Diag Overlay: OFF";
+      if (d3.select("#diag-group").empty()) return;
+      d3.select("#diag-group").style("display", diagnosticsVisible ? "block" : "none");
     }
 
     function recordSupervisedGroundTruth(trueTargetX, trueTargetY) {
-        if (!supervisedTrainingActive || lastRawWebcamX === null || lastRawWebcamY === null) return;
+      if (!supervisedTrainingActive || lastRawWebcamX === null || lastRawWebcamY === null) return;
 
-        const deltaX = trueTargetX - lastRawWebcamX;
-        const deltaY = trueTargetY - lastRawWebcamY;
+      const deltaX = trueTargetX - lastRawWebcamX;
+      const deltaY = trueTargetY - lastRawWebcamY;
 
-        correctionSamples.push({ rawX: lastRawWebcamX, rawY: lastRawWebcamY, deltaX, deltaY });
-        if (correctionSamples.length > 80) correctionSamples.shift();
-        trainingSampleCount = correctionSamples.length;
+      correctionSamples.push({ rawX: lastRawWebcamX, rawY: lastRawWebcamY, deltaX, deltaY });
+      if (correctionSamples.length > 80) correctionSamples.shift();
+      trainingSampleCount = correctionSamples.length;
 
-        const status = document.getElementById("status-msg");
-        if (supervisedTrainingActive) {
-            status.innerText = `🎓 Recorded Ground-Truth Delta! (${trainingSampleCount} spatial samples learned)`;
-        }
+      if (supervisedTrainingActive) {
+        setStatus(`🎓 Recorded Ground-Truth Delta! (${trainingSampleCount} spatial samples learned)`, "#ff0055");
+      }
     }
 
     function applyAdaptiveResiduals(gazeX, gazeY) {
-        if (correctionSamples.length === 0) return { x: gazeX, y: gazeY };
+      if (correctionSamples.length === 0) return { x: gazeX, y: gazeY };
 
-        let totalWeight = 0;
-        let weightedDeltaX = 0;
-        let weightedDeltaY = 0;
-        const bandwidth = 350;
+      let totalWeight = 0;
+      let weightedDeltaX = 0;
+      let weightedDeltaY = 0;
+      const bandwidth = 350;
 
-        for (let sample of correctionSamples) {
-            const dist = Math.sqrt(Math.pow(gazeX - sample.rawX, 2) + Math.pow(gazeY - sample.rawY, 2));
-            if (dist < bandwidth) {
-                const weight = Math.exp(-(dist * dist) / (2 * bandwidth * bandwidth));
-                weightedDeltaX += sample.deltaX * weight;
-                weightedDeltaY += sample.deltaY * weight;
-                totalWeight += weight;
-            }
+      for (const sample of correctionSamples) {
+        const dist = Math.hypot(gazeX - sample.rawX, gazeY - sample.rawY);
+        if (dist < bandwidth) {
+          const weight = Math.exp(-(dist * dist) / (2 * bandwidth * bandwidth));
+          weightedDeltaX += sample.deltaX * weight;
+          weightedDeltaY += sample.deltaY * weight;
+          totalWeight += weight;
         }
+      }
 
-        if (totalWeight > 0) {
-            return {
-                x: gazeX + (weightedDeltaX / totalWeight),
-                y: gazeY + (weightedDeltaY / totalWeight)
-            };
-        }
-        return { x: gazeX, y: gazeY };
+      if (totalWeight > 0) {
+        return {
+          x: gazeX + (weightedDeltaX / totalWeight),
+          y: gazeY + (weightedDeltaY / totalWeight)
+        };
+      }
+
+      return { x: gazeX, y: gazeY };
     }
 
-    window.onload = async function() {
-        if (!window.saveDataAcrossSessions) {
-            localforage.setItem('webgazerGlobalData', null);
-            localforage.setItem('webgazerGlobalSettings', null);
+    function averagePointList(points) {
+      if (!points.length) return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+      let sx = 0, sy = 0;
+      for (const p of points) { sx += p.x; sy += p.y; }
+      return { x: sx / points.length, y: sy / points.length };
+    }
+
+    function addGazeSample(x, y) {
+      gazeHistory.push({ x, y });
+      if (gazeHistory.length > 8) gazeHistory.shift();
+    }
+
+    function getFilteredGaze() {
+      if (!gazeHistory.length) return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+      return averagePointList(gazeHistory);
+    }
+
+    function createFixedLayout() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+
+      const keyList = [];
+      const startY = height * 0.53;
+
+      KEY_ROWS.forEach((row, rowIndex) => {
+        const startX = (width - (row.length * 72)) / 2;
+        row.forEach((char, colIndex) => {
+          const x = startX + (colIndex * 72) + 36;
+          const y = startY + (rowIndex * 72) + 30;
+          keyList.push({
+            char,
+            x,
+            y,
+            homeX: x,
+            homeY: y,
+            radius: 36,
+            mode: "fixed"
+          });
+        });
+      });
+
+      return keyList;
+    }
+
+    function createFloatingLayout() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const letters = ["Q","W","E","R","T","Z","U","I","O","P","A","S","D","F","G","H","J","K","L","Y","X","C","V","B","N","M","⌫","SP"];
+      const list = [];
+
+      letters.forEach((char, index) => {
+        const x = width * 0.25 + ((index % 7) / 7) * width * 0.5 + (Math.random() * 40 - 20);
+        const y = height * 0.3 + (Math.floor(index / 7) * 90) + (Math.random() * 40 - 20);
+        list.push({
+          char,
+          x,
+          y,
+          homeX: x,
+          homeY: y,
+          radius: 28,
+          mode: "floating",
+          driftX: (Math.random() - 0.5) * 1.4,
+          driftY: (Math.random() - 0.5) * 1.4
+        });
+      });
+
+      return list;
+    }
+
+    function rebuildKeyboard() {
+      nodes = currentMode === "floating" ? createFloatingLayout() : createFixedLayout();
+
+      if (svg) svg.remove();
+      svg = d3.select("body").append("svg");
+
+      if (currentMode === "floating") {
+        keyGroups = svg.selectAll(".key-group")
+          .data(nodes)
+          .enter()
+          .append("g")
+          .attr("class", "key-group");
+
+        keyGroups.append("circle")
+          .attr("class", "letter-circle")
+          .attr("r", d => d.radius)
+          .attr("cx", d => d.x)
+          .attr("cy", d => d.y);
+
+        keyGroups.append("text")
+          .attr("class", "letter-text")
+          .attr("x", d => d.x)
+          .attr("y", d => d.y)
+          .text(d => d.char);
+      } else {
+        keyGroups = svg.selectAll(".key-group")
+          .data(nodes)
+          .enter()
+          .append("g")
+          .attr("class", "key-group");
+
+        keyGroups.append("rect")
+          .attr("class", "key-box")
+          .attr("x", d => d.x - 32)
+          .attr("y", d => d.y - 32)
+          .attr("width", 64)
+          .attr("height", 64)
+          .attr("rx", 8)
+          .attr("ry", 8);
+
+        keyGroups.append("text")
+          .attr("class", "key-text")
+          .attr("x", d => d.x)
+          .attr("y", d => d.y)
+          .text(d => d.char);
+      }
+
+      swipePolyline = svg.append("polyline")
+        .attr("fill", "none")
+        .attr("stroke", "#ff0055")
+        .attr("stroke-width", 4)
+        .attr("stroke-linecap", "round")
+        .style("opacity", 0);
+
+      const diagGroup = svg.append("g").attr("id", "diag-group").style("display", "none");
+      diagGroup.append("line").attr("id", "diag-vector-line").attr("stroke", "#ff0055").attr("stroke-width", 3).attr("stroke-dasharray", "4,4");
+      diagGroup.append("circle").attr("id", "diag-raw-circle").attr("r", 12).attr("fill", "none").attr("stroke", "#ffff00").attr("stroke-width", 2);
+
+      svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
+      svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
+
+      renderKeyboardHighlights();
+    }
+
+    function renderKeyboardHighlights() {
+      if (!keyGroups) return;
+
+      if (currentMode === "floating") {
+        keyGroups.select("circle").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
+        keyGroups.select(".letter-text").attr("fill", "#00ffcc");
+
+        if (activeHoverKey) {
+          const target = keyGroups.filter(d => d.char === activeHoverKey);
+          if (!target.empty()) {
+            target.select("circle").attr("fill", "#00ffcc").attr("stroke", "#ff0055");
+            target.select(".letter-text").attr("fill", "#000");
+          }
         }
+      } else {
+        keyGroups.select("rect").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
+        keyGroups.select(".key-text").attr("fill", "#00ffcc");
 
-        setupEngine();
+        if (activeHoverKey) {
+          const target = keyGroups.filter(d => d.char === activeHoverKey);
+          if (!target.empty()) {
+            target.select("rect").attr("fill", "#00ffcc").attr("stroke", "#ff0055");
+            target.select(".key-text").attr("fill", "#000");
+          }
+        }
+      }
+    }
 
-        const webgazerInstance = await webgazer.setRegression('ridge')
-            .setTracker('TFFacemesh')
-            .begin();
+    function updateFloatingMotion() {
+      if (currentMode !== "floating") return;
 
-        webgazerInstance.showVideoPreview(true)
-            .showPredictionPoints(false)
-            .applyKalmanFilter(true);
+      const width = window.innerWidth;
+      const height = window.innerHeight;
 
-        webgazer.setGazeListener(gazeTickListener);
-        startCalibration("9zone");
-    };
+      nodes.forEach((node, index) => {
+        jitterPhase += 0.015;
+        node.x += node.driftX + Math.sin(jitterPhase + index) * 0.8;
+        node.y += node.driftY + Math.cos(jitterPhase * 1.2 + index) * 0.8;
 
-    function setupEngine() {
-        const width = window.innerWidth;
-        const height = window.innerHeight;
-        nodes = [];
+        if (node.x < 40) { node.x = 40; node.driftX *= -1; }
+        if (node.x > width - 40) { node.x = width - 40; node.driftX *= -1; }
+        if (node.y < 120) { node.y = 120; node.driftY *= -1; }
+        if (node.y > height - 40) { node.y = height - 40; node.driftY *= -1; }
+      });
 
+      if (keyGroups) {
         if (currentMode === "floating") {
-            const letters = ["Q", "W", "E", "R", "T", "Z", "U", "I", "O", "P", "A", "S", "D", "F", "G", "H", "J", "K", "L", "Y", "X", "C", "V", "B", "N", "M", "⌫", "SP"];
-            nodes = letters.map(function(char) {
-                return {
-                    char: char,
-                    radius: 30,
-                    x0: width * 0.5,
-                    y0: height * 0.5,
-                    x: width * 0.25 + Math.random() * (width * 0.5),
-                    y: height * 0.3 + Math.random() * (height * 0.5),
-                    vx: (Math.random() - 0.5) * 2,
-                    vy: (Math.random() - 0.5) * 2
-                };
-            });
-        } else {
-            const rows = [
-                ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
-                ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
-                ["Z", "X", "C", "V", "B", "N", "M", "⌫", "SP"]
-            ];
-            const startY = height * 0.45;
-            rows.forEach((row, rowIndex) => {
-                const startX = (width - (row.length * 75)) / 2;
-                row.forEach((char, colIndex) => {
-                    const kx = startX + (colIndex * 75) + 35;
-                    const ky = startY + (rowIndex * 80);
-                    nodes.push({
-                        char: char,
-                        radius: 30,
-                        x0: kx,
-                        y0: ky,
-                        x: kx,
-                        y: ky,
-                        vx: 0,
-                        vy: 0
-                    });
-                });
-            });
+          keyGroups.attr("transform", d => `translate(${d.x},${d.y})`);
         }
-
-        nodes.unshift({ radius: 0, fixed: true, x: width/2, y: height/2 });
-
-        force = d3.layout.force()
-            .gravity(currentMode === "floating" ? 0.06 : 0)
-            .charge(function(d, i) { return i ? (currentMode === "floating" ? -30 : 0) : -1500; })
-            .nodes(nodes)
-            .size([width, height])
-            .start();
-
-        if (svg) svg.remove();
-
-        svg = d3.select("body").append("svg")
-            .attr("width", width).attr("height", height)
-            .style("position", "absolute")
-            .style("top", "0")
-            .style("left", "0")
-            .style("z-index", "10");
-
-        keyGroups = svg.selectAll(".key-group").data(nodes.slice(1)).enter().append("g").attr("class", "key-group");
-
-        if (currentMode === "floating") {
-            keyGroups.append("circle").attr("class", "letter-circle").attr("r", function(d) { return d.radius; });
-            keyGroups.append("text")
-                .attr("class", "letter-node")
-                .attr("dy", ".35em")
-                .attr("text-anchor", "middle")
-                .attr("font-size", "22px")
-                .attr("fill", "#00ffcc")
-                .text(function(d) { return d.char; });
-        } else {
-            keyGroups.append("rect")
-                .attr("class", "key-box")
-                .attr("width", 64)
-                .attr("height", 64)
-                .attr("x", function(d) { return d.x0 - 32; })
-                .attr("y", function(d) { return d.y0 - 32; })
-                .attr("rx", 8)
-                .attr("ry", 8)
-                .attr("fill", "#1e1e1e")
-                .attr("stroke", "#00ffcc")
-                .attr("stroke-width", 2);
-
-            keyGroups.append("text")
-                .attr("class", "key-node")
-                .attr("x", function(d) { return d.x0; })
-                .attr("y", function(d) { return d.y0; })
-                .attr("dy", ".35em")
-                .attr("text-anchor", "middle")
-                .attr("font-size", "22px")
-                .attr("fill", "#00ffcc")
-                .text(function(d) { return d.char; });
-        }
-
-        swipePolyline = svg.append("polyline")
-            .attr("fill", "none")
-            .attr("stroke", "#ff0055")
-            .attr("stroke-width", 4)
-            .attr("stroke-linecap", "round")
-            .style("opacity", 0);
-
-        const diagGroup = svg.append("g").attr("id", "diag-group").style("display", "none");
-        diagGroup.append("line").attr("id", "diag-vector-line").attr("stroke", "#ff0055").attr("stroke-width", 3).attr("stroke-dasharray", "4,4");
-        diagGroup.append("circle").attr("id", "diag-raw-circle").attr("r", 12).attr("fill", "none").attr("stroke", "#ffff00").attr("stroke-width", 2);
-
-        svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
-        svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
-
-        force.on("tick", function() {
-            const eyeNode = nodes[0];
-            let closestKey = null;
-            let minDistance = Infinity;
-
-            const snapRadius = currentMode === "iris" ? 120 : 90;
-
-            for (let j = 1; j < nodes.length; j++) {
-                const d = nodes[j];
-                const targetX = currentMode === "floating" ? d.x : d.x0;
-                const targetY = currentMode === "floating" ? d.y : d.y0;
-
-                const dx = eyeNode.x - targetX;
-                const dy = eyeNode.y - targetY;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-
-                if (dist < snapRadius && dist < minDistance) {
-                    minDistance = dist;
-                    closestKey = d;
-                }
-
-                if (currentMode === "floating") {
-                    // Floating mode keeps motion but caps velocity so it doesn't explode
-                    d.x += d.vx;
-                    d.y += d.vy;
-                    d.vx *= 0.98;
-                    d.vy *= 0.98;
-
-                    if (d.x < 50) { d.x = 50; d.vx *= -0.6; }
-                    if (d.x > width - 50) { d.x = width - 50; d.vx *= -0.6; }
-                    if (d.y < 120) { d.y = 120; d.vy *= -0.6; }
-                    if (d.y > height - 50) { d.y = height - 50; d.vy *= -0.6; }
-
-                    if (dist < 180 && d.char === currentCollidingKey) {
-                        d.x += dx * 0.08;
-                        d.y += dy * 0.08;
-                    }
-
-                    d.vx += (Math.random() - 0.5) * 0.3;
-                    d.vy += (Math.random() - 0.5) * 0.3;
-
-                } else {
-                    // Fixed keyboard: keep the layout stable, with gentle return to home
-                    const returnSpeed = currentMode === "magnetic" ? 0.18 : 0.12;
-                    d.x += (d.x0 - d.x) * returnSpeed;
-                    d.y += (d.y0 - d.y) * returnSpeed;
-
-                    // Only the active hovered key gets a slight pull toward the gaze.
-                    if (activeHoverKey === d.char) {
-                        const moveStrength = 0.12;
-                        d.x += (eyeNode.x - d.x) * moveStrength;
-                        d.y += (eyeNode.y - d.y) * moveStrength;
-                    }
-                }
-            }
-
-            // Iris mode
-            const iris = document.getElementById("iris-shutter");
-            if (currentMode === "iris") {
-                iris.style.display = isCalibrating ? "none" : "block";
-                iris.style.left = eyeNode.x + "px";
-                iris.style.top = eyeNode.y + "px";
-
-                if (closestKey) {
-                    if (irisTargetKey !== closestKey) {
-                        irisTargetKey = closestKey;
-                        irisStartTime = performance.now();
-                    }
-
-                    const elapsed = performance.now() - irisStartTime;
-                    const progress = Math.min(elapsed / DWELL_TIME_MS, 1.0);
-                    irisRadius = 240 - (195 * progress);
-
-                    const tx = closestKey.x0 || closestKey.x;
-                    const ty = closestKey.y0 || closestKey.y;
-
-                    eyeNode.x += (tx - eyeNode.x) * 0.08;
-                    eyeNode.y += (ty - eyeNode.y) * 0.08;
-
-                    handleInteractions(eyeNode.x, eyeNode.y, closestKey);
-                } else {
-                    irisTargetKey = null;
-                    irisStartTime = null;
-                    irisRadius = 260;
-                }
-
-                iris.style.width = (irisRadius * 2) + "px";
-                iris.style.height = (irisRadius * 2) + "px";
-            } else {
-                iris.style.display = "none";
-            }
-
-            // Hover selection in all non-iris modes
-            if (closestKey && currentMode !== "iris" && !isCalibrating) {
-                const tx = closestKey.x0 || closestKey.x;
-                const ty = closestKey.y0 || closestKey.y;
-
-                // Slight magnetic pull in fixed mode, but not enough to destabilize the board
-                if (currentMode === "magnetic") {
-                    closestKey.x += (eyeNode.x - closestKey.x) * 0.08;
-                    closestKey.y += (eyeNode.y - closestKey.y) * 0.08;
-                }
-
-                handleInteractions(eyeNode.x, eyeNode.y, closestKey);
-            }
-
-            const vCursor = document.getElementById("virtual-cursor");
-            vCursor.style.left = eyeNode.x + "px";
-            vCursor.style.top = eyeNode.y + "px";
-            vCursor.style.display = isCalibrating ? "none" : "block";
-
-            if (diagnosticsVisible && lastRawWebcamX !== null) {
-                d3.select("#diag-raw-circle").attr("cx", lastRawWebcamX).attr("cy", lastRawWebcamY);
-                d3.select("#diag-vector-line")
-                    .attr("x1", lastRawWebcamX).attr("y1", lastRawWebcamY)
-                    .attr("x2", eyeNode.x).attr("y2", eyeNode.y);
-            }
-
-            if (currentMode === "floating") {
-                keyGroups.attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
-            } else {
-                keyGroups.select("rect").attr("x", function(d) { return d.x - 32; }).attr("y", function(d) { return d.y - 32; });
-                keyGroups.select("text").attr("x", function(d) { return d.x; }).attr("y", function(d) { return d.y; });
-            }
-        });
-
-        svg.on("mousemove", function() {
-            var p1 = d3.mouse(this);
-            mouseX = p1[0];
-            mouseY = p1[1];
-        });
-
-        svg.on("click", function() {
-            if (isCalibrating) return;
-            const p1 = d3.mouse(this);
-            recordSupervisedGroundTruth(p1[0], p1[1]);
-        });
+      }
     }
 
-    function switchMode(mode) {
-        currentMode = mode;
-        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-        event.target.classList.add('active');
-        swipePolyline.style("opacity", mode === "swipe" ? 1 : 0);
-        setupEngine();
-        force.resume();
+    function findNearestKey(gx, gy) {
+      let best = null;
+      let bestDist = Infinity;
+
+      for (const key of nodes) {
+        const dx = gx - key.x;
+        const dy = gy - key.y;
+        const dist = Math.hypot(dx, dy);
+
+        const radius = currentMode === "floating" ? 72 : 96;
+        if (dist <= radius && dist < bestDist) {
+          bestDist = dist;
+          best = key;
+        }
+      }
+      return best;
     }
 
-    function startCalibration(type) {
-        calibModeType = type;
-        isCalibrating = true;
-        calibStep = 0;
-        calibClicks = 0;
+    function startSelection(key) {
+      if (!key) return;
+      if (selection && selection.char === key.char) return;
+      selection = { char: key.char, startedAt: performance.now() };
+    }
 
-        if (calibModeType === "perkey") {
-            calibSequence = nodes.slice(1).map(n => ({
-                name: `Key '${n.char}'`,
-                x0: n.x0,
-                y0: n.y0,
-                key: n.char
-            }));
-            document.getElementById("calib-title").innerText = "⌨️ Per-Key Sweep Calibration";
-        } else {
-            calibSequence = zone9Sequence;
-            document.getElementById("calib-title").innerText = "🎯 9-Zone Grid Calibration";
+    function clearSelection() {
+      selection = null;
+      activeHoverKey = null;
+      hoverStartedAt = null;
+    }
+
+    function activateKey(key) {
+      if (!key) return;
+
+      if (key.char === "⌫") {
+        const outputBar = document.getElementById("output-bar");
+        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
+        txt = txt.slice(0, -1);
+        outputBar.innerText = txt || "Type here...";
+      } else if (key.char === "SP") {
+        const outputBar = document.getElementById("output-bar");
+        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
+        outputBar.innerText = (txt + " ").trim() || "Type here...";
+      } else {
+        const outputBar = document.getElementById("output-bar");
+        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
+        outputBar.innerText = txt + key.char;
+      }
+
+      recordSupervisedGroundTruth(key.x, key.y);
+      activeHoverKey = null;
+      hoverStartedAt = null;
+      selection = null;
+
+      renderKeyboardHighlights();
+    }
+
+    function handleSelectionFrame(gx, gy) {
+      const nearest = findNearestKey(gx, gy);
+
+      if (!nearest) {
+        clearSelection();
+        renderKeyboardHighlights();
+        return;
+      }
+
+      const now = performance.now();
+
+      if (!selection || selection.char !== nearest.char) {
+        selection = { char: nearest.char, startedAt: now };
+        activeHoverKey = nearest.char;
+        hoverStartedAt = now;
+        renderKeyboardHighlights();
+        return;
+      }
+
+      if (performance.now() - selection.startedAt >= DWELL_TIME_MS) {
+        activateKey(nearest);
+      }
+    }
+
+    function updateKeyboardVisualization() {
+      if (!svg || !keyGroups) return;
+
+      if (currentMode === "floating") {
+        keyGroups.attr("transform", d => `translate(${d.x},${d.y})`);
+        keyGroups.select("circle").attr("cx", 0).attr("cy", 0);
+        keyGroups.select(".letter-text").attr("x", 0).attr("y", 0);
+      } else {
+        keyGroups.select("rect").attr("x", d => d.x - 32).attr("y", d => d.y - 32);
+        keyGroups.select(".key-text").attr("x", d => d.x).attr("y", d => d.y);
+
+        // gentle magnetic pull toward gaze for the active key only
+        if (activeHoverKey) {
+          const target = nodes.find(k => k.char === activeHoverKey);
+          if (target) {
+            target.x += (gazeCursor.x - target.x) * 0.08;
+            target.y += (gazeCursor.y - target.y) * 0.08;
+          }
         }
-
-        document.getElementById("calibration-overlay").style.display = "flex";
-        updateCalibrationTarget();
+      }
     }
 
     function updateCalibrationTarget() {
-        if (calibStep >= calibSequence.length) {
-            isCalibrating = false;
-            document.getElementById("calibration-overlay").style.display = "none";
-            return;
-        }
+      if (calibStep >= calibSequence.length) {
+        isCalibrating = false;
+        document.getElementById("calibration-overlay").style.display = "none";
+        return;
+      }
 
-        const target = calibSequence[calibStep];
-        const targetX = target.x0 !== undefined ? target.x0 : window.innerWidth * target.x;
-        const targetY = target.y0 !== undefined ? target.y0 : window.innerHeight * target.y;
+      const target = calibSequence[calibStep];
+      const targetX = target.x0 !== undefined ? target.x0 : window.innerWidth * target.x;
+      const targetY = target.y0 !== undefined ? target.y0 : window.innerHeight * target.y;
 
-        const dot = document.getElementById("calib-dot");
-        dot.style.left = targetX + "px";
-        dot.style.top = targetY + "px";
-        dot.innerText = target.key || (calibStep + 1);
+      const dot = document.getElementById("calib-dot");
+      dot.style.left = targetX + "px";
+      dot.style.top = targetY + "px";
+      dot.innerText = target.key || (calibStep + 1);
 
-        document.getElementById("calib-text").innerHTML =
-            `Step ${calibStep + 1} of ${calibSequence.length} (${target.name})<br>Stare directly at the red dot and click it 3 times (${calibClicks}/3).`;
+      document.getElementById("calib-text").innerHTML =
+        `Step ${calibStep + 1} of ${calibSequence.length} (${target.name})<br>Stare directly at the red dot and click it 3 times (${calibClicks}/3).`;
 
-        window.currentCalibrationTargetCoords = { x: targetX, y: targetY };
+      window.currentCalibrationTargetCoords = { x: targetX, y: targetY };
+    }
+
+    function startCalibration(type) {
+      calibModeType = type;
+      isCalibrating = true;
+      calibStep = 0;
+      calibClicks = 0;
+
+      if (calibModeType === "perkey") {
+        calibSequence = nodes.slice(0).map(n => ({
+          name: `Key '${n.char}'`,
+          x0: n.x,
+          y0: n.y,
+          key: n.char
+        }));
+        document.getElementById("calib-title").innerText = "⌨️ Per-Key Sweep Calibration";
+      } else {
+        calibSequence = zone9Sequence;
+        document.getElementById("calib-title").innerText = "🎯 9-Zone Grid Calibration";
+      }
+
+      document.getElementById("calibration-overlay").style.display = "flex";
+      updateCalibrationTarget();
     }
 
     document.getElementById("calib-dot").addEventListener("click", function() {
-        if (!isCalibrating) return;
-        const coords = window.currentCalibrationTargetCoords;
-        webgazer.recordScreenPosition(coords.x, coords.y, 'click');
-        calibClicks++;
+      if (!isCalibrating) return;
 
-        if (calibClicks >= 3) {
-            calibClicks = 0;
-            calibStep++;
-        }
-        updateCalibrationTarget();
+      const coords = window.currentCalibrationTargetCoords;
+      webgazer.recordScreenPosition(coords.x, coords.y, "click");
+      calibClicks++;
+
+      if (calibClicks >= 3) {
+        calibClicks = 0;
+        calibStep++;
+      }
+
+      updateCalibrationTarget();
     });
 
-    function collide(node) {
-        const r = node.radius + 15;
-        const nx1 = node.x - r, nx2 = node.x + r;
-        const ny1 = node.y - r, ny2 = node.y + r;
+    function switchMode(mode) {
+      currentMode = mode;
+      document.querySelectorAll(".mode-btn").forEach(btn => btn.classList.remove("active"));
+      const target = event.target;
+      if (target && target.classList) target.classList.add("active");
 
-        return function(quad, x1, y1, x2, y2) {
-            if (quad.point && (quad.point !== node)) {
-                const x = node.x - quad.point.x;
-                const y = node.y - quad.point.y;
-                const l = Math.sqrt(x * x + y * y);
-                const minDist = node.radius + quad.point.radius;
-
-                if (l < minDist) {
-                    const push = (l - minDist) / l * 0.5;
-                    node.x -= x *= push;
-                    node.y -= y *= push;
-                    quad.point.x += x;
-                    quad.point.y += y;
-                }
-            }
-            return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
-        };
-    }
-
-    function handleInteractions(gazeX, gazeY, keyNode) {
-        if (isCalibrating) return;
-
-        // Home reset area
-        if (gazeX < 320 && gazeY < 300) {
-            if (!homeBaseTimer) {
-                homeBaseTimer = setTimeout(() => {
-                    startCalibration('9zone');
-                    homeBaseTimer = null;
-                }, 2500);
-            }
-            return;
-        } else {
-            clearTimeout(homeBaseTimer);
-            homeBaseTimer = null;
-        }
-
-        if (!keyNode) {
-            if (currentCollidingKey) {
-                currentCollidingKey = null;
-                clearTimeout(dwellTimer);
-            }
-            activeHoverKey = null;
-            hoverStartedAt = null;
-            hoverDistance = null;
-            return;
-        }
-
-        const targetX = currentMode === "floating" ? keyNode.x : keyNode.x0;
-        const targetY = currentMode === "floating" ? keyNode.y : keyNode.y0;
-
-        const dx = gazeX - targetX;
-        const dy = gazeY - targetY;
-        const dist = Math.hypot(dx, dy);
-
-        const hitRadius = currentMode === "floating" ? 52 : 58;
-
-        if (dist < hitRadius) {
-            if (activeHoverKey !== keyNode.char) {
-                activeHoverKey = keyNode.char;
-                hoverStartedAt = performance.now();
-                hoverDistance = dist;
-            }
-        } else {
-            if (activeHoverKey === keyNode.char) {
-                activeHoverKey = null;
-                hoverStartedAt = null;
-                hoverDistance = null;
-            }
-        }
-
-        const shouldActivate = activeHoverKey === keyNode.char && hoverStartedAt && (performance.now() - hoverStartedAt) > 120;
-
-        if (shouldActivate && currentCollidingKey !== keyNode.char) {
-            currentCollidingKey = keyNode.char;
-            clearTimeout(dwellTimer);
-
-            if (currentMode === "floating") {
-                keyGroups.select("circle").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
-                keyGroups.select("text").attr("fill", "#00ffcc");
-                const activeGroup = keyGroups.filter(d => d.char === currentCollidingKey);
-                activeGroup.select("circle").attr("fill", "#00ffcc").attr("stroke", "#ff0055");
-                activeGroup.select("text").attr("fill", "#000");
-            } else {
-                keyGroups.select("rect").attr("fill", "#1e1e1e");
-                keyGroups.filter(d => d.char === currentCollidingKey).select("rect").attr("fill", "#00ffcc");
-            }
-
-            dwellTimer = setTimeout(() => {
-                recordSupervisedGroundTruth(targetX, targetY);
-                appendCharacter(currentCollidingKey);
-
-                if (currentMode === "floating") {
-                    keyGroups.select("circle").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
-                    keyGroups.select("text").attr("fill", "#00ffcc");
-                } else {
-                    keyGroups.select("rect").attr("fill", "#1e1e1e");
-                }
-
-                currentCollidingKey = null;
-                activeHoverKey = null;
-                hoverStartedAt = null;
-                hoverDistance = null;
-                irisTargetKey = null;
-                irisStartTime = null;
-            }, DWELL_TIME_MS);
-        }
-
-        // On fixed keyboard, the active hovered key gently "leans" toward the gaze
-        if (currentMode !== "floating" && activeHoverKey === keyNode.char) {
-            keyNode.x += (gazeX - keyNode.x) * 0.08;
-            keyNode.y += (gazeY - keyNode.y) * 0.08;
-        }
-    }
-
-    function appendCharacter(char) {
-        const outputBar = document.getElementById("output-bar");
-        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-
-        if (char === "⌫") txt = txt.slice(0, -1);
-        else if (char === "SP") txt += " ";
-        else txt += char;
-
-        outputBar.innerText = txt || "Type here...";
+      swipePolyline.style("opacity", mode === "swipe" ? 1 : 0);
+      rebuildKeyboard();
+      selection = null;
+      activeHoverKey = null;
+      hoverStartedAt = null;
     }
 
     function clearText() {
-        const outputBar = document.getElementById("output-bar");
-        const txt = outputBar.innerText;
-        outputBar.innerText = txt.length > 1 ? txt.slice(0, -1) : "Type here...";
+      const outputBar = document.getElementById("output-bar");
+      const txt = outputBar.innerText;
+      outputBar.innerText = txt.length > 1 ? txt.slice(0, -1) : "Type here...";
     }
 
     function updateDwell(val) {
-        DWELL_TIME_MS = parseFloat(val) * 1000;
-        document.getElementById("dwell-val").innerText = val;
+      DWELL_TIME_MS = parseFloat(val) * 1000;
+      document.getElementById("dwell-val").innerText = val;
     }
 
     function updateSmooth(val) {
-        smoothingFactor = parseFloat(val);
-        document.getElementById("smooth-val").innerText = val;
+      smoothingFactor = parseFloat(val);
+      document.getElementById("smooth-val").innerText = val;
     }
 
-    var gazeTickListener = async function(data, clock) {
-        if (!data) return;
-
-        lastRawWebcamX = data.x;
-        lastRawWebcamY = data.y;
-
-        if (smoothedGazeX !== null && smoothedGazeY !== null) {
-            let instVelocity = Math.sqrt(Math.pow(data.x - smoothedGazeX, 2) + Math.pow(data.y - smoothedGazeY, 2));
-
-            if (instVelocity > 180 && !isSaccadeLocked) {
-                isSaccadeLocked = true;
-                smoothedGazeX = data.x;
-                smoothedGazeY = data.y;
-                clearTimeout(saccadeFreezeTimer);
-                saccadeFreezeTimer = setTimeout(() => { isSaccadeLocked = false; }, 350);
-            } else if (!isSaccadeLocked) {
-                smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
-                smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
-            }
-        } else {
-            smoothedGazeX = data.x;
-            smoothedGazeY = data.y;
+    function handleHomeReset(gx, gy) {
+      if (gx < 320 && gy < 300) {
+        if (!homeBaseTimer) {
+          homeBaseTimer = setTimeout(() => {
+            startCalibration("9zone");
+            homeBaseTimer = null;
+          }, 2500);
         }
+        return true;
+      }
+      clearTimeout(homeBaseTimer);
+      homeBaseTimer = null;
+      return false;
+    }
 
-        const corrected = applyAdaptiveResiduals(smoothedGazeX, smoothedGazeY);
+    function updateVisualCursor(x, y) {
+      const vCursor = document.getElementById("virtual-cursor");
+      vCursor.style.left = x + "px";
+      vCursor.style.top = y + "px";
+      vCursor.style.display = isCalibrating ? "none" : "block";
+    }
 
-        nodes[0].x = nodes[0].px = corrected.x;
-        nodes[0].y = nodes[0].py = corrected.y;
-        force.resume();
+    async function gazeTickListener(data) {
+      if (!data) return;
 
-        const tracker = webgazer.getTracker();
-        const fmPositions = tracker && tracker.getPositions ? await tracker.getPositions() : null;
-        const previewWidth = webgazer.params.videoViewerWidth || 320;
-        const whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
+      lastRawWebcamX = data.x;
+      lastRawWebcamY = data.y;
 
-        if (fmPositions && fmPositions[145] && fmPositions[374]) {
-            d3.select('#eyeline1')
-                .attr("x1", corrected.x).attr("y1", corrected.y)
-                .attr("x2", previewWidth - fmPositions[145][0] * whr[0]).attr("y2", fmPositions[145][1] * whr[1]);
+      addGazeSample(data.x, data.y);
 
-            d3.select("#eyeline2")
-                .attr("x1", corrected.x).attr("y1", corrected.y)
-                .attr("x2", previewWidth - fmPositions[374][0] * whr[0]).attr("y2", fmPositions[374][1] * whr[1]);
+      if (smoothedGazeX !== null && smoothedGazeY !== null) {
+        const instVelocity = Math.hypot(data.x - smoothedGazeX, data.y - smoothedGazeY);
+
+        if (instVelocity > 180 && !isSaccadeLocked) {
+          isSaccadeLocked = true;
+          smoothedGazeX = data.x;
+          smoothedGazeY = data.y;
+          clearTimeout(saccadeFreezeTimer);
+          saccadeFreezeTimer = setTimeout(() => {
+            isSaccadeLocked = false;
+          }, 350);
+        } else if (!isSaccadeLocked) {
+          smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
+          smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
         }
+      } else {
+        smoothedGazeX = data.x;
+        smoothedGazeY = data.y;
+      }
+
+      const corrected = applyAdaptiveResiduals(smoothedGazeX, smoothedGazeY);
+      gazeCursor.x = corrected.x;
+      gazeCursor.y = corrected.y;
+
+      if (handleHomeReset(corrected.x, corrected.y)) {
+        return;
+      }
+
+      handleSelectionFrame(corrected.x, corrected.y);
+      updateVisualCursor(corrected.x, corrected.y);
+      updateKeyboardVisualization();
+      updateFloatingMotion();
+
+      const tracker = webgazer.getTracker();
+      const fmPositions = tracker && tracker.getPositions ? await tracker.getPositions() : null;
+      const previewWidth = webgazer.params.videoViewerWidth || 320;
+      const whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
+
+      if (fmPositions && fmPositions[145] && fmPositions[374]) {
+        d3.select("#eyeline1")
+          .attr("x1", corrected.x).attr("y1", corrected.y)
+          .attr("x2", previewWidth - fmPositions[145][0] * whr[0]).attr("y2", fmPositions[145][1] * whr[1]);
+
+        d3.select("#eyeline2")
+          .attr("x1", corrected.x).attr("y1", corrected.y)
+          .attr("x2", previewWidth - fmPositions[374][0] * whr[0]).attr("y2", fmPositions[374][1] * whr[1]);
+      }
+
+      if (diagnosticsVisible && lastRawWebcamX !== null) {
+        d3.select("#diag-raw-circle").attr("cx", lastRawWebcamX).attr("cy", lastRawWebcamY);
+        d3.select("#diag-vector-line")
+          .attr("x1", lastRawWebcamX).attr("y1", lastRawWebcamY)
+          .attr("x2", corrected.x).attr("y2", corrected.y);
+      }
+    }
+
+    window.onload = async function() {
+      if (!window.saveDataAcrossSessions) {
+        localforage.setItem("webgazerGlobalData", null);
+        localforage.setItem("webgazerGlobalSettings", null);
+      }
+
+      rebuildKeyboard();
+
+      const webgazerInstance = await webgazer.setRegression("ridge")
+        .setTracker("TFFacemesh")
+        .begin();
+
+      webgazerInstance.showVideoPreview(true)
+        .showPredictionPoints(false)
+        .applyKalmanFilter(true);
+
+      webgazer.setGazeListener(gazeTickListener);
+      startCalibration("9zone");
     };
+
+    // globals expected by the rest of the script
+    let smoothedGazeX = null;
+    let smoothedGazeY = null;
+    let saccadeFreezeTimer = null;
+    let isSaccadeLocked = false;
   </script>
 </body>
 </html>
