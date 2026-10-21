@@ -2,618 +2,733 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Multi-Mode Gaze Engine - Full Calibration & Supervised ML Suite</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gaze Ground-Truth Calibration & Diagnostic Suite</title>
+    <!-- Tailwind CSS for modern layout & design -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: sans-serif; color: #fff; user-select: none; }
-        
-        /* Top Control Bar */
-        #top-bar {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 75px;
-            background: rgba(15, 15, 15, 0.95); border-bottom: 2px solid #00ffcc;
-            display: flex; align-items: center; justify-content: space-between; padding: 0 15px;
-            z-index: 10000; box-sizing: border-box;
-        }
-        #output-bar {
-            flex-grow: 1; height: 45px; background: rgba(5, 5, 5, 0.9);
-            border: 2px solid #00ffcc; border-radius: 6px; color: #00ffcc;
-            font-size: 20px; display: flex; align-items: center; padding: 0 15px;
-            margin-right: 15px; overflow: hidden; white-space: nowrap;
-        }
-        .control-group { display: flex; align-items: center; gap: 6px; }
-        .mode-btn {
-            background: #1e1e1e; color: #00ffcc; border: 1px solid #00ffcc; padding: 6px 10px;
-            border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 12px;
-        }
-        .mode-btn.active { background: #00ffcc; color: #000; box-shadow: 0 0 12px rgba(0,255,204,0.5); }
-        .action-btn {
-            background: #222; color: #fff; border: 1px solid #555; padding: 6px 10px;
-            border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px;
-        }
-        .action-btn.danger { border-color: #ff4444; color: #ff4444; }
-        .action-btn.primary { border-color: #00ffcc; color: #00ffcc; }
-        .action-btn.training { background: #ff0055; border-color: #ff0055; color: #fff; box-shadow: 0 0 10px #ff0055; }
-
-        /* Secondary Toolbar */
-        #sub-bar {
-            position: fixed; top: 75px; left: 0; width: 100vw; height: 45px;
-            background: rgba(25, 25, 25, 0.9); border-bottom: 1px solid #333;
-            display: flex; align-items: center; justify-content: space-between; padding: 0 20px;
-            z-index: 9999; font-size: 13px; color: #aaa; box-sizing: border-box;
-        }
-        .slider-container { display: flex; align-items: center; gap: 8px; }
-        input[type=range] { accent-color: #00ffcc; cursor: pointer; }
-
-        /* Calibration Overlay Modal */
-        #calibration-overlay {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(10, 10, 10, 0.92); z-index: 30000;
-            display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-            padding-top: 100px; text-align: center; pointer-events: none;
-        }
-        #calib-dot {
-            width: 50px; height: 50px; background: #ff0055; border-radius: 50%;
-            position: absolute; transform: translate(-50%, -50%); cursor: pointer;
-            box-shadow: 0 0 35px #ff0055; display: flex; align-items: center; justify-content: center;
-            font-weight: bold; font-size: 18px; color: #fff; border: 3px solid #fff;
-            pointer-events: auto; z-index: 35000;
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #0d1117;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            color: #f0f6fc;
+            user-select: none;
         }
 
-        #iris-shutter {
-            position: absolute; border: 3px dashed #ff0055; border-radius: 50%;
-            transform: translate(-50%, -50%); pointer-events: none;
-            box-shadow: 0 0 25px rgba(255,0,85,0.4); background: rgba(255,0,85,0.05);
-            z-index: 15000; display: none; transition: width 0.4s ease-out, height 0.4s ease-out;
+        /* Glassmorphism Panels */
+        .glass-panel {
+            background: rgba(22, 27, 34, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(240, 246, 252, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
         }
 
-        .key-box { rx: 8; transition: fill 0.15s, stroke 0.15s; }
-        .letter-circle { stroke: #00ffcc; stroke-width: 2px; fill: #1e1e1e; transition: fill 0.15s, stroke 0.15s; }
-        .letter-node { font-weight: bold; cursor: pointer; user-select: none; }
-        
-        #virtual-cursor {
-            position: absolute; width: 20px; height: 20px; border: 2px solid #00ffcc;
-            border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none;
-            box-shadow: 0 0 10px #00ffcc; z-index: 20000; display: none;
+        /* Custom Key Styles */
+        .keyboard-key {
+            transition: all 0.15s ease-out;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .keyboard-key.hovered {
+            background-color: #238636 !important;
+            color: #ffffff !important;
+            border-color: #3fb950 !important;
+            transform: scale(1.08);
+            box-shadow: 0 0 20px rgba(63, 185, 80, 0.6);
+            z-index: 20;
+        }
+        .keyboard-key.dwelled {
+            background-color: #a371f7 !important;
+            border-color: #d2a8ff !important;
+            box-shadow: 0 0 25px rgba(210, 168, 255, 0.8);
+        }
+
+        /* Canvas overlays */
+        #diagnostic-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        /* Animated pulse for recording indicator */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        .recording-active {
+            animation: pulse-ring 1s infinite ease-in-out;
+            background-color: #da3633 !important;
+            border-color: #f85149 !important;
         }
     </style>
 </head>
-<body>
+<body class="relative w-screen h-screen overflow-hidden">
 
-  <div id="virtual-cursor"></div>
-  <div id="iris-shutter"></div>
+    <!-- Canvas for vectors, gaze circles, reticles, and errors -->
+    <canvas id="diagnostic-canvas"></canvas>
 
-  <!-- Top Control Bar -->
-  <div id="top-bar">
-      <div id="output-bar">Type here...</div>
-      <div class="control-group">
-          <button class="mode-btn active" onclick="switchMode('magnetic')">Magnetic QWERTY</button>
-          <button class="mode-btn" onclick="switchMode('iris')">Iris Shutter Zoom</button>
-          <button class="mode-btn" onclick="switchMode('swipe')">Gaze Swipe</button>
-          <button class="mode-btn" onclick="switchMode('floating')">Floating Letters</button>
-      </div>
-      <div class="control-group" style="margin-left: 10px;">
-          <button id="train-toggle-btn" class="action-btn training" onclick="toggleSupervisedTraining()">🎓 Training Mode: ON</button>
-          <button class="action-btn primary" onclick="startCalibration('9zone')">🎯 9-Zone Grid</button>
-          <button class="action-btn primary" onclick="startCalibration('perkey')">⌨️ Per-Key Sweep</button>
-          <button class="action-btn primary" onclick="speakText()">🔊 Speak</button>
-          <button class="action-btn danger" onclick="clearText()">Delete</button>
-      </div>
-  </div>
+    <!-- Top Navigation & Diagnostic Header -->
+    <header class="fixed top-0 left-0 w-full z-50 p-4 flex items-center justify-between pointer-events-auto">
+        <div class="glass-panel rounded-xl px-5 py-3 flex items-center space-x-4">
+            <div class="flex items-center space-x-2">
+                <span class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
+                <h1 class="font-bold text-lg tracking-wide text-gray-100">Gaze Ground-Truth Alignment</h1>
+            </div>
+            <span class="text-xs text-gray-400 border-l border-gray-700 pl-4">WebGazer + Affine Matrix Solver</span>
+        </div>
 
-  <!-- Sub Toolbar -->
-  <div id="sub-bar">
-      <span style="color: #ff0055;" id="status-msg">🎓 Supervised Training Active: Hover mouse on target letter & look at it to teach ML</span>
-      <div style="display: flex; gap: 20px;">
-          <div class="slider-container">
-              <label>Dwell: <span id="dwell-val">1.2</span>s</label>
-              <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.2" oninput="updateDwell(this.value)">
-          </div>
-          <div class="slider-container">
-              <label>Smooth: <span id="smooth-val">0.5</span></label>
-              <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.5" oninput="updateSmooth(this.value)">
-          </div>
-      </div>
-  </div>
+        <!-- Action Controls -->
+        <div class="glass-panel rounded-xl px-4 py-2 flex items-center space-x-3">
+            <button id="record-btn" class="px-4 py-2 bg-red-600/80 hover:bg-red-500 text-white font-semibold text-sm rounded-lg border border-red-400/30 transition-all flex items-center space-x-2 shadow-lg">
+                <span id="record-icon" class="w-2.5 h-2.5 rounded-full bg-white"></span>
+                <span id="record-text">Hold SPACE to Sample Point</span>
+            </button>
+            <button id="reset-matrix-btn" class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium rounded-lg border border-gray-600/50 transition">
+                Reset Calibration Matrix
+            </button>
+            <button id="toggle-webgazer-btn" class="px-3 py-2 bg-blue-600/80 hover:bg-blue-500 text-white text-sm font-medium rounded-lg border border-blue-400/30 transition">
+                Hide WebGazer Video
+            </button>
+        </div>
+    </header>
 
-  <!-- Calibration Overlay Modal -->
-  <div id="calibration-overlay">
-      <h2 style="color: #00ffcc; margin-bottom: 10px;" id="calib-title">Gaze Calibration Required</h2>
-      <p id="calib-text" style="color: #bbb; max-width: 500px; line-height: 1.5; margin-bottom: 25px;">
-          Stare directly at the glowing circle and click it <strong>3 times</strong> with your mouse.
-      </p>
-      <div id="calib-dot">1</div>
-  </div>
+    <!-- Floating Live Diagnostics Panel -->
+    <div class="fixed top-24 left-6 z-40 w-80 glass-panel rounded-2xl p-5 space-y-4 pointer-events-auto shadow-2xl">
+        <div class="flex justify-between items-center border-b border-gray-700/60 pb-2">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-teal-400">Live Calibration Metrics</h2>
+            <span id="matrix-status" class="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">
+                Identity Matrix
+            </span>
+        </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.8.1/localforage.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
+        <div class="grid grid-cols-2 gap-3 text-xs font-mono">
+            <!-- Raw Gaze -->
+            <div class="bg-gray-900/60 p-2.5 rounded-lg border border-red-500/30">
+                <div class="text-gray-400 text-[10px] uppercase font-sans">Raw Gaze (Webcam)</div>
+                <div id="diag-raw-gaze" class="text-red-400 font-bold mt-1">X: --- | Y: ---</div>
+            </div>
+            <!-- Ground Truth (Mouse) -->
+            <div class="bg-gray-900/60 p-2.5 rounded-lg border border-cyan-500/30">
+                <div class="text-gray-400 text-[10px] uppercase font-sans">Ground Truth (Mouse)</div>
+                <div id="diag-mouse" class="text-cyan-400 font-bold mt-1">X: --- | Y: ---</div>
+            </div>
+            <!-- Corrected Gaze -->
+            <div class="bg-gray-900/60 p-2.5 rounded-lg border border-emerald-500/30">
+                <div class="text-gray-400 text-[10px] uppercase font-sans">Corrected Output</div>
+                <div id="diag-corr-gaze" class="text-emerald-400 font-bold mt-1">X: --- | Y: ---</div>
+            </div>
+            <!-- Offset Error -->
+            <div class="bg-gray-900/60 p-2.5 rounded-lg border border-purple-500/30">
+                <div class="text-gray-400 text-[10px] uppercase font-sans">Vector Distance</div>
+                <div id="diag-offset" class="text-purple-300 font-bold mt-1">0 px</div>
+            </div>
+        </div>
 
-  <script>
-    const originalGetContext = HTMLCanvasElement.prototype.getContext;
-    HTMLCanvasElement.prototype.getContext = function(type, attributes) {
-        if (type === '2d') {
-            attributes = attributes || {};
-            attributes.willReadFrequently = true;
-        }
-        return originalGetContext.call(this, type, attributes);
-    };
+        <!-- Sample Count & Model Status -->
+        <div class="bg-gray-900/80 p-3 rounded-lg border border-gray-700/50 space-y-2">
+            <div class="flex justify-between items-center text-xs">
+                <span class="text-gray-300">Ground-Truth Samples:</span>
+                <span id="diag-sample-count" class="font-bold text-emerald-400 font-mono text-sm">0 / 3 min</span>
+            </div>
+            <div class="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                <div id="sample-progress-bar" class="bg-emerald-500 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <p class="text-[11px] text-gray-400 leading-relaxed pt-1">
+                <strong class="text-gray-200">Instructions:</strong> Move mouse cursor over desired target key, look directly at that key with your eyes, and press/hold <kbd class="px-1 py-0.5 bg-gray-700 text-gray-200 rounded text-[10px]">SPACEBAR</kbd>.
+            </p>
+        </div>
 
-    window.saveDataAcrossSessions = false;
-    var force, nodes = [];
-    var smoothedGazeX = null, smoothedGazeY = null;
-    let smoothingFactor = 0.5;
-    let currentMode = "magnetic"; 
+        <!-- Transformation Matrix Viewer -->
+        <div class="space-y-1">
+            <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Affine Transform Matrix (2D)</div>
+            <div id="matrix-display" class="font-mono text-[10px] bg-black/60 p-2 rounded border border-gray-800 text-gray-300 space-y-0.5">
+                <div>[ 1.000, 0.000, 0.0 ]</div>
+                <div>[ 0.000, 1.000, 0.0 ]</div>
+            </div>
+        </div>
+    </div>
 
-    let isCalibrating = true;
-    let calibModeType = "9zone"; // "9zone" or "perkey"
-    let calibStep = 0;
-    let calibClicks = 0;
-    let calibSequence = [];
+    <!-- Output Text Bar -->
+    <div class="fixed bottom-64 left-1/2 transform -translate-x-1/2 z-30 w-full max-w-2xl px-4 pointer-events-auto">
+        <div class="glass-panel rounded-2xl p-4 flex items-center justify-between border border-emerald-500/30">
+            <div id="keyboard-output" class="text-2xl font-mono text-emerald-300 tracking-wider overflow-x-auto whitespace-nowrap px-2 flex-grow h-9 flex items-center">
+                <span class="text-gray-500 italic text-base font-sans">Look at a key to type...</span>
+            </div>
+            <button id="clear-output-btn" class="ml-4 px-3 py-1.5 bg-red-900/40 hover:bg-red-800/60 border border-red-500/40 rounded-lg text-xs font-semibold text-red-200 transition">
+                Clear
+            </button>
+        </div>
+    </div>
 
-    const zone9Sequence = [
-        {name: "Top-Left", x: 0.1, y: 0.2}, {name: "Top-Center", x: 0.5, y: 0.2}, {name: "Top-Right", x: 0.9, y: 0.2},
-        {name: "Mid-Left", x: 0.1, y: 0.5}, {name: "Center Screen", x: 0.5, y: 0.5}, {name: "Mid-Right", x: 0.9, y: 0.5},
-        {name: "Bottom-Left", x: 0.1, y: 0.8}, {name: "Bottom-Center", x: 0.5, y: 0.8}, {name: "Bottom-Right", x: 0.9, y: 0.8}
-    ];
+    <!-- High-Contrast QWERTY Keyboard Grid -->
+    <main class="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-30 w-full max-w-4xl px-4 pointer-events-auto">
+        <div class="glass-panel rounded-3xl p-6 shadow-2xl border border-gray-700/60">
+            <div id="keyboard-grid" class="flex flex-col space-y-3">
+                <!-- Rows will be injected by JavaScript -->
+            </div>
+        </div>
+    </main>
 
-    let currentCollidingKey = null;
-    let dwellTimer = null;
-    let DWELL_TIME_MS = 1200;
-    let svg, keyGroups, swipePolyline;
-    let swipePathNodes = [];
-    let homeBaseTimer = null;
+    <!-- Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.8.1/localforage.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
 
-    let irisRadius = 260; 
-    let irisTargetKey = null;
-    let irisStartTime = null;
+    <script>
+        // Disable WebGazer automatic session caching to ensure clean state on reload
+        window.saveDataAcrossSessions = false;
 
-    // Saccadic Snap Capture state
-    let lastVelocity = 0;
-    let saccadeFreezeTimer = null;
-    let isSaccadeLocked = false;
-
-    // Supervised ML Training state
-    let supervisedTrainingActive = true;
-    let lastRawWebcamX = null;
-    let lastRawWebcamY = null;
-    let trainingSampleCount = 0;
-    let correctionSamples = [];
-
-    function toggleSupervisedTraining() {
-        supervisedTrainingActive = !supervisedTrainingActive;
-        let btn = document.getElementById("train-toggle-btn");
-        let status = document.getElementById("status-msg");
-        if (supervisedTrainingActive) {
-            btn.className = "action-btn training";
-            btn.innerText = "🎓 Training Mode: ON";
-            status.style.color = "#ff0055";
-            status.innerText = `🎓 Supervised Training Active: Hover mouse on target letter & look at it (${trainingSampleCount} learned)`;
-        } else {
-            btn.className = "action-btn primary";
-            btn.innerText = "🔒 Training Mode: OFF";
-            status.style.color = "#00ffcc";
-            status.innerText = `🔒 Live Inference Mode (${trainingSampleCount} samples active)`;
-        }
-    }
-
-    function recordSupervisedGroundTruth(trueTargetX, trueTargetY) {
-        if (!supervisedTrainingActive || lastRawWebcamX === null || lastRawWebcamY === null) return;
-
-        let deltaX = trueTargetX - lastRawWebcamX;
-        let deltaY = trueTargetY - lastRawWebcamY;
-
-        correctionSamples.push({ rawX: lastRawWebcamX, rawY: lastRawWebcamY, deltaX, deltaY });
-        if (correctionSamples.length > 80) correctionSamples.shift();
-        trainingSampleCount = correctionSamples.length;
-
-        let status = document.getElementById("status-msg");
-        if (supervisedTrainingActive) {
-            status.innerText = `🎓 Supervised Training Active: Recorded correction delta! (${trainingSampleCount} samples learned)`;
-        }
-    }
-
-    function applyAdaptiveResiduals(gazeX, gazeY) {
-        if (correctionSamples.length === 0) return { x: gazeX, y: gazeY };
-        let totalWeight = 0, weightedDeltaX = 0, weightedDeltaY = 0;
-        let bandwidth = 350; // Wide interpolation radius
-
-        for (let sample of correctionSamples) {
-            let dist = Math.sqrt(Math.pow(gazeX - sample.rawX, 2) + Math.pow(gazeY - sample.rawY, 2));
-            if (dist < bandwidth) {
-                let weight = Math.exp(-(dist * dist) / (2 * bandwidth * bandwidth));
-                weightedDeltaX += sample.deltaX * weight;
-                weightedDeltaY += sample.deltaY * weight;
-                totalWeight += weight;
-            }
-        }
-        if (totalWeight > 0) {
-            return { x: gazeX + (weightedDeltaX / totalWeight), y: gazeY + (weightedDeltaY / totalWeight) };
-        }
-        return { x: gazeX, y: gazeY };
-    }
-
-    window.onload = async function() {
-        if (!window.saveDataAcrossSessions) {
-            localforage.setItem('webgazerGlobalData', null);
-            localforage.setItem('webgazerGlobalSettings', null);
-        }
-
-        setupEngine();
-
-        const webgazerInstance = await webgazer.setRegression('ridge')
-            .setTracker('TFFacemesh')
-            .begin();
+        // System State Variables
+        let mousePos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        let rawGazePos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        let correctedGazePos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
         
-        webgazerInstance.showVideoPreview(true)
-            .showPredictionPoints(false)
-            .applyKalmanFilter(true);
+        let isRecording = false;
+        let trainingPairs = []; // Array of { raw: {x, y}, mouse: {x, y} }
+        
+        // 2D Affine Transformation Matrix [a, b, tx, c, d, ty]
+        // Represents: 
+        // x' = a*x + b*y + tx
+        // y' = c*x + d*y + ty
+        let affineMatrix = [1, 0, 0, 0, 1, 0];
+        let isMatrixValid = false;
 
-        webgazer.setGazeListener(gazeTickListener);
-        startCalibration("9zone");
-    };
+        // Keyboard Interaction Variables
+        let activeHoveredKey = null;
+        let dwellStartTime = null;
+        const DWELL_THRESHOLD_MS = 800; // Time required to lock and press key
+        let currentTypedText = "";
 
-    function setupEngine() {
-        var width = window.innerWidth;
-        var height = window.innerHeight;
-        nodes = [];
+        // Elements
+        const canvas = document.getElementById('diagnostic-canvas');
+        const ctx = canvas.getContext('2d');
+        const recordBtn = document.getElementById('record-btn');
+        const resetMatrixBtn = document.getElementById('reset-matrix-btn');
+        const toggleWebgazerBtn = document.getElementById('toggle-webgazer-btn');
+        
+        // Resize Canvas to Fullscreen
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
 
-        if (currentMode === "floating") {
-            var letters = ["Q", "W", "E", "R", "T", "Z", "U", "I", "O", "P", "A", "S", "D", "F", "G", "H", "J", "K", "L", "Y", "X", "C", "V", "B", "N", "M", "⌫", "SP"];
-            nodes = letters.map(function(char) {
-                return {
-                    char: char, radius: 30, x0: width * 0.5, y0: height * 0.5,
-                    x: width * 0.25 + Math.random() * (width * 0.5),
-                    y: height * 0.3 + Math.random() * (height * 0.5),
-                    vx: (Math.random() - 0.5) * 2, vy: (Math.random() - 0.5) * 2
-                };
-            });
-        } else {
-            var rows = [
-                ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
-                ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
-                ["Z", "X", "C", "V", "B", "N", "M", "⌫", "SP"]
-            ];
-            let startY = height * 0.45;
-            rows.forEach((row, rowIndex) => {
-                let startX = (width - (row.length * 75)) / 2;
-                row.forEach((char, colIndex) => {
-                    let kx = startX + (colIndex * 75) + 35;
-                    let ky = startY + (rowIndex * 80);
-                    nodes.push({ char: char, radius: 30, x0: kx, y0: ky, x: kx, y: ky, vx: 0, vy: 0 });
+        // -------------------------------------------------------------
+        // 1. Mouse Position Tracking (Ground Truth Engine)
+        // -------------------------------------------------------------
+        window.addEventListener('mousemove', (e) => {
+            mousePos.x = e.clientX;
+            mousePos.y = e.clientY;
+        });
+
+        // -------------------------------------------------------------
+        // 2. QWERTY Keyboard Construction
+        // -------------------------------------------------------------
+        const KEYBOARD_LAYOUT = [
+            ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+            ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+            ['Z', 'X', 'C', 'V', 'B', 'N', 'M', '⌫', 'SPACE']
+        ];
+
+        function renderKeyboard() {
+            const container = document.getElementById('keyboard-grid');
+            container.innerHTML = '';
+
+            KEYBOARD_LAYOUT.forEach(row => {
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'flex justify-center space-x-2.5';
+
+                row.forEach(keyChar => {
+                    const keyBtn = document.createElement('div');
+                    let flexWidth = 'flex-1';
+                    if (keyChar === 'SPACE') flexWidth = 'w-48';
+                    if (keyChar === '⌫') flexWidth = 'w-20';
+
+                    keyBtn.className = `keyboard-key ${flexWidth} h-16 bg-gray-800/90 rounded-xl flex flex-col items-center justify-center font-bold text-xl text-gray-200 cursor-pointer shadow-md select-none relative overflow-hidden`;
+                    keyBtn.dataset.key = keyChar;
+
+                    // Text Label
+                    const label = document.createElement('span');
+                    label.innerText = keyChar;
+                    keyBtn.appendChild(label);
+
+                    // Dwell Progress Fill
+                    const fillProgress = document.createElement('div');
+                    fillProgress.className = 'key-progress absolute bottom-0 left-0 h-1 bg-purple-400 transition-all duration-75';
+                    fillProgress.style.width = '0%';
+                    keyBtn.appendChild(fillProgress);
+
+                    rowDiv.appendChild(keyBtn);
                 });
+
+                container.appendChild(rowDiv);
             });
         }
+        renderKeyboard();
 
-        nodes.unshift({ radius: 0, fixed: true, x: width/2, y: height/2 });
+        // -------------------------------------------------------------
+        // 3. Affine Transformation Solver (Least Squares Method)
+        // -------------------------------------------------------------
+        /**
+         * Computes the optimal 2D affine matrix [a, b, tx, c, d, ty] mapping raw gaze (x, y) to mouse ground-truth (x', y').
+         * Uses closed-form least-squares estimation over gathered pairs.
+         */
+        function solveAffineMatrix(samples) {
+            if (samples.length < 3) return [1, 0, 0, 0, 1, 0]; // Require at least 3 non-collinear points
 
-        force = d3.layout.force()
-            .gravity(currentMode === "floating" ? 0.06 : 0)
-            .charge(function(d, i) { return i ? (currentMode === "floating" ? -30 : 0) : -1500; })
-            .nodes(nodes)
-            .size([width, height])
-            .start();
+            let N = samples.length;
+            let sumX = 0, sumY = 0;
+            let sumX2 = 0, sumY2 = 0, sumXY = 0;
+            let sumU = 0, sumV = 0; // Target X' and Y'
+            let sumXU = 0, sumYU = 0;
+            let sumXV = 0, sumYV = 0;
 
-        if (svg) svg.remove();
+            for (let i = 0; i < N; i++) {
+                let x = samples[i].raw.x;
+                let y = samples[i].raw.y;
+                let u = samples[i].mouse.x;
+                let v = samples[i].mouse.y;
 
-        svg = d3.select("body").append("svg")
-            .attr("width", width).attr("height", height)
-            .style("position", "absolute").style("top", "0").style("left", "0").style("z-index", "10");
+                sumX += x;
+                sumY += y;
+                sumX2 += x * x;
+                sumY2 += y * y;
+                sumXY += x * y;
 
-        keyGroups = svg.selectAll(".key-group").data(nodes.slice(1)).enter().append("g").attr("class", "key-group");
+                sumU += u;
+                sumV += v;
+                sumXU += x * u;
+                sumYU += y * u;
+                sumXV += x * v;
+                sumYV += y * v;
+            }
 
-        if (currentMode === "floating") {
-            keyGroups.append("circle").attr("class", "letter-circle").attr("r", function(d) { return d.radius; });
-            keyGroups.append("text").attr("class", "letter-node").attr("dy", ".35em").attr("text-anchor", "middle").attr("font-size", "22px").attr("fill", "#00ffcc").text(function(d) { return d.char; });
-        } else {
-            keyGroups.append("rect").attr("class", "key-box").attr("width", 64).attr("height", 64).attr("x", function(d) { return d.x0 - 32; }).attr("y", function(d) { return d.y0 - 32; }).attr("rx", 8).attr("fill", "#1e1e1e").attr("stroke", "#00ffcc").attr("stroke-width", 2);
-            keyGroups.append("text").attr("class", "key-node").attr("x", function(d) { return d.x0; }).attr("y", function(d) { return d.y0; }).attr("dy", ".35em").attr("text-anchor", "middle").attr("font-size", "22px").attr("fill", "#00ffcc").text(function(d) { return d.char; });
+            // Normal Equation Matrix M = [[sumX2, sumXY, sumX], [sumXY, sumY2, sumY], [sumX, sumY, N]]
+            // Solve M * [a, b, tx]^T = [sumXU, sumYU, sumU]^T for X coordinate mapping
+            // Solve M * [c, d, ty]^T = [sumXV, sumYV, sumV]^T for Y coordinate mapping
+
+            let det = sumX2 * (sumY2 * N - sumY * sumY) -
+                      sumXY * (sumXY * N - sumX * sumY) +
+                      sumX * (sumXY * sumY - sumY2 * sumX);
+
+            if (Math.abs(det) < 1e-7) {
+                console.warn("Collinear or degenerate matrix points. Keeping identity matrix.");
+                return [1, 0, 0, 0, 1, 0];
+            }
+
+            // Matrix Inverse factors
+            let inv00 = sumY2 * N - sumY * sumY;
+            let inv01 = -(sumXY * N - sumX * sumY);
+            let inv02 = sumXY * sumY - sumY2 * sumX;
+
+            let inv10 = -(sumXY * N - sumX * sumY);
+            let inv11 = sumX2 * N - sumX * sumX;
+            let inv12 = -(sumX2 * sumY - sumXY * sumX);
+
+            let inv20 = sumXY * sumY - sumY2 * sumX;
+            let inv21 = -(sumX2 * sumY - sumXY * sumX);
+            let inv22 = sumX2 * sumY2 - sumXY * sumXY;
+
+            // Solve X transform parameters (a, b, tx)
+            let a = (inv00 * sumXU + inv01 * sumYU + inv02 * sumU) / det;
+            let b = (inv10 * sumXU + inv11 * sumYU + inv12 * sumU) / det;
+            let tx = (inv20 * sumXU + inv21 * sumYU + inv22 * sumU) / det;
+
+            // Solve Y transform parameters (c, d, ty)
+            let c = (inv00 * sumXV + inv01 * sumYV + inv02 * sumV) / det;
+            let d = (inv10 * sumXV + inv11 * sumYV + inv12 * sumV) / det;
+            let ty = (inv20 * sumXV + inv21 * sumYV + inv22 * sumV) / det;
+
+            return [a, b, tx, c, d, ty];
         }
 
-        swipePolyline = svg.append("polyline").attr("fill", "none").attr("stroke", "#ff0055").attr("stroke-width", 4).attr("stroke-linecap", "round").style("opacity", 0);
-
-        svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
-        svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
-
-        force.on("tick", function(e) {
-            var q = d3.geom.quadtree(nodes), i = 0, n = nodes.length;
-            while (++i < n) q.visit(collide(nodes[i]));
-
-            let eyeNode = nodes[0];
-            let closestKey = null;
-            let minDistance = 9999;
-            let snapRadius = currentMode === "iris" ? 160 : 65;
-
-            for (let j = 1; j < nodes.length; j++) {
-                let d = nodes[j];
-                let targetX = currentMode === "floating" ? d.x : d.x0;
-                let targetY = currentMode === "floating" ? d.y : d.y0;
-
-                let dx = eyeNode.x - targetX;
-                let dy = eyeNode.y - targetY;
-                let dist = Math.sqrt(dx * dx + dy * dy);
-
-                if (dist < snapRadius && dist < minDistance) {
-                    minDistance = dist;
-                    closestKey = d;
-                }
-
-                if (currentMode === "floating") {
-                    if (dist < 180 && d.char === currentCollidingKey) {
-                        d.x += dx * 0.1; d.y += dy * 0.1;
-                    }
-                    if (d.x < 50) { d.x = 50; d.vx *= -1; }
-                    if (d.x > width - 50) { d.x = width - 50; d.vx *= -1; }
-                    if (d.y < 120) { d.y = 120; d.vy *= -1; }
-                    if (d.y > height - 50) { d.y = height - 50; d.vy *= -1; }
-                } else {
-                    let pull = currentMode === "magnetic" ? 0.25 : 0.15;
-                    d.x += (d.x0 - d.x) * pull;
-                    d.y += (d.y0 - d.y) * pull;
-                }
-            }
-
-            let iris = document.getElementById("iris-shutter");
-            if (currentMode === "iris") {
-                iris.style.display = isCalibrating ? "none" : "block";
-                iris.style.left = eyeNode.x + "px";
-                iris.style.top = eyeNode.y + "px";
-
-                if (closestKey) {
-                    if (irisTargetKey !== closestKey) {
-                        irisTargetKey = closestKey;
-                        irisStartTime = performance.now();
-                    }
-
-                    let elapsed = performance.now() - irisStartTime;
-                    let progress = Math.min(elapsed / DWELL_TIME_MS, 1.0);
-                    irisRadius = 240 - (195 * progress);
-
-                    let tx = currentMode === "floating" ? closestKey.x : closestKey.x0;
-                    let ty = currentMode === "floating" ? closestKey.y : closestKey.y0;
-                    eyeNode.x += (tx - eyeNode.x) * 0.1;
-                    eyeNode.y += (ty - eyeNode.y) * 0.1;
-
-                    handleInteractions(eyeNode.x, eyeNode.y, closestKey);
-                } else {
-                    irisTargetKey = null;
-                    irisStartTime = null;
-                    irisRadius = 260;
-                }
-                iris.style.width = (irisRadius * 2) + "px";
-                iris.style.height = (irisRadius * 2) + "px";
-            } else {
-                iris.style.display = "none";
-            }
-
-            if (closestKey && currentMode !== "iris" && !isCalibrating) {
-                let tx = currentMode === "floating" ? closestKey.x : closestKey.x0;
-                let ty = currentMode === "floating" ? closestKey.y : closestKey.y0;
-                eyeNode.x += (tx - eyeNode.x) * 0.2; 
-                eyeNode.y += (ty - eyeNode.y) * 0.2;
-                handleInteractions(eyeNode.x, eyeNode.y, closestKey);
-            }
-
-            let vCursor = document.getElementById("virtual-cursor");
-            vCursor.style.left = eyeNode.x + "px";
-            vCursor.style.top = eyeNode.y + "px";
-            vCursor.style.display = isCalibrating ? "none" : "block";
-
-            if (currentMode === "floating") {
-                keyGroups.attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
-            } else {
-                keyGroups.select("rect").attr("x", function(d) { return d.x - 32; }).attr("y", function(d) { return d.y - 32; });
-                keyGroups.select("text").attr("x", function(d) { return d.x; }).attr("y", function(d) { return d.y; });
-            }
-        });
-
-        svg.on("mousemove", function() {
-            if (isCalibrating) return;
-            var p1 = d3.mouse(this);
-        });
-    }
-
-    function switchMode(mode) {
-        currentMode = mode;
-        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-        event.target.classList.add('active');
-        swipePolyline.style("opacity", mode === "swipe" ? 1 : 0);
-        setupEngine();
-        force.resume();
-    }
-
-    // --- RESTORED CALIBRATION ENGINE (9-ZONE & PER-KEY SWEEP) ---
-    function startCalibration(type) {
-        calibModeType = type;
-        isCalibrating = true;
-        calibStep = 0;
-        calibClicks = 0;
-
-        if (calibModeType === "perkey") {
-            calibSequence = nodes.slice(1).map(n => ({
-                name: `Key '${n.char}'`,
-                x0: n.x0,
-                y0: n.y0,
-                key: n.char
-            }));
-            document.getElementById("calib-title").innerText = "⌨️ Per-Key Sweep Calibration";
-        } else {
-            calibSequence = zone9Sequence;
-            document.getElementById("calib-title").innerText = "🎯 9-Zone Grid Calibration";
+        function applyAffineTransform(x, y, matrix) {
+            let a = matrix[0], b = matrix[1], tx = matrix[2];
+            let c = matrix[3], d = matrix[4], ty = matrix[5];
+            return {
+                x: a * x + b * y + tx,
+                y: c * x + d * y + ty
+            };
         }
 
-        document.getElementById("calibration-overlay").style.display = "flex";
-        updateCalibrationTarget();
-    }
-
-    function updateCalibrationTarget() {
-        if (calibStep >= calibSequence.length) {
-            isCalibrating = false;
-            document.getElementById("calibration-overlay").style.display = "none";
-            return;
-        }
-        let target = calibSequence[calibStep];
-        let targetX = target.x0 !== undefined ? target.x0 : window.innerWidth * target.x;
-        let targetY = target.y0 !== undefined ? target.y0 : window.innerHeight * target.y;
-
-        let dot = document.getElementById("calib-dot");
-        dot.style.left = targetX + "px";
-        dot.style.top = targetY + "px";
-        dot.innerText = target.key || (calibStep + 1);
-
-        document.getElementById("calib-text").innerHTML = 
-            `Step ${calibStep + 1} of ${calibSequence.length} (${target.name})<br>Stare directly at the red dot and click it 3 times (${calibClicks}/3).`;
-        window.currentCalibrationTargetCoords = {x: targetX, y: targetY};
-    }
-
-    document.getElementById("calib-dot").addEventListener("click", function() {
-        if (!isCalibrating) return;
-        let coords = window.currentCalibrationTargetCoords;
-        webgazer.recordScreenPosition(coords.x, coords.y, 'click');
-        calibClicks++;
-        if (calibClicks >= 3) { calibClicks = 0; calibStep++; }
-        updateCalibrationTarget();
-    });
-
-    function collide(node) {
-        var r = node.radius + 15, nx1 = node.x - r, nx2 = node.x + r, ny1 = node.y - r, ny2 = node.y + r;
-        return function(quad, x1, y1, x2, y2) {
-            if (quad.point && (quad.point !== node)) {
-                var x = node.x - quad.point.x, y = node.y - quad.point.y, l = Math.sqrt(x * x + y * y), r = node.radius + quad.point.radius;
-                if (l < r) {
-                    l = (l - r) / l * .5;
-                    node.x -= x *= l; node.y -= y *= l;
-                    quad.point.x += x; quad.point.y += y;
-                }
-            }
-            return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
-        };
-    }
-
-    function handleInteractions(gazeX, gazeY, keyNode) {
-        if (isCalibrating) return;
-
-        if (gazeX < 320 && gazeY < 300) {
-            if (!homeBaseTimer) {
-                homeBaseTimer = setTimeout(() => { startCalibration('9zone'); homeBaseTimer = null; }, 2500);
-            }
-            return;
-        } else {
-            clearTimeout(homeBaseTimer);
-            homeBaseTimer = null;
-        }
-
-        if (keyNode) {
-            if (currentCollidingKey !== keyNode.char) {
-                currentCollidingKey = keyNode.char;
-                clearTimeout(dwellTimer);
-
-                if (currentMode === "floating") {
-                    keyGroups.select("circle").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
-                    keyGroups.select("text").attr("fill", "#00ffcc");
-                    let activeGroup = keyGroups.filter(d => d.char === currentCollidingKey);
-                    activeGroup.select("circle").attr("fill", "#00ffcc").attr("stroke", "#ff0055");
-                    activeGroup.select("text").attr("fill", "#000");
-                } else {
-                    keyGroups.select("rect").attr("fill", "#1e1e1e");
-                    keyGroups.filter(d => d.char === currentCollidingKey).select("rect").attr("fill", "#00ffcc");
-                }
-
-                dwellTimer = setTimeout(() => {
-                    let targetX = currentMode === "floating" ? keyNode.x : keyNode.x0;
-                    let targetY = currentMode === "floating" ? keyNode.y : keyNode.y0;
-                    
-                    recordSupervisedGroundTruth(targetX, targetY);
-                    appendCharacter(currentCollidingKey);
-                    
-                    if (currentMode === "floating") {
-                        keyGroups.select("circle").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
-                        keyGroups.select("text").attr("fill", "#00ffcc");
-                    } else {
-                        keyGroups.select("rect").attr("fill", "#1e1e1e");
-                    }
-                    currentCollidingKey = null;
-                    irisTargetKey = null;
-                    irisStartTime = null;
-                }, DWELL_TIME_MS);
-            }
-        }
-    }
-
-    function appendCharacter(char) {
-        const outputBar = document.getElementById("output-bar");
-        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-        if (char === "⌫") txt = txt.slice(0, -1);
-        else if (char === "SP") txt += " ";
-        else txt += char;
-        outputBar.innerText = txt || "Type here...";
-    }
-
-    function clearText() {
-        const outputBar = document.getElementById("output-bar");
-        let txt = outputBar.innerText;
-        outputBar.innerText = txt.length > 1 ? txt.slice(0, -1) : "Type here...";
-    }
-
-    function speakText() {
-        const text = document.getElementById("output-bar").innerText;
-        if (text && text !== "Type here...") {
-            const utterance = new SpeechSynthesisUtterance(text);
-            window.speechSynthesis.speak(utterance);
-        }
-    }
-
-    function updateDwell(val) {
-        DWELL_TIME_MS = parseFloat(val) * 1000;
-        document.getElementById("dwell-val").innerText = val;
-    }
-
-    function updateSmooth(val) {
-        smoothingFactor = parseFloat(val);
-        document.getElementById("smooth-val").innerText = val;
-    }
-
-    var gazeTickListener = async function(data, clock) {
-        if (!data) return;
-
-        lastRawWebcamX = data.x;
-        lastRawWebcamY = data.y;
-
-        // --- SACCADIC SNAP EXPLOITATION & JITTER FREEZE ---
-        if (smoothedGazeX !== null && smoothedGazeY !== null) {
-            let instVelocity = Math.sqrt(Math.pow(data.x - smoothedGazeX, 2) + Math.pow(data.y - smoothedGazeY, 2));
+        // -------------------------------------------------------------
+        // 4. Sample Recording Controller
+        // -------------------------------------------------------------
+        function setRecordingState(active) {
+            if (isRecording === active) return;
+            isRecording = active;
             
-            // Detect sudden ballistic eye shift (Saccade > 180px)
-            if (instVelocity > 180 && !isSaccadeLocked) {
-                isSaccadeLocked = true;
-                // Snap directly to velocity peak, then momentarily freeze smoothing to prevent post-saccade drift jitter
-                smoothedGazeX = data.x;
-                smoothedGazeY = data.y;
-                clearTimeout(saccadeFreezeTimer);
-                saccadeFreezeTimer = setTimeout(() => { isSaccadeLocked = false; }, 350);
-            } else if (!isSaccadeLocked) {
-                smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
-                smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
+            const btn = document.getElementById('record-btn');
+            const icon = document.getElementById('record-icon');
+            const text = document.getElementById('record-text');
+
+            if (isRecording) {
+                btn.classList.add('recording-active');
+                text.innerText = "RECORDING GROUND TRUTH...";
+            } else {
+                btn.classList.remove('recording-active');
+                text.innerText = "Hold SPACE to Sample Point";
             }
-        } else {
-            smoothedGazeX = data.x;
-            smoothedGazeY = data.y;
         }
 
-        let corrected = applyAdaptiveResiduals(smoothedGazeX, smoothedGazeY);
+        // Keyboard Spacebar Trigger
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !e.repeat) {
+                e.preventDefault();
+                setRecordingState(true);
+            }
+        });
 
-        nodes[0].x = nodes[0].px = corrected.x;
-        nodes[0].y = nodes[0].py = corrected.y;
-        force.resume();
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                setRecordingState(false);
+            }
+        });
 
-        var tracker = webgazer.getTracker();
-        var fmPositions = tracker && tracker.getPositions ? await tracker.getPositions() : null;
-        var previewWidth = webgazer.params.videoViewerWidth || 320;
-        var whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
+        // Mouse/Touch Recording Trigger Button
+        recordBtn.addEventListener('mousedown', () => setRecordingState(true));
+        recordBtn.addEventListener('mouseup', () => setRecordingState(false));
+        recordBtn.addEventListener('mouseleave', () => setRecordingState(false));
 
-        if (fmPositions && fmPositions[145] && fmPositions[374]) {
-            d3.select('#eyeline1').attr("x1", corrected.x).attr("y1", corrected.y).attr("x2", previewWidth - fmPositions[145][0] * whr[0]).attr("y2", fmPositions[145][1] * whr[1]);
-            d3.select("#eyeline2").attr("x1", corrected.x).attr("y1", corrected.y).attr("x2", previewWidth - fmPositions[374][0] * whr[0]).attr("y2", fmPositions[374][1] * whr[1]);
+        resetMatrixBtn.addEventListener('click', () => {
+            trainingPairs = [];
+            affineMatrix = [1, 0, 0, 0, 1, 0];
+            isMatrixValid = false;
+            updateDiagnosticsUI();
+        });
+
+        document.getElementById('clear-output-btn').addEventListener('click', () => {
+            currentTypedText = "";
+            updateOutputDisplay();
+        });
+
+        // -------------------------------------------------------------
+        // 5. Visual Rendering Loop & Diagnostics Panel Updates
+        // -------------------------------------------------------------
+        function drawDiagnosticsOverlay() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // A. Draw all historic training sample vectors
+            trainingPairs.forEach((pair, idx) => {
+                // Line connecting Raw to Mouse Target
+                ctx.beginPath();
+                ctx.moveTo(pair.raw.x, pair.raw.y);
+                ctx.lineTo(pair.mouse.x, pair.mouse.y);
+                ctx.strokeStyle = 'rgba(234, 179, 8, 0.4)'; // Yellow path
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([4, 4]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Small point at sample ground truth
+                ctx.beginPath();
+                ctx.arc(pair.mouse.x, pair.mouse.y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#eab308';
+                ctx.fill();
+            });
+
+            // B. Draw Ground Truth Mouse Reticle (Glowing Cyan)
+            ctx.beginPath();
+            ctx.arc(mousePos.x, mousePos.y, 14, 0, Math.PI * 2);
+            ctx.strokeStyle = '#06b6d4';
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(mousePos.x, mousePos.y, 3, 0, Math.PI * 2);
+            ctx.fillStyle = '#06b6d4';
+            ctx.fill();
+
+            // Reticle Crosshairs
+            ctx.beginPath();
+            ctx.moveTo(mousePos.x - 22, mousePos.y);
+            ctx.lineTo(mousePos.x - 16, mousePos.y);
+            ctx.moveTo(mousePos.x + 16, mousePos.y);
+            ctx.lineTo(mousePos.x + 22, mousePos.y);
+            ctx.moveTo(mousePos.x, mousePos.y - 22);
+            ctx.lineTo(mousePos.x, mousePos.y - 16);
+            ctx.moveTo(mousePos.x, mousePos.y + 16);
+            ctx.lineTo(mousePos.x, mousePos.y + 22);
+            ctx.strokeStyle = '#06b6d4';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // C. Draw Raw Webcam Gaze Indicator (Red Target)
+            ctx.beginPath();
+            ctx.arc(rawGazePos.x, rawGazePos.y, 18, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(239, 68, 68, 0.25)';
+            ctx.fill();
+            ctx.strokeStyle = '#ef4444';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Label for Raw Gaze
+            ctx.font = '10px monospace';
+            ctx.fillStyle = '#fca5a5';
+            ctx.fillText('RAW GAZE', rawGazePos.x + 22, rawGazePos.y + 4);
+
+            // D. Draw Thick Error Arrow Vector (Mouse Ground-Truth -> Raw Gaze)
+            const dx = rawGazePos.x - mousePos.x;
+            const dy = rawGazePos.y - mousePos.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance > 5) {
+                ctx.beginPath();
+                ctx.moveTo(mousePos.x, mousePos.y);
+                ctx.lineTo(rawGazePos.x, rawGazePos.y);
+                ctx.strokeStyle = '#22c55e'; // Bright Green
+                ctx.lineWidth = 3.5;
+                ctx.stroke();
+
+                // Draw Arrowhead pointing to Raw Gaze
+                const angle = Math.atan2(dy, dx);
+                const headLen = 12;
+                ctx.beginPath();
+                ctx.moveTo(rawGazePos.x, rawGazePos.y);
+                ctx.lineTo(rawGazePos.x - headLen * Math.cos(angle - Math.PI / 6), rawGazePos.y - headLen * Math.sin(angle - Math.PI / 6));
+                ctx.lineTo(rawGazePos.x - headLen * Math.cos(angle + Math.PI / 6), rawGazePos.y - headLen * Math.sin(angle + Math.PI / 6));
+                ctx.fillStyle = '#22c55e';
+                ctx.fill();
+            }
+
+            // E. Draw Corrected Gaze Output Marker (Emerald Glow Circle)
+            if (isMatrixValid) {
+                ctx.beginPath();
+                ctx.arc(correctedGazePos.x, correctedGazePos.y, 12, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(16, 185, 129, 0.4)';
+                ctx.fill();
+                ctx.strokeStyle = '#10b981';
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
+
+                // Inner Dot
+                ctx.beginPath();
+                ctx.arc(correctedGazePos.x, correctedGazePos.y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#a7f3d0';
+                ctx.fill();
+
+                ctx.font = '10px monospace';
+                ctx.fillStyle = '#6ee7b7';
+                ctx.fillText('CORRECTED', correctedGazePos.x + 16, correctedGazePos.y + 4);
+            }
+
+            requestAnimationFrame(drawDiagnosticsOverlay);
         }
-    };
-  </script>
+        requestAnimationFrame(drawDiagnosticsOverlay);
+
+        function updateDiagnosticsUI() {
+            document.getElementById('diag-raw-gaze').innerText = `X:${Math.round(rawGazePos.x)} | Y:${Math.round(rawGazePos.y)}`;
+            document.getElementById('diag-mouse').innerText = `X:${Math.round(mousePos.x)} | Y:${Math.round(mousePos.y)}`;
+            document.getElementById('diag-corr-gaze').innerText = `X:${Math.round(correctedGazePos.x)} | Y:${Math.round(correctedGazePos.y)}`;
+
+            const dx = rawGazePos.x - mousePos.x;
+            const dy = rawGazePos.y - mousePos.y;
+            const offset = Math.round(Math.sqrt(dx * dx + dy * dy));
+            document.getElementById('diag-offset').innerText = `${offset} px`;
+
+            // Sample Count Progress
+            const sampleCount = trainingPairs.length;
+            document.getElementById('diag-sample-count').innerText = `${sampleCount} / 3 min`;
+            const progress = Math.min(100, (sampleCount / 3) * 100);
+            document.getElementById('sample-progress-bar').style.width = `${progress}%`;
+
+            // Status Badge
+            const statusBadge = document.getElementById('matrix-status');
+            if (isMatrixValid) {
+                statusBadge.innerText = "Warp Matrix Active";
+                statusBadge.className = "text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono";
+            } else {
+                statusBadge.innerText = "Identity Matrix";
+                statusBadge.className = "text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono";
+            }
+
+            // Matrix Text
+            const m = affineMatrix;
+            document.getElementById('matrix-display').innerHTML = `
+                <div>[ ${m[0].toFixed(3)}, ${m[1].toFixed(3)}, ${m[2].toFixed(1)} ]</div>
+                <div>[ ${m[3].toFixed(3)}, ${m[4].toFixed(3)}, ${m[5].toFixed(1)} ]</div>
+            `;
+        }
+
+        // -------------------------------------------------------------
+        // 6. Keyboard Collision & Magnetic Dwell Detection Engine
+        // -------------------------------------------------------------
+        function processKeyboardInteractions() {
+            // Target coordinates to test against the keyboard grid:
+            // Uses Corrected Gaze if matrix is trained, otherwise falls back to Mouse for testing
+            const targetPoint = isMatrixValid ? correctedGazePos : mousePos;
+
+            let hoveredElem = null;
+            const keys = document.querySelectorAll('.keyboard-key');
+
+            keys.forEach(key => {
+                const rect = key.getBoundingClientRect();
+                // Check if target gaze falls within expanded padded boundaries
+                if (
+                    targetPoint.x >= rect.left - 10 &&
+                    targetPoint.x <= rect.right + 10 &&
+                    targetPoint.y >= rect.top - 10 &&
+                    targetPoint.y <= rect.bottom + 10
+                ) {
+                    hoveredElem = key;
+                }
+            });
+
+            if (hoveredElem) {
+                if (activeHoveredKey !== hoveredElem) {
+                    // Reset old key
+                    clearHoveredKey();
+                    activeHoveredKey = hoveredElem;
+                    dwellStartTime = performance.now();
+                    activeHoveredKey.classList.add('hovered');
+                } else {
+                    // Update Dwell Fill Progress
+                    const elapsed = performance.now() - dwellStartTime;
+                    const percent = Math.min(100, (elapsed / DWELL_THRESHOLD_MS) * 100);
+                    const progressBar = activeHoveredKey.querySelector('.key-progress');
+                    if (progressBar) progressBar.style.width = `${percent}%`;
+
+                    if (elapsed >= DWELL_THRESHOLD_MS) {
+                        // Trigger Key Lock Action
+                        triggerKeyAction(activeHoveredKey.dataset.key);
+                        activeHoveredKey.classList.add('dwelled');
+                        // Reset timer to prevent double-clicks
+                        dwellStartTime = performance.now() + 600; 
+                    }
+                }
+            } else {
+                clearHoveredKey();
+            }
+        }
+
+        function clearHoveredKey() {
+            if (activeHoveredKey) {
+                activeHoveredKey.classList.remove('hovered', 'dwelled');
+                const progressBar = activeHoveredKey.querySelector('.key-progress');
+                if (progressBar) progressBar.style.width = '0%';
+                activeHoveredKey = null;
+            }
+            dwellStartTime = null;
+        }
+
+        function triggerKeyAction(keyChar) {
+            if (keyChar === '⌫') {
+                currentTypedText = currentTypedText.slice(0, -1);
+            } else if (keyChar === 'SPACE') {
+                currentTypedText += ' ';
+            } else {
+                currentTypedText += keyChar;
+            }
+            updateOutputDisplay();
+        }
+
+        function updateOutputDisplay() {
+            const output = document.getElementById('keyboard-output');
+            if (currentTypedText.length === 0) {
+                output.innerHTML = '<span class="text-gray-500 italic text-base font-sans">Look at a key to type...</span>';
+            } else {
+                output.innerText = currentTypedText;
+            }
+        }
+
+        // -------------------------------------------------------------
+        // 7. WebGazer Integration & Main Tick Listener
+        // -------------------------------------------------------------
+        window.onload = async function() {
+            try {
+                // Initialize WebGazer with Ridge regression and Facemesh tracker
+                await webgazer.setRegression('ridge')
+                    .setTracker('TFFacemesh')
+                    .begin();
+
+                webgazer.showVideoPreview(true)
+                    .showPredictionPoints(false)
+                    .applyKalmanFilter(true);
+
+                // Configure Video Feed Styling & Placement
+                const videoContainer = document.getElementById('webgazerVideoContainer');
+                if (videoContainer) {
+                    videoContainer.style.position = 'fixed';
+                    videoContainer.style.bottom = '20px';
+                    videoContainer.style.right = '20px';
+                    videoContainer.style.top = 'auto';
+                    videoContainer.style.left = 'auto';
+                    videoContainer.style.width = '180px';
+                    videoContainer.style.height = '135px';
+                    videoContainer.style.borderRadius = '12px';
+                    videoContainer.style.overflow = 'hidden';
+                    videoContainer.style.border = '2px solid rgba(0, 255, 204, 0.4)';
+                    videoContainer.style.zIndex = '9999';
+                }
+
+                // Main WebGazer Tick Callback
+                webgazer.setGazeListener((data, clock) => {
+                    if (!data) return;
+
+                    // Update Raw Gaze Position from Tracker
+                    rawGazePos.x = data.x;
+                    rawGazePos.y = data.y;
+
+                    // Continuous Ground-Truth Logging while SPACEBAR is held
+                    if (isRecording) {
+                        trainingPairs.push({
+                            raw: { x: rawGazePos.x, y: rawGazePos.y },
+                            mouse: { x: mousePos.x, y: mousePos.y }
+                        });
+
+                        // Recalculate Affine Matrix dynamically
+                        if (trainingPairs.length >= 3) {
+                            affineMatrix = solveAffineMatrix(trainingPairs);
+                            isMatrixValid = true;
+                        }
+                    }
+
+                    // Apply Affine Correction
+                    if (isMatrixValid) {
+                        correctedGazePos = applyAffineTransform(rawGazePos.x, rawGazePos.y, affineMatrix);
+                    } else {
+                        correctedGazePos = { x: rawGazePos.x, y: rawGazePos.y };
+                    }
+
+                    // Update UI and Test Keyboard Hit-Testing
+                    updateDiagnosticsUI();
+                    processKeyboardInteractions();
+                });
+
+            } catch (err) {
+                console.error("WebGazer initialization error:", err);
+            }
+        };
+
+        // Toggle WebGazer Video Feed Visibility
+        let videoVisible = true;
+        toggleWebgazerBtn.addEventListener('click', () => {
+            videoVisible = !videoVisible;
+            const container = document.getElementById('webgazerVideoContainer');
+            if (container) {
+                container.style.display = videoVisible ? 'block' : 'none';
+            }
+            toggleWebgazerBtn.innerText = videoVisible ? 'Hide WebGazer Video' : 'Show WebGazer Video';
+        });
+    </script>
 </body>
 </html>
+```
+
+### Key Features Included:
+1. **Direct Visual Overlay Engine**: Real-time canvas drawing featuring:
+   - **Raw Webcam Gaze** (Red translucent circle & label).
+   - **Ground-Truth Mouse Position** (Cyan reticle with crosshairs).
+   - **Thick Error Arrow Vector** (Green line & arrowhead connecting ground truth directly to raw gaze position).
+   - **Corrected Output Position** (Emerald glow marker showing where the warp matrix places your gaze).
+2. **Explicit Ground-Truth Sampling**: Hold <kbd>SPACEBAR</kbd> or click the button to record continuous `(MouseX, MouseY)` vs `(RawGazeX, RawGazeY)` pairs.
+3. **Closed-Form 2D Affine Transformation Solver**: Calculates a global 6-parameter affine transformation matrix $[a, b, tx, c, d, ty]$ using least-squares normal equations over your gathered sample pairs.
+4. **Live Diagnostics Panel**: Displays current Raw Gaze coordinates, Ground-Truth coordinates, Corrected Output coordinates, vector offset distance in pixels, sample count, and live 2D transformation matrix values.
+5. **Magnetic QWERTY Keyboard Grid**: Positioned at the bottom with dwell feedback (fill progress timer) to verify typing precision once calibrated.
+6. **WebGazer Integration**: Pre-configured with Ridge regression and TFFacemesh tracking.
