@@ -182,8 +182,6 @@
       box-shadow: 0 0 18px rgba(0,255,204,0.7);
     }
 
-    .hidden { display: none !important; }
-
     #calibration-overlay {
       position: fixed;
       inset: 0;
@@ -273,9 +271,10 @@
       { label: "DEL", keys: ["⌫"] }
     ];
 
-    let phase = "group"; // group or letter
+    let phase = "group";
     let selectedGroup = null;
     let selectedKey = null;
+    let selectionState = { target: null, startedAt: 0, dwellStartedAt: null };
 
     let rawGazeX = null;
     let rawGazeY = null;
@@ -284,9 +283,11 @@
     let correctedGaze = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 
     let isCalibrating = true;
+    let calibModeType = "9zone";
     let calibStep = 0;
     let calibClicks = 0;
     let calibSequence = [];
+
     const zone9Sequence = [
       { name: "Top-Left", x: 0.1, y: 0.2 },
       { name: "Top-Center", x: 0.5, y: 0.2 },
@@ -304,6 +305,12 @@
 
     const calibrationMap = [];
     const spikeGuard = { lastX: null, lastY: null, freezeUntil: 0 };
+
+    function setStatus(message, color) {
+      const status = document.getElementById("status-msg");
+      status.innerText = message;
+      if (color) status.style.color = color;
+    }
 
     function learnKeyOffset(rawX, rawY, key) {
       if (!key) return;
@@ -330,10 +337,7 @@
 
       if (totalWeight === 0) return { x: rawX, y: rawY };
 
-      return {
-        x: rawX + (offsetX / totalWeight),
-        y: rawY + (offsetY / totalWeight)
-      };
+      return { x: rawX + (offsetX / totalWeight), y: rawY + (offsetY / totalWeight) };
     }
 
     function updateCalibrationTarget() {
@@ -365,14 +369,12 @@
       calibClicks = 0;
 
       if (calibModeType === "perkey") {
-        calibSequence = [
-          ...GROUPS.flatMap((group, groupIndex) => group.keys.map((k, keyIndex) => ({
-            name: `${group.label} / ${k}`,
-            x0: (window.innerWidth * 0.5) - 300 + (keyIndex * 110),
-            y0: (window.innerHeight * 0.55) + (groupIndex * 100),
-            key: k
-          })))
-        ];
+        calibSequence = GROUPS.flatMap((group, groupIndex) => group.keys.map((k, keyIndex) => ({
+          name: `${group.label} / ${k}`,
+          x0: (window.innerWidth * 0.5) - 300 + (keyIndex * 110),
+          y0: (window.innerHeight * 0.55) + (groupIndex * 100),
+          key: k
+        })));
         document.getElementById("calib-title").innerText = "⌨️ Per-Key Sweep Calibration";
       } else {
         calibSequence = zone9Sequence;
@@ -385,6 +387,8 @@
 
     document.getElementById("calib-dot").addEventListener("click", function() {
       if (!isCalibrating) return;
+      if (!window.currentCalibrationTargetCoords) return;
+
       const coords = window.currentCalibrationTargetCoords;
       webgazer.recordScreenPosition(coords.x, coords.y, "click");
       calibClicks++;
@@ -416,7 +420,6 @@
     function renderGroupSelection() {
       const row1 = document.getElementById("group-row-1");
       const row2 = document.getElementById("group-row-2");
-
       row1.innerHTML = "";
       row2.innerHTML = "";
 
@@ -444,7 +447,6 @@
         btn.style.height = "90px";
         btn.style.fontSize = "26px";
         btn.onclick = () => selectGroup(group);
-        row2.appendChild(row2.children.length ? null : null);
         row2.appendChild(btn);
       });
 
@@ -478,10 +480,85 @@
       });
     }
 
+    function handleSelectionTarget(target, type) {
+      const same = selectionState.target && selectionState.target === target;
+      if (!same) {
+        selectionState = { target, startedAt: performance.now(), dwellStartedAt: null };
+        return;
+      }
+
+      if (performance.now() - selectionState.startedAt >= 180) {
+        if (selectionState.dwellStartedAt === null) {
+          selectionState.dwellStartedAt = performance.now();
+        }
+
+        if (performance.now() - selectionState.dwellStartedAt >= DWELL_TIME_MS) {
+          if (type === "group") {
+            const group = GROUPS.find(g => g.label === target.dataset.group);
+            if (group) {
+              selectedGroup = group;
+              phase = "letter";
+              selectedKey = null;
+              selectionState = { target: null, startedAt: 0, dwellStartedAt: null };
+              renderLetterSelection(group);
+            }
+          } else if (type === "letter") {
+            chooseLetter(target.dataset.key);
+          }
+        }
+      }
+    }
+
+    function detectGroupSelection(gx, gy) {
+      const row1 = document.getElementById("group-row-1");
+      const row2 = document.getElementById("group-row-2");
+      const groupButtons = [...row1.querySelectorAll(".group-key"), ...row2.querySelectorAll(".group-key")];
+
+      let best = null;
+      let bestDist = Infinity;
+
+      for (const btn of groupButtons) {
+        const rect = btn.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const dist = Math.hypot(gx - cx, gy - cy);
+        if (dist < 120 && dist < bestDist) {
+          bestDist = dist;
+          best = btn;
+        }
+      }
+
+      if (best) {
+        handleSelectionTarget(best, "group");
+      }
+    }
+
+    function detectLetterSelection(gx, gy) {
+      const buttons = document.querySelectorAll(".letter-key");
+      let best = null;
+      let bestDist = Infinity;
+
+      for (const btn of buttons) {
+        const rect = btn.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const dist = Math.hypot(gx - cx, gy - cy);
+        if (dist < 110 && dist < bestDist) {
+          bestDist = dist;
+          best = btn;
+        }
+      }
+
+      if (best) {
+        handleSelectionTarget(best, "letter");
+      }
+    }
+
     function selectGroup(group) {
       selectedGroup = group;
       phase = "letter";
       selectedKey = null;
+      selectionState = { target: null, startedAt: 0, dwellStartedAt: null };
       renderLetterSelection(group);
     }
 
@@ -509,10 +586,7 @@
       phase = "group";
       selectedGroup = null;
       selectedKey = null;
-      renderGroupSelection();
-    }
-
-    function writeGroupTargets() {
+      selectionState = { target: null, startedAt: 0, dwellStartedAt: null };
       renderGroupSelection();
     }
 
@@ -533,68 +607,8 @@
       return false;
     }
 
-    function detectGroupSelection(gx, gy) {
-      const row1 = document.getElementById("group-row-1");
-      const row2 = document.getElementById("group-row-2");
-      const groupButtons = [...row1.querySelectorAll(".group-key"), ...row2.querySelectorAll(".group-key")];
-
-      let best = null;
-      let bestDist = Infinity;
-
-      for (const btn of groupButtons) {
-        const rect = btn.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        const dist = Math.hypot(gx - cx, gy - cy);
-        if (dist < 120 && dist < bestDist) {
-          bestDist = dist;
-          best = btn;
-        }
-      }
-
-      if (best) {
-        const group = GROUPS.find(g => g.label === best.dataset.group);
-        if (group) {
-          selectedGroup = group;
-          renderLetterSelection(group);
-          phase = "letter";
-          return true;
-        }
-      }
-
-      return false;
-    }
-
-    function detectLetterSelection(gx, gy) {
-      const buttons = document.querySelectorAll(".letter-key");
-      let best = null;
-      let bestDist = Infinity;
-
-      for (const btn of buttons) {
-        const rect = btn.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        const dist = Math.hypot(gx - cx, gy - cy);
-        if (dist < 100 && dist < bestDist) {
-          bestDist = dist;
-          best = btn;
-        }
-      }
-
-      if (best) {
-        chosenLetterValue = best.dataset.key;
-        chooseLetter(chosenLetterValue);
-        return true;
-      }
-
-      return false;
-    }
-
-    let chosenLetterValue = null;
-
     function updateSelectionState(gx, gy) {
       if (isCalibrating) return;
-
       if (setSpikeGuard(gx, gy)) return;
 
       if (phase === "group") {
@@ -667,7 +681,7 @@
         localforage.setItem("webgazerGlobalSettings", null);
       }
 
-      writeGroupTargets();
+      renderGroupSelection();
 
       const webgazerInstance = await webgazer.setRegression("ridge")
         .setTracker("TFFacemesh")
@@ -680,6 +694,16 @@
       webgazer.setGazeListener(gazeTickListener);
       startCalibration("9zone");
     };
+
+    const style = document.createElement("style");
+    style.textContent = `
+      .webgazer-video-container,
+      .webgazer-face-overlay,
+      .webgazer-prediction-point {
+        display: none !important;
+      }
+    `;
+    document.head.appendChild(style);
   </script>
 </body>
 </html>
