@@ -271,6 +271,9 @@
       { label: "DEL", keys: ["⌫"] }
     ];
 
+    let saccadeFreezeTimer = null;
+    let isSaccadeLocked = false;
+
     let phase = "group";
     let selectedGroup = null;
     let selectedKey = null;
