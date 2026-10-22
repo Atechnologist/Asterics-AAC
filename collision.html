@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Stable Gaze Keyboard - Row/Column Selection</title>
+  <title>Grouped Gaze Keyboard</title>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -10,7 +10,6 @@
       --cyan: #00ffcc;
       --magenta: #ff0055;
       --text: #ffffff;
-      --muted: #bbbbbb;
     }
 
     html, body {
@@ -67,17 +66,10 @@
       font-weight: bold;
       cursor: pointer;
       font-size: 12px;
-      transition: all 0.18s ease;
       border: 1px solid var(--cyan);
       background: #1e1e1e;
       color: var(--cyan);
       padding: 6px 10px;
-    }
-
-    .mode-btn.active {
-      background: var(--cyan);
-      color: #000;
-      box-shadow: 0 0 12px rgba(0,255,204,0.5);
     }
 
     .action-btn.primary { color: var(--cyan); }
@@ -115,9 +107,86 @@
     }
     input[type=range] { accent-color: var(--cyan); cursor: pointer; }
 
+    #raw-gaze-dot {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      background: rgba(255,255,255,0.7);
+      border: 1px solid rgba(255,255,255,0.8);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 15000;
+      pointer-events: none;
+      display: none;
+    }
+
+    #virtual-cursor {
+      position: absolute;
+      width: 18px; height: 18px;
+      border: 2px solid var(--cyan);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      box-shadow: 0 0 10px rgba(0,255,204,0.9);
+      z-index: 20000;
+      display: none;
+    }
+
+    #keyboard-layer {
+      position: absolute;
+      left: 50%;
+      top: 58%;
+      transform: translate(-50%, -50%);
+      width: min(90vw, 1000px);
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      z-index: 150;
+    }
+
+    .row {
+      display: flex;
+      justify-content: center;
+      gap: 18px;
+    }
+
+    .group-key, .letter-key {
+      border: 3px solid var(--cyan);
+      background: rgba(15,15,15,0.9);
+      color: var(--cyan);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      box-shadow: 0 0 12px rgba(0,255,204,0.18);
+    }
+
+    .group-key {
+      min-width: 170px;
+      height: 90px;
+      font-size: 26px;
+    }
+
+    .letter-key {
+      width: 110px;
+      height: 110px;
+      font-size: 30px;
+    }
+
+    .group-key.active, .letter-key.active {
+      background: var(--cyan);
+      color: #000;
+      box-shadow: 0 0 18px rgba(0,255,204,0.7);
+    }
+
+    .hidden { display: none !important; }
+
     #calibration-overlay {
       position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
+      inset: 0;
       background: rgba(10,10,10,0.92);
       z-index: 30000;
       display: flex;
@@ -147,55 +216,6 @@
       pointer-events: auto;
       z-index: 35000;
     }
-
-    #raw-gaze-dot {
-      position: absolute;
-      width: 12px;
-      height: 12px;
-      background: rgba(255,255,255,0.7);
-      border: 1px solid rgba(255,255,255,0.8);
-      border-radius: 50%;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      z-index: 19990;
-      display: none;
-    }
-
-    #virtual-cursor {
-      position: absolute;
-      width: 18px; height: 18px;
-      border: 2px solid var(--cyan);
-      border-radius: 50%;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      box-shadow: 0 0 10px rgba(0,255,204,0.9);
-      z-index: 20000;
-      display: none;
-    }
-
-    svg {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100vw;
-      height: 100vh;
-      z-index: 10;
-    }
-
-    .key-box {
-      fill: #1e1e1e;
-      stroke: #00ffcc;
-      stroke-width: 2;
-      transition: fill 0.12s ease, stroke 0.12s ease;
-    }
-
-    .key-text {
-      fill: #00ffcc;
-      font-size: 22px;
-      text-anchor: middle;
-      dominant-baseline: middle;
-      font-weight: bold;
-      user-select: none;
-    }
   </style>
 </head>
 <body>
@@ -207,15 +227,6 @@
     <div id="output-bar">Type here...</div>
 
     <div class="control-group">
-      <button class="mode-btn active" onclick="switchMode('magnetic')">Magnetic QWERTY</button>
-      <button class="mode-btn" onclick="switchMode('iris')">Iris Shutter Zoom</button>
-      <button class="mode-btn" onclick="switchMode('swipe')">Gaze Swipe</button>
-      <button class="mode-btn" onclick="switchMode('floating')">Floating Letters</button>
-    </div>
-
-    <div class="control-group" style="margin-left: 10px;">
-      <button id="train-toggle-btn" class="action-btn training" onclick="toggleSupervisedTraining()">🎓 Training Mode: ON</button>
-      <button id="diag-toggle-btn" class="action-btn primary" onclick="toggleDiagnostics()">📊 Diag Overlay: OFF</button>
       <button class="action-btn primary" onclick="startCalibration('9zone')">🎯 9-Zone Grid</button>
       <button class="action-btn primary" onclick="startCalibration('perkey')">⌨️ Per-Key Sweep</button>
       <button class="action-btn danger" onclick="clearText()">Delete</button>
@@ -223,17 +234,22 @@
   </div>
 
   <div id="sub-bar">
-    <span style="color: #ff0055;" id="status-msg">🎓 Supervised Training Active: Hover mouse over key and click/look to record ground-truth</span>
+    <span style="color: #ff0055;" id="status-msg">🎓 Grouped gaze keyboard active</span>
     <div style="display: flex; gap: 20px;">
       <div class="slider-container">
-        <label>Dwell: <span id="dwell-val">1.2</span>s</label>
-        <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.2" oninput="updateDwell(this.value)">
+        <label>Dwell: <span id="dwell-val">1.6</span>s</label>
+        <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.6" oninput="updateDwell(this.value)">
       </div>
       <div class="slider-container">
         <label>Smooth: <span id="smooth-val">0.2</span></label>
         <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.2" oninput="updateSmooth(this.value)">
       </div>
     </div>
+  </div>
+
+  <div id="keyboard-layer">
+    <div class="row" id="group-row-1"></div>
+    <div class="row" id="group-row-2"></div>
   </div>
 
   <div id="calibration-overlay">
@@ -244,23 +260,30 @@
     <div id="calib-dot">1</div>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.8.1/localforage.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
 
   <script>
-    const originalGetContext = HTMLCanvasElement.prototype.getContext;
-    HTMLCanvasElement.prototype.getContext = function(type, attributes) {
-      if (type === '2d') {
-        attributes = attributes || {};
-        attributes.willReadFrequently = true;
-      }
-      return originalGetContext.call(this, type, attributes);
-    };
+    const GROUPS = [
+      { label: "QWERTY", keys: ["Q","W","E","R","T","Y"] },
+      { label: "ASDFGH", keys: ["A","S","D","F","G","H"] },
+      { label: "ZXCVBN", keys: ["Z","X","C","V","B","N"] },
+      { label: "IOPLM", keys: ["I","O","P","L","M"] },
+      { label: "SPACE", keys: ["SP"] },
+      { label: "DEL", keys: ["⌫"] }
+    ];
 
-    let currentMode = "magnetic";
+    let phase = "group"; // group or letter
+    let selectedGroup = null;
+    let selectedKey = null;
+
+    let rawGazeX = null;
+    let rawGazeY = null;
+    let smoothedGazeX = null;
+    let smoothedGazeY = null;
+    let correctedGaze = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+
     let isCalibrating = true;
-    let calibModeType = "9zone";
     let calibStep = 0;
     let calibClicks = 0;
     let calibSequence = [];
@@ -276,106 +299,16 @@
       { name: "Bottom-Right", x: 0.9, y: 0.8 }
     ];
 
-    let DWELL_TIME_MS = 1200;
     let smoothingFactor = 0.2;
-
-    let supervisedTrainingActive = true;
-    let diagnosticsVisible = false;
-    let trainingSampleCount = 0;
-    let correctionSamples = [];
-
-    let nodes = [];
-    let svg = null;
-    let keyGroups = null;
-    let swipePolyline = null;
-
-    let rawGazeX = null;
-    let rawGazeY = null;
-    let smoothedGazeX = null;
-    let smoothedGazeY = null;
-    let correctedGaze = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-
-    let activeHoverKey = null;
-    let selection = null;
-    let homeBaseTimer = null;
-    let saccadeFreezeTimer = null;
-    let isSaccadeLocked = false;
+    let DWELL_TIME_MS = 1600;
 
     const calibrationMap = [];
     const spikeGuard = { lastX: null, lastY: null, freezeUntil: 0 };
 
-    const ROWS = [
-      ["Q","W","E","R","T","Y","U","I","O","P"],
-      ["A","S","D","F","G","H","J","K","L"],
-      ["Z","X","C","V","B","N","M","⌫","SP"]
-    ];
-
-    function setStatus(message, color) {
-      const status = document.getElementById("status-msg");
-      status.innerText = message;
-      if (color) status.style.color = color;
-    }
-
-    function toggleSupervisedTraining() {
-      supervisedTrainingActive = !supervisedTrainingActive;
-      const btn = document.getElementById("train-toggle-btn");
-      if (supervisedTrainingActive) {
-        btn.className = "action-btn training";
-        btn.innerText = "🎓 Training Mode: ON";
-        setStatus(`🎓 Supervised Training Active: Hover mouse on target key & click/look (${trainingSampleCount} learned)`, "#ff0055");
-      } else {
-        btn.className = "action-btn primary";
-        btn.innerText = "🔒 Training Mode: OFF";
-        setStatus(`🔒 Live Inference Mode (${trainingSampleCount} samples active)`, "#00ffcc");
-      }
-    }
-
-    function toggleDiagnostics() {
-      diagnosticsVisible = !diagnosticsVisible;
-      const btn = document.getElementById("diag-toggle-btn");
-      btn.innerText = diagnosticsVisible ? "📊 Diag Overlay: ON" : "📊 Diag Overlay: OFF";
-      if (!d3.select("#diag-group").empty()) {
-        d3.select("#diag-group").style("display", diagnosticsVisible ? "block" : "none");
-      }
-    }
-
-    function recordSupervisedGroundTruth(trueTargetX, trueTargetY) {
-      if (!supervisedTrainingActive || rawGazeX === null || rawGazeY === null) return;
-      const deltaX = trueTargetX - rawGazeX;
-      const deltaY = trueTargetY - rawGazeY;
-      correctionSamples.push({ rawX: rawGazeX, rawY: rawGazeY, deltaX, deltaY });
-      if (correctionSamples.length > 80) correctionSamples.shift();
-      trainingSampleCount = correctionSamples.length;
-      setStatus(`🎓 Recorded Ground-Truth Delta! (${trainingSampleCount} spatial samples learned)`, "#ff0055");
-    }
-
-    function applyAdaptiveResiduals(gazeX, gazeY) {
-      if (correctionSamples.length === 0) return { x: gazeX, y: gazeY };
-      let totalWeight = 0;
-      let weightedDeltaX = 0;
-      let weightedDeltaY = 0;
-      const bandwidth = 350;
-
-      for (const sample of correctionSamples) {
-        const dist = Math.hypot(gazeX - sample.rawX, gazeY - sample.rawY);
-        if (dist < bandwidth) {
-          const weight = Math.exp(-(dist * dist) / (2 * bandwidth * bandwidth));
-          weightedDeltaX += sample.deltaX * weight;
-          weightedDeltaY += sample.deltaY * weight;
-          totalWeight += weight;
-        }
-      }
-
-      if (totalWeight > 0) {
-        return { x: gazeX + (weightedDeltaX / totalWeight), y: gazeY + (weightedDeltaY / totalWeight) };
-      }
-      return { x: gazeX, y: gazeY };
-    }
-
     function learnKeyOffset(rawX, rawY, key) {
       if (!key) return;
       calibrationMap.push({ rawX, rawY, targetX: key.x, targetY: key.y });
-      if (calibrationMap.length > 300) calibrationMap.shift();
+      if (calibrationMap.length > 500) calibrationMap.shift();
     }
 
     function correctRawGaze(rawX, rawY) {
@@ -387,7 +320,7 @@
 
       for (const sample of calibrationMap) {
         const dist = Math.hypot(rawX - sample.rawX, rawY - sample.rawY);
-        if (dist > 320) continue;
+        if (dist > 300) continue;
 
         const weight = 1 / (dist + 1);
         offsetX += (sample.targetX - sample.rawX) * weight;
@@ -401,201 +334,6 @@
         x: rawX + (offsetX / totalWeight),
         y: rawY + (offsetY / totalWeight)
       };
-    }
-
-    function buildKeyboard() {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      const list = [];
-      const startY = height * 0.54;
-
-      ROWS.forEach((row, rowIndex) => {
-        const startX = (width - (row.length * 72)) / 2;
-        row.forEach((char, colIndex) => {
-          const x = startX + (colIndex * 72) + 36;
-          const y = startY + (rowIndex * 72) + 30;
-          list.push({ char, rowIndex, x, y });
-        });
-      });
-
-      return list;
-    }
-
-    function rebuildKeyboard() {
-      nodes = buildKeyboard();
-
-      if (svg) svg.remove();
-
-      svg = d3.select("body").append("svg");
-
-      keyGroups = svg.selectAll(".key-group")
-        .data(nodes)
-        .enter()
-        .append("g")
-        .attr("class", "key-group");
-
-      keyGroups.append("rect")
-        .attr("class", "key-box")
-        .attr("x", d => d.x - 32)
-        .attr("y", d => d.y - 32)
-        .attr("width", 64)
-        .attr("height", 64)
-        .attr("rx", 8)
-        .attr("ry", 8);
-
-      keyGroups.append("text")
-        .attr("class", "key-text")
-        .attr("x", d => d.x)
-        .attr("y", d => d.y)
-        .text(d => d.char);
-
-      swipePolyline = svg.append("polyline")
-        .attr("fill", "none")
-        .attr("stroke", "#ff0055")
-        .attr("stroke-width", 4)
-        .attr("stroke-linecap", "round")
-        .style("opacity", 0);
-
-      const diagGroup = svg.append("g").attr("id", "diag-group").style("display", "none");
-      diagGroup.append("line").attr("id", "diag-vector-line").attr("stroke", "#ff0055").attr("stroke-width", 3).attr("stroke-dasharray", "4,4");
-      diagGroup.append("circle").attr("id", "diag-raw-circle").attr("r", 12).attr("fill", "none").attr("stroke", "#ffff00").attr("stroke-width", 2);
-
-      svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
-      svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
-    }
-
-    function renderHighlights() {
-      if (!keyGroups) return;
-
-      keyGroups.select("rect").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
-      keyGroups.select(".key-text").attr("fill", "#00ffcc");
-
-      if (activeHoverKey) {
-        const target = keyGroups.filter(d => d.char === activeHoverKey);
-        if (!target.empty()) {
-          target.select("rect").attr("fill", "#00ffcc").attr("stroke", "#ff0055");
-          target.select(".key-text").attr("fill", "#000");
-        }
-      }
-    }
-
-    function getRowIndex(y) {
-      const centers = [
-        window.innerHeight * 0.57,
-        window.innerHeight * 0.69,
-        window.innerHeight * 0.81
-      ];
-
-      let best = 0;
-      let bestDist = Infinity;
-
-      for (let i = 0; i < centers.length; i++) {
-        const dist = Math.abs(y - centers[i]);
-        if (dist < bestDist) {
-          bestDist = dist;
-          best = i;
-        }
-      }
-
-      return best;
-    }
-
-    function findNearestKeyInRow(gx, gy, rowIndex) {
-      const rowKeys = nodes.filter(k => k.rowIndex === rowIndex);
-
-      let best = null;
-      let bestDist = Infinity;
-
-      for (const key of rowKeys) {
-        const dist = Math.hypot(gx - key.x, gy - key.y);
-        const radius = 120;
-        if (dist <= radius && dist < bestDist) {
-          bestDist = dist;
-          best = key;
-        }
-      }
-
-      return best;
-    }
-
-    function setSpikeGuard(x, y) {
-      const now = performance.now();
-      if (spikeGuard.lastX !== null && spikeGuard.lastY !== null) {
-        const velocity = Math.hypot(x - spikeGuard.lastX, y - spikeGuard.lastY);
-        if (velocity > 90 && now < spikeGuard.freezeUntil) {
-          return true;
-        }
-        if (velocity > 90) {
-          spikeGuard.freezeUntil = now + 220;
-          return true;
-        }
-      }
-      spikeGuard.lastX = x;
-      spikeGuard.lastY = y;
-      return false;
-    }
-
-    function activateKey(key) {
-      if (!key) return;
-
-      if (key.char === "⌫") {
-        const outputBar = document.getElementById("output-bar");
-        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-        txt = txt.slice(0, -1);
-        outputBar.innerText = txt || "Type here...";
-      } else if (key.char === "SP") {
-        const outputBar = document.getElementById("output-bar");
-        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-        outputBar.innerText = (txt + " ").trim() || "Type here...";
-      } else {
-        const outputBar = document.getElementById("output-bar");
-        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-        outputBar.innerText = txt + key.char;
-      }
-
-      if (rawGazeX !== null && rawGazeY !== null) {
-        learnKeyOffset(rawGazeX, rawGazeY, key);
-      }
-
-      activeHoverKey = null;
-      selection = null;
-      renderHighlights();
-    }
-
-    function doSelectionAt(gx, gy) {
-      if (setSpikeGuard(gx, gy)) {
-        selection = null;
-        activeHoverKey = null;
-        renderHighlights();
-        return;
-      }
-
-      const rowIndex = getRowIndex(gy);
-      const keyCandidate = findNearestKeyInRow(gx, gy, rowIndex);
-
-      if (!keyCandidate) {
-        selection = null;
-        activeHoverKey = null;
-        renderHighlights();
-        return;
-      }
-
-      if (!selection || selection.char !== keyCandidate.char) {
-        selection = { char: keyCandidate.char, startedAt: performance.now(), dwellStartedAt: null };
-        activeHoverKey = keyCandidate.char;
-        renderHighlights();
-        return;
-      }
-
-      if (performance.now() - selection.startedAt >= 180) {
-        if (selection.dwellStartedAt === null) {
-          selection.dwellStartedAt = performance.now();
-        }
-
-        if (performance.now() - selection.dwellStartedAt >= DWELL_TIME_MS) {
-          activateKey(keyCandidate);
-        }
-      }
     }
 
     function updateCalibrationTarget() {
@@ -621,18 +359,20 @@
     }
 
     function startCalibration(type) {
-      calibModeType = type;
       isCalibrating = true;
+      calibModeType = type;
       calibStep = 0;
       calibClicks = 0;
 
       if (calibModeType === "perkey") {
-        calibSequence = nodes.map(n => ({
-          name: `Key '${n.char}'`,
-          x0: n.x,
-          y0: n.y,
-          key: n.char
-        }));
+        calibSequence = [
+          ...GROUPS.flatMap((group, groupIndex) => group.keys.map((k, keyIndex) => ({
+            name: `${group.label} / ${k}`,
+            x0: (window.innerWidth * 0.5) - 300 + (keyIndex * 110),
+            y0: (window.innerHeight * 0.55) + (groupIndex * 100),
+            key: k
+          })))
+        ];
         document.getElementById("calib-title").innerText = "⌨️ Per-Key Sweep Calibration";
       } else {
         calibSequence = zone9Sequence;
@@ -657,74 +397,226 @@
       updateCalibrationTarget();
     });
 
-    function switchMode(mode) {
-      currentMode = mode;
-      document.querySelectorAll(".mode-btn").forEach(btn => btn.classList.remove("active"));
-      const button = event.target;
-      if (button) button.classList.add("active");
-      if (swipePolyline) swipePolyline.style("opacity", mode === "swipe" ? 1 : 0);
-
-      rebuildKeyboard();
-      selection = null;
-      activeHoverKey = null;
-    }
-
     function clearText() {
       const outputBar = document.getElementById("output-bar");
       const txt = outputBar.innerText;
       outputBar.innerText = txt.length > 1 ? txt.slice(0, -1) : "Type here...";
     }
 
-    function updateDwell(val) {
-      DWELL_TIME_MS = parseFloat(val) * 1000;
-      document.getElementById("dwell-val").innerText = val;
+    function updateDwell(v) {
+      DWELL_TIME_MS = parseFloat(v) * 1000;
+      document.getElementById("dwell-val").innerText = v;
     }
 
-    function updateSmooth(val) {
-      smoothingFactor = parseFloat(val);
-      document.getElementById("smooth-val").innerText = val;
+    function updateSmooth(v) {
+      smoothingFactor = parseFloat(v);
+      document.getElementById("smooth-val").innerText = v;
     }
 
-    function handleHomeReset(gx, gy) {
-      if (gx < 320 && gy < 300) {
-        if (!homeBaseTimer) {
-          homeBaseTimer = setTimeout(() => {
-            startCalibration("9zone");
-            homeBaseTimer = null;
-          }, 2500);
-        }
-        return true;
+    function renderGroupSelection() {
+      const row1 = document.getElementById("group-row-1");
+      const row2 = document.getElementById("group-row-2");
+
+      row1.innerHTML = "";
+      row2.innerHTML = "";
+
+      const groups1 = GROUPS.slice(0, 3);
+      const groups2 = GROUPS.slice(3);
+
+      groups1.forEach((group) => {
+        const btn = document.createElement("button");
+        btn.className = "group-key";
+        btn.innerText = group.label;
+        btn.dataset.group = group.label;
+        btn.style.width = "180px";
+        btn.style.height = "90px";
+        btn.style.fontSize = "26px";
+        btn.onclick = () => selectGroup(group);
+        row1.appendChild(btn);
+      });
+
+      groups2.forEach((group) => {
+        const btn = document.createElement("button");
+        btn.className = "group-key";
+        btn.innerText = group.label;
+        btn.dataset.group = group.label;
+        btn.style.width = "180px";
+        btn.style.height = "90px";
+        btn.style.fontSize = "26px";
+        btn.onclick = () => selectGroup(group);
+        row2.appendChild(row2.children.length ? null : null);
+        row2.appendChild(btn);
+      });
+
+      document.querySelectorAll(".group-key").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.group === selectedGroup?.label);
+      });
+    }
+
+    function renderLetterSelection(group) {
+      const row = document.getElementById("group-row-1");
+      const row2 = document.getElementById("group-row-2");
+      row.innerHTML = "";
+      row2.innerHTML = "";
+
+      group.keys.forEach((key, index) => {
+        const btn = document.createElement("button");
+        btn.className = "letter-key";
+        btn.innerText = key;
+        btn.dataset.key = key;
+        btn.style.width = "110px";
+        btn.style.height = "110px";
+        btn.style.fontSize = "32px";
+        btn.onclick = () => chooseLetter(key);
+
+        if (index < 3) row.appendChild(btn);
+        else row2.appendChild(btn);
+      });
+
+      document.querySelectorAll(".letter-key").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.key === selectedKey);
+      });
+    }
+
+    function selectGroup(group) {
+      selectedGroup = group;
+      phase = "letter";
+      selectedKey = null;
+      renderLetterSelection(group);
+    }
+
+    function chooseLetter(value) {
+      if (value === "⌫") {
+        const outputBar = document.getElementById("output-bar");
+        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
+        txt = txt.slice(0, -1);
+        outputBar.innerText = txt || "Type here...";
+      } else if (value === "SP") {
+        const outputBar = document.getElementById("output-bar");
+        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
+        outputBar.innerText = (txt + " ").trim() || "Type here...";
+      } else {
+        const outputBar = document.getElementById("output-bar");
+        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
+        outputBar.innerText = txt + value;
       }
-      clearTimeout(homeBaseTimer);
-      homeBaseTimer = null;
+
+      if (rawGazeX !== null && rawGazeY !== null) {
+        const keyObj = { x: correctedGaze.x, y: correctedGaze.y, char: value };
+        learnKeyOffset(rawGazeX, rawGazeY, keyObj);
+      }
+
+      phase = "group";
+      selectedGroup = null;
+      selectedKey = null;
+      renderGroupSelection();
+    }
+
+    function writeGroupTargets() {
+      renderGroupSelection();
+    }
+
+    function setSpikeGuard(x, y) {
+      const now = performance.now();
+      if (spikeGuard.lastX !== null && spikeGuard.lastY !== null) {
+        const velocity = Math.hypot(x - spikeGuard.lastX, y - spikeGuard.lastY);
+        if (velocity > 90 && now < spikeGuard.freezeUntil) {
+          return true;
+        }
+        if (velocity > 90) {
+          spikeGuard.freezeUntil = now + 220;
+          return true;
+        }
+      }
+      spikeGuard.lastX = x;
+      spikeGuard.lastY = y;
       return false;
     }
 
-    function updateGazeDots() {
+    function detectGroupSelection(gx, gy) {
+      const row1 = document.getElementById("group-row-1");
+      const row2 = document.getElementById("group-row-2");
+      const groupButtons = [...row1.querySelectorAll(".group-key"), ...row2.querySelectorAll(".group-key")];
+
+      let best = null;
+      let bestDist = Infinity;
+
+      for (const btn of groupButtons) {
+        const rect = btn.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const dist = Math.hypot(gx - cx, gy - cy);
+        if (dist < 120 && dist < bestDist) {
+          bestDist = dist;
+          best = btn;
+        }
+      }
+
+      if (best) {
+        const group = GROUPS.find(g => g.label === best.dataset.group);
+        if (group) {
+          selectedGroup = group;
+          renderLetterSelection(group);
+          phase = "letter";
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    function detectLetterSelection(gx, gy) {
+      const buttons = document.querySelectorAll(".letter-key");
+      let best = null;
+      let bestDist = Infinity;
+
+      for (const btn of buttons) {
+        const rect = btn.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const dist = Math.hypot(gx - cx, gy - cy);
+        if (dist < 100 && dist < bestDist) {
+          bestDist = dist;
+          best = btn;
+        }
+      }
+
+      if (best) {
+        chosenLetterValue = best.dataset.key;
+        chooseLetter(chosenLetterValue);
+        return true;
+      }
+
+      return false;
+    }
+
+    let chosenLetterValue = null;
+
+    function updateSelectionState(gx, gy) {
+      if (isCalibrating) return;
+
+      if (setSpikeGuard(gx, gy)) return;
+
+      if (phase === "group") {
+        detectGroupSelection(gx, gy);
+      } else if (phase === "letter") {
+        detectLetterSelection(gx, gy);
+      }
+    }
+
+    function renderVisuals() {
       const rawDot = document.getElementById("raw-gaze-dot");
       const vCursor = document.getElementById("virtual-cursor");
 
       if (rawGazeX !== null && rawGazeY !== null) {
         rawDot.style.left = rawGazeX + "px";
         rawDot.style.top = rawGazeY + "px";
-        rawDot.style.display = isCalibrating ? "none" : "block";
+        rawDot.style.display = "block";
       }
 
       vCursor.style.left = correctedGaze.x + "px";
       vCursor.style.top = correctedGaze.y + "px";
-      vCursor.style.display = isCalibrating ? "none" : "block";
-    }
-
-    let renderScheduled = false;
-
-    function scheduleRender() {
-      if (renderScheduled) return;
-      renderScheduled = true;
-      requestAnimationFrame(() => {
-        renderScheduled = false;
-        updateGazeDots();
-        renderHighlights();
-      });
+      vCursor.style.display = "block";
     }
 
     function processGaze(data) {
@@ -758,12 +650,11 @@
       const corrected = correctRawGaze(smoothedGazeX, smoothedGazeY);
       correctedGaze = corrected;
 
-      if (handleHomeReset(correctedGaze.x, correctedGaze.y)) {
-        return;
+      if (!isCalibrating) {
+        updateSelectionState(correctedGaze.x, correctedGaze.y);
       }
 
-      doSelectionAt(correctedGaze.x, correctedGaze.y);
-      scheduleRender();
+      renderVisuals();
     }
 
     function gazeTickListener(data) {
@@ -776,7 +667,7 @@
         localforage.setItem("webgazerGlobalSettings", null);
       }
 
-      rebuildKeyboard();
+      writeGroupTargets();
 
       const webgazerInstance = await webgazer.setRegression("ridge")
         .setTracker("TFFacemesh")
@@ -789,17 +680,6 @@
       webgazer.setGazeListener(gazeTickListener);
       startCalibration("9zone");
     };
-
-    // CSS hide WebGazer preview if it is still rendered by the library
-    const style = document.createElement("style");
-    style.textContent = `
-      .webgazer-video-container,
-      .webgazer-face-overlay,
-      .webgazer-prediction-point {
-        display: none !important;
-      }
-    `;
-    document.head.appendChild(style);
   </script>
 </body>
 </html>
