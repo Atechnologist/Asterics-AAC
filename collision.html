@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Gaze Keyboard with Learned Corrections</title>
+  <title>Stable Gaze Keyboard</title>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -588,7 +588,6 @@
       if (!selection || selection.char !== nearest.char) {
         selection = { char: nearest.char, startedAt: performance.now(), dwellStartedAt: null };
         activeHoverKey = nearest.char;
-        hoverStartedAt = performance.now();
         renderKeyboardHighlights();
         return;
       }
@@ -727,23 +726,17 @@
     function renderFrame() {
       renderScheduled = false;
 
-      // visual updates only, no heavy work
-      const rawDot = document.getElementById("raw-gaze-dot");
-      const vCursor = document.getElementById("virtual-cursor");
-
       if (rawGazeX !== null && rawGazeY !== null) {
+        const rawDot = document.getElementById("raw-gaze-dot");
         rawDot.style.left = rawGazeX + "px";
         rawDot.style.top = rawGazeY + "px";
         rawDot.style.display = isCalibrating ? "none" : "block";
       }
 
+      const vCursor = document.getElementById("virtual-cursor");
       vCursor.style.left = correctedGaze.x + "px";
       vCursor.style.top = correctedGaze.y + "px";
       vCursor.style.display = isCalibrating ? "none" : "block";
-
-      if (!isCalibrating && selection && activeHoverKey) {
-        renderKeyboardHighlights();
-      }
     }
 
     function scheduleRender() {
@@ -780,13 +773,8 @@
         smoothedGazeY = rawY;
       }
 
-      const residualCorrected = applyAdaptiveResiduals(smoothedGazeX, smoothedGazeY);
-      const perKeyCorrected = correctRawGaze(smoothedGazeX, smoothedGazeY);
-
-      correctedGaze = {
-        x: perKeyCorrected.x,
-        y: perKeyCorrected.y
-      };
+      const corrected = correctRawGaze(smoothedGazeX, smoothedGazeY);
+      correctedGaze = corrected;
 
       if (handleHomeReset(correctedGaze.x, correctedGaze.y)) {
         return;
@@ -797,7 +785,6 @@
     }
 
     function gazeTickListener(data) {
-      // keep this cheap; do not do heavy work here
       processGaze(data);
     }
 
