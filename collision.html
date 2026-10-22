@@ -211,22 +211,6 @@
       font-weight: bold;
       user-select: none;
     }
-
-    .letter-circle {
-      fill: #1e1e1e;
-      stroke: #00ffcc;
-      stroke-width: 2;
-      transition: fill 0.12s ease, stroke 0.12s ease;
-    }
-
-    .letter-text {
-      fill: #00ffcc;
-      font-size: 22px;
-      text-anchor: middle;
-      dominant-baseline: middle;
-      font-weight: bold;
-      user-select: none;
-    }
   </style>
 </head>
 <body>
@@ -308,12 +292,11 @@
       { name: "Bottom-Right", x: 0.9, y: 0.8 }
     ];
 
-    let DWELL_TIME_MS = 1400;
+    let DWELL_TIME_MS = 1200;
     let smoothingFactor = 0.2;
     let supervisedTrainingActive = true;
     let diagnosticsVisible = false;
-    let lastRawWebcamX = null;
-    let lastRawWebcamY = null;
+
     let trainingSampleCount = 0;
     let correctionSamples = [];
 
@@ -322,17 +305,19 @@
     let keyGroups = null;
     let swipePolyline = null;
 
-    let gazeHistory = [];
-    let gazeCursor = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-    let rawGazeCursor = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-    let selection = null;
-    let homeBaseTimer = null;
-    let irisRadius = 260;
-    let irisTargetKey = null;
-    let irisStartTime = null;
+    let rawGazeX = null;
+    let rawGazeY = null;
+    let smoothedGazeX = null;
+    let smoothedGazeY = null;
 
+    let correctedGaze = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
     let activeHoverKey = null;
-    let hoverStartedAt = null;
+    let selection = null;
+
+    let homeBaseTimer = null;
+
+    const calibrationMap = [];
+    const spikeGuard = { lastX: null, lastY: null, freezeUntil: 0 };
 
     const KEY_ROWS = [
       ["Q","W","E","R","T","Y","U","I","O","P"],
@@ -340,12 +325,9 @@
       ["Z","X","C","V","B","N","M","⌫","SP"]
     ];
 
-    const calibrationMap = [];
-    const spikeGuard = { lastX: null, lastY: null, freezeUntil: 0 };
-
-    function setStatus(msg, color) {
+    function setStatus(message, color) {
       const status = document.getElementById("status-msg");
-      status.innerText = msg;
+      status.innerText = message;
       if (color) status.style.color = color;
     }
 
@@ -373,12 +355,12 @@
     }
 
     function recordSupervisedGroundTruth(trueTargetX, trueTargetY) {
-      if (!supervisedTrainingActive || lastRawWebcamX === null || lastRawWebcamY === null) return;
+      if (!supervisedTrainingActive || rawGazeX === null || rawGazeY === null) return;
 
-      const deltaX = trueTargetX - lastRawWebcamX;
-      const deltaY = trueTargetY - lastRawWebcamY;
+      const deltaX = trueTargetX - rawGazeX;
+      const deltaY = trueTargetY - rawGazeY;
 
-      correctionSamples.push({ rawX: lastRawWebcamX, rawY: lastRawWebcamY, deltaX, deltaY });
+      correctionSamples.push({ rawX: rawGazeX, rawY: rawGazeY, deltaX, deltaY });
       if (correctionSamples.length > 80) correctionSamples.shift();
       trainingSampleCount = correctionSamples.length;
 
@@ -415,13 +397,12 @@
 
     function learnKeyOffset(rawX, rawY, key) {
       if (!key) return;
-
       calibrationMap.push({
-        rawX, rawY,
+        rawX,
+        rawY,
         targetX: key.x,
         targetY: key.y
       });
-
       if (calibrationMap.length > 300) calibrationMap.shift();
     }
 
@@ -450,18 +431,6 @@
       };
     }
 
-    function averagePoints(points) {
-      if (!points.length) return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-      let sx = 0, sy = 0;
-      for (const p of points) { sx += p.x; sy += p.y; }
-      return { x: sx / points.length, y: sy / points.length };
-    }
-
-    function addGazeSample(x, y) {
-      gazeHistory.push({ x, y });
-      if (gazeHistory.length > 8) gazeHistory.shift();
-    }
-
     function createFixedLayout() {
       const width = window.innerWidth;
       const height = window.innerHeight;
@@ -481,76 +450,33 @@
       return list;
     }
 
-    function createFloatingLayout() {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      const letters = ["Q","W","E","R","T","Z","U","I","O","P","A","S","D","F","G","H","J","K","L","Y","X","C","V","B","N","M","⌫","SP"];
-      const list = [];
-
-      letters.forEach((char, index) => {
-        const x = width * 0.25 + ((index % 7) / 7) * width * 0.5 + (Math.random() * 40 - 20);
-        const y = height * 0.3 + (Math.floor(index / 7) * 90) + (Math.random() * 40 - 20);
-        list.push({
-          char,
-          x,
-          y,
-          radius: 28,
-          mode: "floating",
-          driftX: (Math.random() - 0.5) * 1.5,
-          driftY: (Math.random() - 0.5) * 1.5
-        });
-      });
-
-      return list;
-    }
-
     function rebuildKeyboard() {
-      nodes = currentMode === "floating" ? createFloatingLayout() : createFixedLayout();
+      nodes = createFixedLayout();
 
       if (svg) svg.remove();
 
       svg = d3.select("body").append("svg");
 
-      if (currentMode === "floating") {
-        keyGroups = svg.selectAll(".key-group")
-          .data(nodes)
-          .enter()
-          .append("g")
-          .attr("class", "key-group");
+      keyGroups = svg.selectAll(".key-group")
+        .data(nodes)
+        .enter()
+        .append("g")
+        .attr("class", "key-group");
 
-        keyGroups.append("circle")
-          .attr("class", "letter-circle")
-          .attr("r", d => d.radius)
-          .attr("cx", d => d.x)
-          .attr("cy", d => d.y);
+      keyGroups.append("rect")
+        .attr("class", "key-box")
+        .attr("x", d => d.x - 32)
+        .attr("y", d => d.y - 32)
+        .attr("width", 64)
+        .attr("height", 64)
+        .attr("rx", 8)
+        .attr("ry", 8);
 
-        keyGroups.append("text")
-          .attr("class", "letter-text")
-          .attr("x", d => d.x)
-          .attr("y", d => d.y)
-          .text(d => d.char);
-      } else {
-        keyGroups = svg.selectAll(".key-group")
-          .data(nodes)
-          .enter()
-          .append("g")
-          .attr("class", "key-group");
-
-        keyGroups.append("rect")
-          .attr("class", "key-box")
-          .attr("x", d => d.x - 32)
-          .attr("y", d => d.y - 32)
-          .attr("width", 64)
-          .attr("height", 64)
-          .attr("rx", 8)
-          .attr("ry", 8);
-
-        keyGroups.append("text")
-          .attr("class", "key-text")
-          .attr("x", d => d.x)
-          .attr("y", d => d.y)
-          .text(d => d.char);
-      }
+      keyGroups.append("text")
+        .attr("class", "key-text")
+        .attr("x", d => d.x)
+        .attr("y", d => d.y)
+        .text(d => d.char);
 
       swipePolyline = svg.append("polyline")
         .attr("fill", "none")
@@ -570,27 +496,14 @@
     function renderKeyboardHighlights() {
       if (!keyGroups) return;
 
-      if (currentMode === "floating") {
-        keyGroups.select("circle").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
-        keyGroups.select(".letter-text").attr("fill", "#00ffcc");
+      keyGroups.select("rect").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
+      keyGroups.select(".key-text").attr("fill", "#00ffcc");
 
-        if (activeHoverKey) {
-          const target = keyGroups.filter(d => d.char === activeHoverKey);
-          if (!target.empty()) {
-            target.select("circle").attr("fill", "#00ffcc").attr("stroke", "#ff0055");
-            target.select(".letter-text").attr("fill", "#000");
-          }
-        }
-      } else {
-        keyGroups.select("rect").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
-        keyGroups.select(".key-text").attr("fill", "#00ffcc");
-
-        if (activeHoverKey) {
-          const target = keyGroups.filter(d => d.char === activeHoverKey);
-          if (!target.empty()) {
-            target.select("rect").attr("fill", "#00ffcc").attr("stroke", "#ff0055");
-            target.select(".key-text").attr("fill", "#000");
-          }
+      if (activeHoverKey) {
+        const target = keyGroups.filter(d => d.char === activeHoverKey);
+        if (!target.empty()) {
+          target.select("rect").attr("fill", "#00ffcc").attr("stroke", "#ff0055");
+          target.select(".key-text").attr("fill", "#000");
         }
       }
     }
@@ -601,7 +514,7 @@
 
       for (const key of nodes) {
         const dist = Math.hypot(gx - key.x, gy - key.y);
-        const radius = currentMode === "floating" ? 78 : 110;
+        const radius = 110;
         if (dist <= radius && dist < bestDist) {
           bestDist = dist;
           best = key;
@@ -615,10 +528,10 @@
       const now = performance.now();
       if (spikeGuard.lastX !== null && spikeGuard.lastY !== null) {
         const velocity = Math.hypot(x - spikeGuard.lastX, y - spikeGuard.lastY);
-        if (velocity > 80 && now < spikeGuard.freezeUntil) {
+        if (velocity > 90 && now < spikeGuard.freezeUntil) {
           return true;
         }
-        if (velocity > 80) {
+        if (velocity > 90) {
           spikeGuard.freezeUntil = now + 220;
           return true;
         }
@@ -626,46 +539,6 @@
       spikeGuard.lastX = x;
       spikeGuard.lastY = y;
       return false;
-    }
-
-    function updateSelection(gx, gy) {
-      if (setSpikeGuard(gx, gy)) {
-        selection = null;
-        activeHoverKey = null;
-        hoverStartedAt = null;
-        renderKeyboardHighlights();
-        return;
-      }
-
-      const nearest = findNearestKey(gx, gy);
-
-      if (!nearest) {
-        selection = null;
-        activeHoverKey = null;
-        hoverStartedAt = null;
-        renderKeyboardHighlights();
-        return;
-      }
-
-      if (!selection || selection.char !== nearest.char) {
-        selection = { char: nearest.char, startedAt: performance.now() };
-        activeHoverKey = nearest.char;
-        hoverStartedAt = performance.now();
-        renderKeyboardHighlights();
-        return;
-      }
-
-      if (performance.now() - selection.startedAt >= 180) {
-        // dwell is allowed after a settle period
-        if (!selection.hasDwellStarted) {
-          selection.hasDwellStarted = true;
-          selection.dwellStartedAt = performance.now();
-        }
-
-        if (performance.now() - selection.dwellStartedAt >= DWELL_TIME_MS) {
-          activateKey(nearest);
-        }
-      }
     }
 
     function activateKey(key) {
@@ -686,24 +559,48 @@
         outputBar.innerText = txt + key.char;
       }
 
-      if (lastRawWebcamX !== null && lastRawWebcamY !== null) {
-        learnKeyOffset(lastRawWebcamX, lastRawWebcamY, key);
+      if (rawGazeX !== null && rawGazeY !== null) {
+        learnKeyOffset(rawGazeX, rawGazeY, key);
       }
 
       activeHoverKey = null;
-      hoverStartedAt = null;
       selection = null;
       renderKeyboardHighlights();
     }
 
-    function updateKeyboardVisualization() {
-      if (!keyGroups) return;
+    function doSelectionAt(gx, gy) {
+      if (setSpikeGuard(gx, gy)) {
+        selection = null;
+        activeHoverKey = null;
+        renderKeyboardHighlights();
+        return;
+      }
 
-      if (currentMode === "floating") {
-        keyGroups.attr("transform", d => `translate(${d.x},${d.y})`);
-      } else {
-        keyGroups.select("rect").attr("x", d => d.x - 32).attr("y", d => d.y - 32);
-        keyGroups.select(".key-text").attr("x", d => d.x).attr("y", d => d.y);
+      const nearest = findNearestKey(gx, gy);
+
+      if (!nearest) {
+        selection = null;
+        activeHoverKey = null;
+        renderKeyboardHighlights();
+        return;
+      }
+
+      if (!selection || selection.char !== nearest.char) {
+        selection = { char: nearest.char, startedAt: performance.now(), dwellStartedAt: null };
+        activeHoverKey = nearest.char;
+        hoverStartedAt = performance.now();
+        renderKeyboardHighlights();
+        return;
+      }
+
+      if (performance.now() - selection.startedAt >= 180) {
+        if (selection.dwellStartedAt === null) {
+          selection.dwellStartedAt = performance.now();
+        }
+
+        if (performance.now() - selection.dwellStartedAt >= DWELL_TIME_MS) {
+          activateKey(nearest);
+        }
       }
     }
 
@@ -754,7 +651,6 @@
 
     document.getElementById("calib-dot").addEventListener("click", function() {
       if (!isCalibrating) return;
-
       const coords = window.currentCalibrationTargetCoords;
       webgazer.recordScreenPosition(coords.x, coords.y, "click");
       calibClicks++;
@@ -780,7 +676,6 @@
       rebuildKeyboard();
       selection = null;
       activeHoverKey = null;
-      hoverStartedAt = null;
     }
 
     function clearText() {
@@ -827,15 +722,43 @@
       vCursor.style.display = isCalibrating ? "none" : "block";
     }
 
-    async function gazeTickListener(data) {
+    let renderScheduled = false;
+
+    function renderFrame() {
+      renderScheduled = false;
+
+      // visual updates only, no heavy work
+      const rawDot = document.getElementById("raw-gaze-dot");
+      const vCursor = document.getElementById("virtual-cursor");
+
+      if (rawGazeX !== null && rawGazeY !== null) {
+        rawDot.style.left = rawGazeX + "px";
+        rawDot.style.top = rawGazeY + "px";
+        rawDot.style.display = isCalibrating ? "none" : "block";
+      }
+
+      vCursor.style.left = correctedGaze.x + "px";
+      vCursor.style.top = correctedGaze.y + "px";
+      vCursor.style.display = isCalibrating ? "none" : "block";
+
+      if (!isCalibrating && selection && activeHoverKey) {
+        renderKeyboardHighlights();
+      }
+    }
+
+    function scheduleRender() {
+      if (renderScheduled) return;
+      renderScheduled = true;
+      requestAnimationFrame(renderFrame);
+    }
+
+    function processGaze(data) {
       if (!data) return;
 
       const rawX = data.x;
       const rawY = data.y;
-      lastRawWebcamX = rawX;
-      lastRawWebcamY = rawY;
-
-      addGazeSample(rawX, rawY);
+      rawGazeX = rawX;
+      rawGazeY = rawY;
 
       if (smoothedGazeX !== null && smoothedGazeY !== null) {
         const instVelocity = Math.hypot(rawX - smoothedGazeX, rawY - smoothedGazeY);
@@ -845,7 +768,9 @@
           smoothedGazeX = rawX;
           smoothedGazeY = rawY;
           clearTimeout(saccadeFreezeTimer);
-          saccadeFreezeTimer = setTimeout(() => { isSaccadeLocked = false; }, 350);
+          saccadeFreezeTimer = setTimeout(() => {
+            isSaccadeLocked = false;
+          }, 350);
         } else if (!isSaccadeLocked) {
           smoothedGazeX += (rawX - smoothedGazeX) * smoothingFactor;
           smoothedGazeY += (rawY - smoothedGazeY) * smoothingFactor;
@@ -855,39 +780,25 @@
         smoothedGazeY = rawY;
       }
 
-      const corrected = correctRawGaze(smoothedGazeX, smoothedGazeY);
-      gazeCursor.x = corrected.x;
-      gazeCursor.y = corrected.y;
+      const residualCorrected = applyAdaptiveResiduals(smoothedGazeX, smoothedGazeY);
+      const perKeyCorrected = correctRawGaze(smoothedGazeX, smoothedGazeY);
 
-      if (handleHomeReset(corrected.x, corrected.y)) {
+      correctedGaze = {
+        x: perKeyCorrected.x,
+        y: perKeyCorrected.y
+      };
+
+      if (handleHomeReset(correctedGaze.x, correctedGaze.y)) {
         return;
       }
 
-      updateGazeDots(rawX, rawY, corrected.x, corrected.y);
-      updateSelection(corrected.x, corrected.y);
-      updateKeyboardVisualization();
+      doSelectionAt(correctedGaze.x, correctedGaze.y);
+      scheduleRender();
+    }
 
-      const tracker = webgazer.getTracker();
-      const fmPositions = tracker && tracker.getPositions ? await tracker.getPositions() : null;
-      const previewWidth = webgazer.params.videoViewerWidth || 320;
-      const whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
-
-      if (fmPositions && fmPositions[145] && fmPositions[374]) {
-        d3.select("#eyeline1")
-          .attr("x1", corrected.x).attr("y1", corrected.y)
-          .attr("x2", previewWidth - fmPositions[145][0] * whr[0]).attr("y2", fmPositions[145][1] * whr[1]);
-
-        d3.select("#eyeline2")
-          .attr("x1", corrected.x).attr("y1", corrected.y)
-          .attr("x2", previewWidth - fmPositions[374][0] * whr[0]).attr("y2", fmPositions[374][1] * whr[1]);
-      }
-
-      if (diagnosticsVisible && lastRawWebcamX !== null) {
-        d3.select("#diag-raw-circle").attr("cx", lastRawWebcamX).attr("cy", lastRawWebcamY);
-        d3.select("#diag-vector-line")
-          .attr("x1", lastRawWebcamX).attr("y1", lastRawWebcamY)
-          .attr("x2", corrected.x).attr("y2", corrected.y);
-      }
+    function gazeTickListener(data) {
+      // keep this cheap; do not do heavy work here
+      processGaze(data);
     }
 
     window.onload = async function() {
@@ -910,8 +821,6 @@
       startCalibration("9zone");
     };
 
-    let smoothedGazeX = null;
-    let smoothedGazeY = null;
     let saccadeFreezeTimer = null;
     let isSaccadeLocked = false;
   </script>
