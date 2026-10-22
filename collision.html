@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Stable Gaze Keyboard</title>
+  <title>Stable Gaze Keyboard - Row First</title>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -12,7 +12,6 @@
       --text: #ffffff;
       --muted: #bbbbbb;
       --key: #1e1e1e;
-      --key-border: #00ffcc;
     }
 
     html, body {
@@ -150,17 +149,17 @@
       z-index: 35000;
     }
 
-    #iris-shutter {
+    #raw-gaze-dot {
       position: absolute;
-      border: 3px dashed var(--magenta);
+      width: 12px;
+      height: 12px;
+      background: rgba(255,255,255,0.7);
+      border: 1px solid rgba(255,255,255,0.8);
       border-radius: 50%;
       transform: translate(-50%, -50%);
       pointer-events: none;
-      box-shadow: 0 0 25px rgba(255,0,85,0.4);
-      background: rgba(255,0,85,0.05);
-      z-index: 15000;
+      z-index: 19990;
       display: none;
-      transition: width 0.35s ease-out, height 0.35s ease-out;
     }
 
     #virtual-cursor {
@@ -172,19 +171,6 @@
       pointer-events: none;
       box-shadow: 0 0 10px rgba(0,255,204,0.9);
       z-index: 20000;
-      display: none;
-    }
-
-    #raw-gaze-dot {
-      position: absolute;
-      width: 12px;
-      height: 12px;
-      background: rgba(255,255,255,0.6);
-      border: 1px solid rgba(255,255,255,0.8);
-      border-radius: 50%;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      z-index: 19990;
       display: none;
     }
 
@@ -217,7 +203,6 @@
 
   <div id="raw-gaze-dot"></div>
   <div id="virtual-cursor"></div>
-  <div id="iris-shutter"></div>
 
   <div id="top-bar">
     <div id="output-bar">Type here...</div>
@@ -280,6 +265,7 @@
     let calibStep = 0;
     let calibClicks = 0;
     let calibSequence = [];
+
     const zone9Sequence = [
       { name: "Top-Left", x: 0.1, y: 0.2 },
       { name: "Top-Center", x: 0.5, y: 0.2 },
@@ -294,9 +280,9 @@
 
     let DWELL_TIME_MS = 1200;
     let smoothingFactor = 0.2;
+
     let supervisedTrainingActive = true;
     let diagnosticsVisible = false;
-
     let trainingSampleCount = 0;
     let correctionSamples = [];
 
@@ -309,17 +295,19 @@
     let rawGazeY = null;
     let smoothedGazeX = null;
     let smoothedGazeY = null;
-
     let correctedGaze = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+
     let activeHoverKey = null;
     let selection = null;
 
     let homeBaseTimer = null;
+    let saccadeFreezeTimer = null;
+    let isSaccadeLocked = false;
 
     const calibrationMap = [];
     const spikeGuard = { lastX: null, lastY: null, freezeUntil: 0 };
 
-    const KEY_ROWS = [
+    const ROW_LAYOUT = [
       ["Q","W","E","R","T","Y","U","I","O","P"],
       ["A","S","D","F","G","H","J","K","L"],
       ["Z","X","C","V","B","N","M","⌫","SP"]
@@ -397,12 +385,7 @@
 
     function learnKeyOffset(rawX, rawY, key) {
       if (!key) return;
-      calibrationMap.push({
-        rawX,
-        rawY,
-        targetX: key.x,
-        targetY: key.y
-      });
+      calibrationMap.push({ rawX, rawY, targetX: key.x, targetY: key.y });
       if (calibrationMap.length > 300) calibrationMap.shift();
     }
 
@@ -431,19 +414,19 @@
       };
     }
 
-    function createFixedLayout() {
+    function buildKeyboard() {
       const width = window.innerWidth;
       const height = window.innerHeight;
 
       const list = [];
       const startY = height * 0.54;
 
-      KEY_ROWS.forEach((row, rowIndex) => {
+      ROW_LAYOUT.forEach((row, rowIndex) => {
         const startX = (width - (row.length * 72)) / 2;
         row.forEach((char, colIndex) => {
           const x = startX + (colIndex * 72) + 36;
           const y = startY + (rowIndex * 72) + 30;
-          list.push({ char, x, y, radius: 34, mode: "fixed" });
+          list.push({ char, x, y, rowIndex, radius: 34 });
         });
       });
 
@@ -451,7 +434,7 @@
     }
 
     function rebuildKeyboard() {
-      nodes = createFixedLayout();
+      nodes = buildKeyboard();
 
       if (svg) svg.remove();
 
@@ -488,12 +471,9 @@
       const diagGroup = svg.append("g").attr("id", "diag-group").style("display", "none");
       diagGroup.append("line").attr("id", "diag-vector-line").attr("stroke", "#ff0055").attr("stroke-width", 3).attr("stroke-dasharray", "4,4");
       diagGroup.append("circle").attr("id", "diag-raw-circle").attr("r", 12).attr("fill", "none").attr("stroke", "#ffff00").attr("stroke-width", 2);
-
-      svg.append("line").attr("id", "eyeline1").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
-      svg.append("line").attr("id", "eyeline2").attr("stroke-width", 2).attr("stroke", "rgba(255,0,85,0.7)");
     }
 
-    function renderKeyboardHighlights() {
+    function renderHighlights() {
       if (!keyGroups) return;
 
       keyGroups.select("rect").attr("fill", "#1e1e1e").attr("stroke", "#00ffcc");
@@ -508,13 +488,36 @@
       }
     }
 
-    function findNearestKey(gx, gy) {
+    function getNearestRow(y) {
+      const rows = [
+        { rowIndex: 0, yCenter: 0.5 * window.innerHeight * 0.5 + 90 }, // rough, not used heavily
+        { rowIndex: 1, yCenter: window.innerHeight * 0.6 },
+        { rowIndex: 2, yCenter: window.innerHeight * 0.76 }
+      ];
+
+      let best = 1;
+      let bestDist = Infinity;
+
+      for (const row of rows) {
+        const dist = Math.abs(y - row.yCenter);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = row.rowIndex;
+        }
+      }
+
+      return best;
+    }
+
+    function findNearestKeyInRow(gx, gy, rowIndex) {
+      const rowKeys = nodes.filter(k => k.rowIndex === rowIndex);
+
       let best = null;
       let bestDist = Infinity;
 
-      for (const key of nodes) {
+      for (const key of rowKeys) {
         const dist = Math.hypot(gx - key.x, gy - key.y);
-        const radius = 110;
+        const radius = 120;
         if (dist <= radius && dist < bestDist) {
           bestDist = dist;
           best = key;
@@ -565,30 +568,31 @@
 
       activeHoverKey = null;
       selection = null;
-      renderKeyboardHighlights();
+      renderHighlights();
     }
 
     function doSelectionAt(gx, gy) {
       if (setSpikeGuard(gx, gy)) {
         selection = null;
         activeHoverKey = null;
-        renderKeyboardHighlights();
+        renderHighlights();
         return;
       }
 
-      const nearest = findNearestKey(gx, gy);
+      const rowIndex = getNearestRow(gy);
+      const keyCandidate = findNearestKeyInRow(gx, gy, rowIndex);
 
-      if (!nearest) {
+      if (!keyCandidate) {
         selection = null;
         activeHoverKey = null;
-        renderKeyboardHighlights();
+        renderHighlights();
         return;
       }
 
-      if (!selection || selection.char !== nearest.char) {
-        selection = { char: nearest.char, startedAt: performance.now(), dwellStartedAt: null };
-        activeHoverKey = nearest.char;
-        renderKeyboardHighlights();
+      if (!selection || selection.char !== keyCandidate.char) {
+        selection = { char: keyCandidate.char, startedAt: performance.now(), dwellStartedAt: null };
+        activeHoverKey = keyCandidate.char;
+        renderHighlights();
         return;
       }
 
@@ -598,7 +602,7 @@
         }
 
         if (performance.now() - selection.dwellStartedAt >= DWELL_TIME_MS) {
-          activateKey(nearest);
+          activateKey(keyCandidate);
         }
       }
     }
@@ -667,10 +671,7 @@
       document.querySelectorAll(".mode-btn").forEach(btn => btn.classList.remove("active"));
       const button = event.target;
       if (button) button.classList.add("active");
-
-      if (swipePolyline) {
-        swipePolyline.style("opacity", mode === "swipe" ? 1 : 0);
-      }
+      if (swipePolyline) swipePolyline.style("opacity", mode === "swipe" ? 1 : 0);
 
       rebuildKeyboard();
       selection = null;
@@ -708,41 +709,30 @@
       return false;
     }
 
-    function updateGazeDots(rawX, rawY, correctedX, correctedY) {
+    function updateDots() {
       const rawDot = document.getElementById("raw-gaze-dot");
       const vCursor = document.getElementById("virtual-cursor");
 
-      rawDot.style.left = rawX + "px";
-      rawDot.style.top = rawY + "px";
-      rawDot.style.display = isCalibrating ? "none" : "block";
-
-      vCursor.style.left = correctedX + "px";
-      vCursor.style.top = correctedY + "px";
-      vCursor.style.display = isCalibrating ? "none" : "block";
-    }
-
-    let renderScheduled = false;
-
-    function renderFrame() {
-      renderScheduled = false;
-
       if (rawGazeX !== null && rawGazeY !== null) {
-        const rawDot = document.getElementById("raw-gaze-dot");
         rawDot.style.left = rawGazeX + "px";
         rawDot.style.top = rawGazeY + "px";
         rawDot.style.display = isCalibrating ? "none" : "block";
       }
 
-      const vCursor = document.getElementById("virtual-cursor");
       vCursor.style.left = correctedGaze.x + "px";
       vCursor.style.top = correctedGaze.y + "px";
       vCursor.style.display = isCalibrating ? "none" : "block";
     }
 
+    let renderScheduled = false;
     function scheduleRender() {
       if (renderScheduled) return;
       renderScheduled = true;
-      requestAnimationFrame(renderFrame);
+      requestAnimationFrame(() => {
+        renderScheduled = false;
+        updateDots();
+        renderHighlights();
+      });
     }
 
     function processGaze(data) {
@@ -807,9 +797,6 @@
       webgazer.setGazeListener(gazeTickListener);
       startCalibration("9zone");
     };
-
-    let saccadeFreezeTimer = null;
-    let isSaccadeLocked = false;
   </script>
 </body>
 </html>
