@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Gaze Keyboard with Per-Key Correction</title>
+  <title>Gaze Keyboard with Learned Corrections</title>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -262,8 +262,8 @@
         <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.2" oninput="updateDwell(this.value)">
       </div>
       <div class="slider-container">
-        <label>Smooth: <span id="smooth-val">0.5</span></label>
-        <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.5" oninput="updateSmooth(this.value)">
+        <label>Smooth: <span id="smooth-val">0.2</span></label>
+        <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.2" oninput="updateSmooth(this.value)">
       </div>
     </div>
   </div>
@@ -308,8 +308,8 @@
       { name: "Bottom-Right", x: 0.9, y: 0.8 }
     ];
 
-    let DWELL_TIME_MS = 1200;
-    let smoothingFactor = 0.5;
+    let DWELL_TIME_MS = 1400;
+    let smoothingFactor = 0.2;
     let supervisedTrainingActive = true;
     let diagnosticsVisible = false;
     let lastRawWebcamX = null;
@@ -325,7 +325,6 @@
     let gazeHistory = [];
     let gazeCursor = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
     let rawGazeCursor = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-
     let selection = null;
     let homeBaseTimer = null;
     let irisRadius = 260;
@@ -341,52 +340,8 @@
       ["Z","X","C","V","B","N","M","⌫","SP"]
     ];
 
-    // ---------- calibration model ----------
-    const calibrationMap = []; // each item stores raw gaze and intended key center
-
-    function learnKeyOffset(rawX, rawY, key) {
-      if (!key) return;
-
-      const target = key.x;
-      const targetY = key.y;
-
-      calibrationMap.push({
-        rawX, rawY,
-        targetX: target,
-        targetY: targetY
-      });
-
-      if (calibrationMap.length > 300) calibrationMap.shift();
-
-      if (supervisedTrainingActive) {
-        setStatus(`🎓 Learned key offset: ${key.char} (${calibrationMap.length} calibration points)`, "#ff0055");
-      }
-    }
-
-    function correctRawGaze(rawX, rawY) {
-      if (!calibrationMap.length) return { x: rawX, y: rawY };
-
-      let totalWeight = 0;
-      let offsetX = 0;
-      let offsetY = 0;
-
-      for (const sample of calibrationMap) {
-        const dist = Math.hypot(rawX - sample.rawX, rawY - sample.rawY);
-        if (dist > 320) continue;
-
-        const weight = 1 / (dist + 1);
-        offsetX += (sample.targetX - sample.rawX) * weight;
-        offsetY += (sample.targetY - sample.rawY) * weight;
-        totalWeight += weight;
-      }
-
-      if (totalWeight === 0) return { x: rawX, y: rawY };
-
-      return {
-        x: rawX + (offsetX / totalWeight),
-        y: rawY + (offsetY / totalWeight)
-      };
-    }
+    const calibrationMap = [];
+    const spikeGuard = { lastX: null, lastY: null, freezeUntil: 0 };
 
     function setStatus(msg, color) {
       const status = document.getElementById("status-msg");
@@ -458,6 +413,43 @@
       return { x: gazeX, y: gazeY };
     }
 
+    function learnKeyOffset(rawX, rawY, key) {
+      if (!key) return;
+
+      calibrationMap.push({
+        rawX, rawY,
+        targetX: key.x,
+        targetY: key.y
+      });
+
+      if (calibrationMap.length > 300) calibrationMap.shift();
+    }
+
+    function correctRawGaze(rawX, rawY) {
+      if (!calibrationMap.length) return { x: rawX, y: rawY };
+
+      let totalWeight = 0;
+      let offsetX = 0;
+      let offsetY = 0;
+
+      for (const sample of calibrationMap) {
+        const dist = Math.hypot(rawX - sample.rawX, rawY - sample.rawY);
+        if (dist > 320) continue;
+
+        const weight = 1 / (dist + 1);
+        offsetX += (sample.targetX - sample.rawX) * weight;
+        offsetY += (sample.targetY - sample.rawY) * weight;
+        totalWeight += weight;
+      }
+
+      if (totalWeight === 0) return { x: rawX, y: rawY };
+
+      return {
+        x: rawX + (offsetX / totalWeight),
+        y: rawY + (offsetY / totalWeight)
+      };
+    }
+
     function averagePoints(points) {
       if (!points.length) return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
       let sx = 0, sy = 0;
@@ -468,10 +460,6 @@
     function addGazeSample(x, y) {
       gazeHistory.push({ x, y });
       if (gazeHistory.length > 8) gazeHistory.shift();
-    }
-
-    function getFilteredGaze() {
-      return averagePoints(gazeHistory);
     }
 
     function createFixedLayout() {
@@ -613,7 +601,7 @@
 
       for (const key of nodes) {
         const dist = Math.hypot(gx - key.x, gy - key.y);
-        const radius = currentMode === "floating" ? 78 : 96;
+        const radius = currentMode === "floating" ? 78 : 110;
         if (dist <= radius && dist < bestDist) {
           bestDist = dist;
           best = key;
@@ -623,7 +611,32 @@
       return best;
     }
 
+    function setSpikeGuard(x, y) {
+      const now = performance.now();
+      if (spikeGuard.lastX !== null && spikeGuard.lastY !== null) {
+        const velocity = Math.hypot(x - spikeGuard.lastX, y - spikeGuard.lastY);
+        if (velocity > 80 && now < spikeGuard.freezeUntil) {
+          return true;
+        }
+        if (velocity > 80) {
+          spikeGuard.freezeUntil = now + 220;
+          return true;
+        }
+      }
+      spikeGuard.lastX = x;
+      spikeGuard.lastY = y;
+      return false;
+    }
+
     function updateSelection(gx, gy) {
+      if (setSpikeGuard(gx, gy)) {
+        selection = null;
+        activeHoverKey = null;
+        hoverStartedAt = null;
+        renderKeyboardHighlights();
+        return;
+      }
+
       const nearest = findNearestKey(gx, gy);
 
       if (!nearest) {
@@ -642,8 +655,16 @@
         return;
       }
 
-      if (performance.now() - selection.startedAt >= DWELL_TIME_MS) {
-        activateKey(nearest);
+      if (performance.now() - selection.startedAt >= 180) {
+        // dwell is allowed after a settle period
+        if (!selection.hasDwellStarted) {
+          selection.hasDwellStarted = true;
+          selection.dwellStartedAt = performance.now();
+        }
+
+        if (performance.now() - selection.dwellStartedAt >= DWELL_TIME_MS) {
+          activateKey(nearest);
+        }
       }
     }
 
@@ -665,10 +686,8 @@
         outputBar.innerText = txt + key.char;
       }
 
-      // learn on click
-      const rawCurrent = { x: lastRawWebcamX, y: lastRawWebcamY };
-      if (rawCurrent.x !== null && rawCurrent.y !== null) {
-        learnKeyOffset(rawCurrent.x, rawCurrent.y, key);
+      if (lastRawWebcamX !== null && lastRawWebcamY !== null) {
+        learnKeyOffset(lastRawWebcamX, lastRawWebcamY, key);
       }
 
       activeHoverKey = null;
@@ -735,6 +754,7 @@
 
     document.getElementById("calib-dot").addEventListener("click", function() {
       if (!isCalibrating) return;
+
       const coords = window.currentCalibrationTargetCoords;
       webgazer.recordScreenPosition(coords.x, coords.y, "click");
       calibClicks++;
@@ -835,12 +855,7 @@
         smoothedGazeY = rawY;
       }
 
-      const smoothed = { x: smoothedGazeX, y: smoothedGazeY };
-      const corrected = correctRawGaze(smoothed.x, smoothed.y);
-      const filtered = applyAdaptiveResiduals(smoothed.x, smoothed.y);
-
-      rawGazeCursor.x = rawX;
-      rawGazeCursor.y = rawY;
+      const corrected = correctRawGaze(smoothedGazeX, smoothedGazeY);
       gazeCursor.x = corrected.x;
       gazeCursor.y = corrected.y;
 
@@ -895,7 +910,6 @@
       startCalibration("9zone");
     };
 
-    // required globals for the smoothing logic
     let smoothedGazeX = null;
     let smoothedGazeY = null;
     let saccadeFreezeTimer = null;
