@@ -505,23 +505,6 @@
     }
 
     function setSpikeGuard(x, y) {
-      const now = performance.now();
-
-      if (spikeGuard.lastX !== null && spikeGuard.lastY !== null) {
-        const velocity = Math.hypot(x - spikeGuard.lastX, y - spikeGuard.lastY);
-
-        if (velocity > 90 && now < spikeGuard.freezeUntil) {
-          return true;
-        }
-
-        if (velocity > 90) {
-          spikeGuard.freezeUntil = now + 220;
-          return true;
-        }
-      }
-
-      spikeGuard.lastX = x;
-      spikeGuard.lastY = y;
       return false;
     }
 
@@ -640,11 +623,7 @@
       correctedGaze = corrected;
 
       if (!isCalibrating) {
-        if (setSpikeGuard(correctedGaze.x, correctedGaze.y)) {
-          resetHoverState();
-        } else {
-          updateSelectionState();
-        }
+        updateSelectionState();
       }
 
       renderVisuals();
