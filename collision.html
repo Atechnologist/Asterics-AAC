@@ -311,10 +311,10 @@
     let stableSamples = 0;
     let stableStart = 0;
 
-    const STABLE_SAMPLE_COUNT = 6;
+    const STABLE_SAMPLE_COUNT = 8;
     const SWITCH_HYSTERESIS_MS = 220;
-    const GROUP_RADIUS = 120;
-    const LETTER_RADIUS = 100;
+    const GROUP_RADIUS = 110;
+    const LETTER_RADIUS = 95;
 
     function clearTargetHighlights() {
       document.querySelectorAll(".group-key, .letter-key").forEach(btn => {
@@ -548,7 +548,9 @@
       const best = findNearestTarget(selector, maxDist);
 
       if (!best) {
-        resetHoverState();
+        if (stableTarget && performance.now() - stableStart > 350) {
+          resetHoverState();
+        }
         return;
       }
 
