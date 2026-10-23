@@ -447,7 +447,7 @@
         row2.appendChild(btn);
       });
 
-      clearTargetHighlights();
+      resetHoverState();
     }
 
     function renderLetterSelection(group) {
@@ -470,7 +470,7 @@
         else row2.appendChild(btn);
       });
 
-      clearTargetHighlights();
+      resetHoverState();
     }
 
     function selectGroup(group) {
@@ -567,29 +567,29 @@
         return;
       }
 
-      if (lockedTarget === best) {
-        if (now - lockStartedAt >= DWELL_TIME_MS) {
-          if (phase === "group") {
-            const group = GROUPS.find(g => g.label === best.dataset.group);
-            if (group) {
-              selectedGroup = group;
-              phase = "letter";
-              resetHoverState();
-              renderLetterSelection(group);
-            }
-          } else {
-            chooseLetter(best.dataset.key);
-            resetHoverState();
-          }
+      if (lockedTarget !== best) {
+        if (now - lockStartedAt > 180) {
+          lockedTarget = best;
+          lockStartedAt = now;
+          clearTargetHighlights();
+          best.classList.add("active");
         }
         return;
       }
 
-      if (now - lockStartedAt > 220) {
-        lockedTarget = best;
-        lockStartedAt = now;
-        clearTargetHighlights();
-        best.classList.add("active");
+      if (now - lockStartedAt >= DWELL_TIME_MS) {
+        if (phase === "group") {
+          const group = GROUPS.find(g => g.label === best.dataset.group);
+          if (group) {
+            selectedGroup = group;
+            phase = "letter";
+            resetHoverState();
+            renderLetterSelection(group);
+          }
+        } else {
+          chooseLetter(best.dataset.key);
+          resetHoverState();
+        }
       }
     }
 
@@ -640,7 +640,11 @@
       correctedGaze = corrected;
 
       if (!isCalibrating) {
-        updateSelectionState();
+        if (setSpikeGuard(correctedGaze.x, correctedGaze.y)) {
+          resetHoverState();
+        } else {
+          updateSelectionState();
+        }
       }
 
       renderVisuals();
