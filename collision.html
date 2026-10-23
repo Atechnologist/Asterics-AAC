@@ -229,8 +229,8 @@
     <span style="color: #ff0055;" id="status-msg">🎓 Grouped gaze keyboard active</span>
     <div style="display: flex; gap: 20px;">
       <div class="slider-container">
-        <label>Dwell: <span id="dwell-val">2.2</span>s</label>
-        <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="2.2" oninput="updateDwell(this.value)">
+        <label>Dwell: <span id="dwell-val">1.5</span>s</label>
+        <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.5" oninput="updateDwell(this.value)">
       </div>
       <div class="slider-container">
         <label>Smooth: <span id="smooth-val">0.2</span></label>
@@ -297,24 +297,7 @@
     ];
 
     let smoothingFactor = 0.2;
-    let DWELL_TIME_MS = 2200;
-
-    const calibrationMap = [];
-    const spikeGuard = { lastX: null, lastY: null, freezeUntil: 0 };
-
-    let activeTarget = null;
-    let hoverStartedAt = 0;
-    let lockedTarget = null;
-    let lockStartedAt = 0;
-
-    let stableTarget = null;
-    let stableSamples = 0;
-    let stableStart = 0;
-
-    const STABLE_SAMPLE_COUNT = 8;
-    const SWITCH_HYSTERESIS_MS = 220;
-    const GROUP_RADIUS = 110;
-    const LETTER_RADIUS = 95;
+    let DWELL_TIME_MS = 1500;
 
     const debugLog = [];
 
@@ -338,6 +321,16 @@
       }
     }
 
+    let stableTarget = null;
+    let stableSamples = 0;
+    let stableStart = 0;
+
+    const STABLE_SAMPLE_COUNT = 6;
+    const SWITCH_HYSTERESIS_MS = 180;
+    const GROUP_RADIUS = 160;
+    const LETTER_RADIUS = 140;
+    const RESET_GRACE_MS = 900;
+
     function clearTargetHighlights() {
       document.querySelectorAll(".group-key, .letter-key").forEach(btn => {
         btn.classList.remove("active");
@@ -345,20 +338,10 @@
     }
 
     function resetHoverState() {
-      activeTarget = null;
-      hoverStartedAt = 0;
-      lockedTarget = null;
-      lockStartedAt = 0;
       stableTarget = null;
       stableSamples = 0;
       stableStart = 0;
       clearTargetHighlights();
-    }
-
-    function setStatus(message, color) {
-      const status = document.getElementById("status-msg");
-      status.innerText = message;
-      if (color) status.style.color = color;
     }
 
     function correctRawGaze(rawX, rawY) {
@@ -564,8 +547,15 @@
       const best = findNearestTarget(selector, maxDist);
 
       if (!best) {
-        if (stableTarget && performance.now() - stableStart > 350) {
-          logDebug("reset-no-target", { reason: "no target in radius for 350ms" });
+        if (stableTarget && performance.now() - stableStart < RESET_GRACE_MS) {
+          return;
+        }
+
+        if (stableTarget && performance.now() - stableStart >= RESET_GRACE_MS) {
+          logDebug("reset-after-grace", {
+            reason: "target lost for too long",
+            elapsed: performance.now() - stableStart
+          });
           resetHoverState();
         }
         return;
