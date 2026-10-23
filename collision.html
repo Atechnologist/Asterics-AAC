@@ -305,10 +305,26 @@
     let activeTarget = null;
     let hoverStartedAt = 0;
 
+    let candidateTarget = null;
+    let candidateSince = 0;
+    let candidateHits = 0;
+
     function clearTargetHighlights() {
       document.querySelectorAll(".group-key, .letter-key").forEach(btn => {
         btn.classList.remove("active");
       });
+    }
+
+    function resetHoverState() {
+      activeTarget = null;
+      hoverStartedAt = 0;
+      clearTargetHighlights();
+    }
+
+    function resetCandidateState() {
+      candidateTarget = null;
+      candidateSince = 0;
+      candidateHits = 0;
     }
 
     function setStatus(message, color) {
@@ -324,24 +340,8 @@
     }
 
     function correctRawGaze(rawX, rawY) {
-      if (!calibrationMap.length) return { x: rawX, y: rawY };
-
-      let totalWeight = 0;
-      let offsetX = 0;
-      let offsetY = 0;
-
-      for (const sample of calibrationMap) {
-        const dist = Math.hypot(rawX - sample.rawX, rawY - sample.rawY);
-        if (dist > 300) continue;
-
-        const weight = 1 / (dist + 1);
-        offsetX += (sample.targetX - sample.rawX) * weight;
-        offsetY += (sample.targetY - sample.rawY) * weight;
-        totalWeight += weight;
-      }
-
-      if (totalWeight === 0) return { x: rawX, y: rawY };
-      return { x: rawX + (offsetX / totalWeight), y: rawY + (offsetY / totalWeight) };
+      // Keep green and white aligned so the selection uses the same gaze point
+      return { x: rawX, y: rawY };
     }
 
     function updateCalibrationTarget() {
@@ -453,6 +453,9 @@
         btn.onclick = () => selectGroup(group);
         row2.appendChild(btn);
       });
+
+      clearTargetHighlights();
+      resetCandidateState();
     }
 
     function renderLetterSelection(group) {
@@ -474,15 +477,17 @@
         if (index < 3) row.appendChild(btn);
         else row2.appendChild(btn);
       });
+
+      clearTargetHighlights();
+      resetCandidateState();
     }
 
     function selectGroup(group) {
       selectedGroup = group;
       phase = "letter";
       selectedKey = null;
-      activeTarget = null;
-      hoverStartedAt = 0;
-      clearTargetHighlights();
+      resetHoverState();
+      resetCandidateState();
       renderLetterSelection(group);
     }
 
@@ -502,17 +507,11 @@
         outputBar.innerText = txt + value;
       }
 
-      if (rawGazeX !== null && rawGazeY !== null) {
-        const keyObj = { x: correctedGaze.x, y: correctedGaze.y, char: value };
-        learnKeyOffset(rawGazeX, rawGazeY, keyObj);
-      }
-
       phase = "group";
       selectedGroup = null;
       selectedKey = null;
-      activeTarget = null;
-      hoverStartedAt = 0;
-      clearTargetHighlights();
+      resetHoverState();
+      resetCandidateState();
       renderGroupSelection();
     }
 
@@ -537,40 +536,6 @@
       return false;
     }
 
-    function beginTargetSelection(target, type) {
-      const now = performance.now();
-
-      if (!target) return;
-
-      clearTargetHighlights();
-      target.classList.add("active");
-
-      if (activeTarget !== target) {
-        activeTarget = target;
-        hoverStartedAt = now;
-        return;
-      }
-
-      if (now - hoverStartedAt >= DWELL_TIME_MS) {
-        if (type === "group") {
-          const label = target.dataset.group;
-          const group = GROUPS.find(g => g.label === label);
-          if (group) {
-            selectedGroup = group;
-            phase = "letter";
-            activeTarget = null;
-            hoverStartedAt = 0;
-            renderLetterSelection(group);
-          }
-        } else if (type === "letter") {
-          chooseLetter(target.dataset.key);
-          activeTarget = null;
-          hoverStartedAt = 0;
-          clearTargetHighlights();
-        }
-      }
-    }
-
     function findNearestTarget(selector, maxDist) {
       const buttons = document.querySelectorAll(selector);
       let best = null;
@@ -591,27 +556,86 @@
       return best;
     }
 
-    function updateSelectionState(gx, gy) {
+    function beginTargetSelection(target, type) {
+      const now = performance.now();
+
+      if (!target) {
+        resetHoverState();
+        return;
+      }
+
+      if (activeTarget !== target) {
+        activeTarget = target;
+        hoverStartedAt = now;
+        clearTargetHighlights();
+        target.classList.add("active");
+        return;
+      }
+
+      if (now - hoverStartedAt >= DWELL_TIME_MS) {
+        if (type === "group") {
+          const label = target.dataset.group;
+          const group = GROUPS.find(g => g.label === label);
+          if (group) {
+            selectedGroup = group;
+            phase = "letter";
+            resetHoverState();
+            resetCandidateState();
+            renderLetterSelection(group);
+          }
+        } else if (type === "letter") {
+          chooseLetter(target.dataset.key);
+          resetHoverState();
+          resetCandidateState();
+        }
+      }
+    }
+
+    function updateSelectionState() {
       if (isCalibrating) return;
 
-      if (setSpikeGuard(gx, gy)) return;
+      if (setSpikeGuard(correctedGaze.x, correctedGaze.y)) {
+        resetHoverState();
+        resetCandidateState();
+        return;
+      }
 
-      if (phase === "group") {
-        const best = findNearestTarget(".group-key", 140);
-        if (!best) {
-          activeTarget = null;
-          clearTargetHighlights();
+      const targetSelector = phase === "group" ? ".group-key" : ".letter-key";
+      const maxDist = phase === "group" ? 140 : 120;
+      const best = findNearestTarget(targetSelector, maxDist);
+
+      if (!best) {
+        resetHoverState();
+        resetCandidateState();
+        return;
+      }
+
+      const now = performance.now();
+
+      if (!candidateTarget) {
+        candidateTarget = best;
+        candidateSince = now;
+        candidateHits = 1;
+        clearTargetHighlights();
+        best.classList.add("active");
+        return;
+      }
+
+      if (candidateTarget === best) {
+        candidateHits++;
+        if (candidateHits >= 4) {
+          beginTargetSelection(best, phase);
+          resetCandidateState();
+        }
+      } else {
+        if (now - candidateSince < 220) {
           return;
         }
-        beginTargetSelection(best, "group");
-      } else if (phase === "letter") {
-        const best = findNearestTarget(".letter-key", 120);
-        if (!best) {
-          activeTarget = null;
-          clearTargetHighlights();
-          return;
-        }
-        beginTargetSelection(best, "letter");
+        candidateTarget = best;
+        candidateSince = now;
+        candidateHits = 1;
+        clearTargetHighlights();
+        best.classList.add("active");
       }
     }
 
@@ -662,7 +686,7 @@
       correctedGaze = corrected;
 
       if (!isCalibrating) {
-        updateSelectionState(correctedGaze.x, correctedGaze.y);
+        updateSelectionState();
       }
 
       renderVisuals();
