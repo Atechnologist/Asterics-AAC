@@ -361,12 +361,6 @@
       if (color) status.style.color = color;
     }
 
-    function learnKeyOffset(rawX, rawY, key) {
-      if (!key) return;
-      calibrationMap.push({ rawX, rawY, targetX: key.x, targetY: key.y });
-      if (calibrationMap.length > 500) calibrationMap.shift();
-    }
-
     function correctRawGaze(rawX, rawY) {
       return { x: rawX, y: rawY };
     }
@@ -571,9 +565,7 @@
 
       if (!best) {
         if (stableTarget && performance.now() - stableStart > 350) {
-          logDebug("reset-no-target", {
-            reason: "no target in radius for 350ms"
-          });
+          logDebug("reset-no-target", { reason: "no target in radius for 350ms" });
           resetHoverState();
         }
         return;
@@ -722,9 +714,21 @@
     `;
     document.head.appendChild(style);
 
+    window.__gazeDebug = debugLog;
+    window.dumpDebug = () => console.table(debugLog.slice(-50));
+    window.copyDebug = async () => {
+      const text = JSON.stringify(debugLog.slice(-50), null, 2);
+      try {
+        await navigator.clipboard.writeText(text);
+        console.log("Debug copied to clipboard");
+      } catch (err) {
+        console.log(text);
+      }
+    };
+
     window.addEventListener("keydown", (e) => {
-      if (e.key === "d" || e.key === "D") {
-        console.table(debugLog.slice(-50));
+      if (e.key.toLowerCase() === "d") {
+        window.dumpDebug();
       }
     });
   </script>
