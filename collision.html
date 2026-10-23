@@ -304,10 +304,8 @@
 
     let activeTarget = null;
     let hoverStartedAt = 0;
-
-    let candidateTarget = null;
-    let candidateSince = 0;
-    let candidateHits = 0;
+    let lockedTarget = null;
+    let lockStartedAt = 0;
 
     function clearTargetHighlights() {
       document.querySelectorAll(".group-key, .letter-key").forEach(btn => {
@@ -318,13 +316,9 @@
     function resetHoverState() {
       activeTarget = null;
       hoverStartedAt = 0;
+      lockedTarget = null;
+      lockStartedAt = 0;
       clearTargetHighlights();
-    }
-
-    function resetCandidateState() {
-      candidateTarget = null;
-      candidateSince = 0;
-      candidateHits = 0;
     }
 
     function setStatus(message, color) {
@@ -340,7 +334,6 @@
     }
 
     function correctRawGaze(rawX, rawY) {
-      // Keep green and white aligned so the selection uses the same gaze point
       return { x: rawX, y: rawY };
     }
 
@@ -455,7 +448,6 @@
       });
 
       clearTargetHighlights();
-      resetCandidateState();
     }
 
     function renderLetterSelection(group) {
@@ -479,7 +471,6 @@
       });
 
       clearTargetHighlights();
-      resetCandidateState();
     }
 
     function selectGroup(group) {
@@ -487,7 +478,6 @@
       phase = "letter";
       selectedKey = null;
       resetHoverState();
-      resetCandidateState();
       renderLetterSelection(group);
     }
 
@@ -511,7 +501,6 @@
       selectedGroup = null;
       selectedKey = null;
       resetHoverState();
-      resetCandidateState();
       renderGroupSelection();
     }
 
@@ -556,84 +545,49 @@
       return best;
     }
 
-    function beginTargetSelection(target, type) {
-      const now = performance.now();
-
-      if (!target) {
-        resetHoverState();
-        return;
-      }
-
-      if (activeTarget !== target) {
-        activeTarget = target;
-        hoverStartedAt = now;
-        clearTargetHighlights();
-        target.classList.add("active");
-        return;
-      }
-
-      if (now - hoverStartedAt >= DWELL_TIME_MS) {
-        if (type === "group") {
-          const label = target.dataset.group;
-          const group = GROUPS.find(g => g.label === label);
-          if (group) {
-            selectedGroup = group;
-            phase = "letter";
-            resetHoverState();
-            resetCandidateState();
-            renderLetterSelection(group);
-          }
-        } else if (type === "letter") {
-          chooseLetter(target.dataset.key);
-          resetHoverState();
-          resetCandidateState();
-        }
-      }
-    }
-
     function updateSelectionState() {
       if (isCalibrating) return;
 
-      if (setSpikeGuard(correctedGaze.x, correctedGaze.y)) {
-        resetHoverState();
-        resetCandidateState();
-        return;
-      }
-
-      const targetSelector = phase === "group" ? ".group-key" : ".letter-key";
-      const maxDist = phase === "group" ? 140 : 120;
-      const best = findNearestTarget(targetSelector, maxDist);
+      const selector = phase === "group" ? ".group-key" : ".letter-key";
+      const maxDist = phase === "group" ? 150 : 120;
+      const best = findNearestTarget(selector, maxDist);
 
       if (!best) {
         resetHoverState();
-        resetCandidateState();
         return;
       }
 
       const now = performance.now();
 
-      if (!candidateTarget) {
-        candidateTarget = best;
-        candidateSince = now;
-        candidateHits = 1;
+      if (!lockedTarget) {
+        lockedTarget = best;
+        lockStartedAt = now;
         clearTargetHighlights();
         best.classList.add("active");
         return;
       }
 
-      if (candidateTarget === best) {
-        candidateHits++;
-        if (candidateHits >= 4) {
-          beginTargetSelection(best, phase);
-          resetCandidateState();
+      if (lockedTarget === best) {
+        if (now - lockStartedAt >= DWELL_TIME_MS) {
+          if (phase === "group") {
+            const group = GROUPS.find(g => g.label === best.dataset.group);
+            if (group) {
+              selectedGroup = group;
+              phase = "letter";
+              resetHoverState();
+              renderLetterSelection(group);
+            }
+          } else {
+            chooseLetter(best.dataset.key);
+            resetHoverState();
+          }
         }
-      } else {
-        if (now - candidateSince < 220) {
-          return;
-        }
-        candidateTarget = best;
-        candidateSince = now;
-        candidateHits = 1;
+        return;
+      }
+
+      if (now - lockStartedAt > 220) {
+        lockedTarget = best;
+        lockStartedAt = now;
         clearTargetHighlights();
         best.classList.add("active");
       }
