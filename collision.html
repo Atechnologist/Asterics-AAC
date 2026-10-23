@@ -307,6 +307,10 @@
     let lockedTarget = null;
     let lockStartedAt = 0;
 
+    let stableTarget = null;
+    let stableSamples = 0;
+    let stableStart = 0;
+
     function clearTargetHighlights() {
       document.querySelectorAll(".group-key, .letter-key").forEach(btn => {
         btn.classList.remove("active");
@@ -318,6 +322,9 @@
       hoverStartedAt = 0;
       lockedTarget = null;
       lockStartedAt = 0;
+      stableTarget = null;
+      stableSamples = 0;
+      stableStart = 0;
       clearTargetHighlights();
     }
 
@@ -542,37 +549,40 @@
 
       const now = performance.now();
 
-      if (!lockedTarget) {
-        lockedTarget = best;
-        lockStartedAt = now;
+      if (!stableTarget) {
+        stableTarget = best;
+        stableStart = now;
+        stableSamples = 1;
         clearTargetHighlights();
         best.classList.add("active");
         return;
       }
 
-      if (lockedTarget !== best) {
-        if (now - lockStartedAt > 180) {
-          lockedTarget = best;
-          lockStartedAt = now;
-          clearTargetHighlights();
-          best.classList.add("active");
+      if (stableTarget === best) {
+        stableSamples++;
+
+        if (now - stableStart >= DWELL_TIME_MS && stableSamples >= 4) {
+          if (phase === "group") {
+            const group = GROUPS.find(g => g.label === best.dataset.group);
+            if (group) {
+              phase = "letter";
+              resetHoverState();
+              renderLetterSelection(group);
+            }
+          } else {
+            chooseLetter(best.dataset.key);
+            resetHoverState();
+          }
         }
         return;
       }
 
-      if (now - lockStartedAt >= DWELL_TIME_MS) {
-        if (phase === "group") {
-          const group = GROUPS.find(g => g.label === best.dataset.group);
-          if (group) {
-            selectedGroup = group;
-            phase = "letter";
-            resetHoverState();
-            renderLetterSelection(group);
-          }
-        } else {
-          chooseLetter(best.dataset.key);
-          resetHoverState();
-        }
+      if (now - stableStart > 180) {
+        stableTarget = best;
+        stableStart = now;
+        stableSamples = 1;
+        clearTargetHighlights();
+        best.classList.add("active");
       }
     }
 
