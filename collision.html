@@ -316,6 +316,28 @@
     const GROUP_RADIUS = 110;
     const LETTER_RADIUS = 95;
 
+    const debugLog = [];
+
+    function logDebug(eventName, extra = {}) {
+      const entry = {
+        t: performance.now(),
+        phase,
+        event: eventName,
+        x: correctedGaze.x,
+        y: correctedGaze.y,
+        stableTarget: stableTarget ? (stableTarget.dataset.group || stableTarget.dataset.key) : null,
+        stableSamples,
+        dwellElapsed: stableTarget ? performance.now() - stableStart : 0,
+        dwellMs: DWELL_TIME_MS
+      };
+      Object.assign(entry, extra);
+      debugLog.push(entry);
+
+      if (debugLog.length > 300) {
+        debugLog.shift();
+      }
+    }
+
     function clearTargetHighlights() {
       document.querySelectorAll(".group-key, .letter-key").forEach(btn => {
         btn.classList.remove("active");
@@ -549,6 +571,9 @@
 
       if (!best) {
         if (stableTarget && performance.now() - stableStart > 350) {
+          logDebug("reset-no-target", {
+            reason: "no target in radius for 350ms"
+          });
           resetHoverState();
         }
         return;
@@ -562,21 +587,32 @@
         stableSamples = 1;
         clearTargetHighlights();
         best.classList.add("active");
+
+        logDebug("new-stable-target", {
+          target: best.dataset.group || best.dataset.key
+        });
         return;
       }
 
       if (stableTarget === best) {
         stableSamples++;
 
+        logDebug("same-target", {
+          target: best.dataset.group || best.dataset.key,
+          samples: stableSamples
+        });
+
         if (now - stableStart >= DWELL_TIME_MS && stableSamples >= STABLE_SAMPLE_COUNT) {
           if (phase === "group") {
             const group = GROUPS.find(g => g.label === best.dataset.group);
             if (group) {
+              logDebug("group-selected", { selected: best.dataset.group });
               phase = "letter";
               resetHoverState();
               renderLetterSelection(group);
             }
           } else {
+            logDebug("letter-selected", { selected: best.dataset.key });
             chooseLetter(best.dataset.key);
             resetHoverState();
           }
@@ -585,11 +621,17 @@
       }
 
       if (now - stableStart > SWITCH_HYSTERESIS_MS) {
+        const previousTarget = stableTarget ? (stableTarget.dataset.group || stableTarget.dataset.key) : null;
         stableTarget = best;
         stableStart = now;
         stableSamples = 1;
         clearTargetHighlights();
         best.classList.add("active");
+
+        logDebug("switch-target", {
+          from: previousTarget,
+          to: best.dataset.group || best.dataset.key
+        });
       }
     }
 
@@ -679,6 +721,12 @@
       }
     `;
     document.head.appendChild(style);
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "d" || e.key === "D") {
+        console.table(debugLog.slice(-50));
+      }
+    });
   </script>
 </body>
 </html>
