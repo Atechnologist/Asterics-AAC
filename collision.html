@@ -81,23 +81,26 @@
     #sub-bar {
       position: fixed;
       top: 75px; left: 0; right: 0;
-      height: 45px;
+      min-height: 70px;
       background: rgba(25,25,25,0.9);
       border-bottom: 1px solid #333;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 20px;
+      padding: 8px 20px;
       box-sizing: border-box;
       z-index: 9999;
       font-size: 13px;
       color: #aaa;
+      gap: 16px;
+      flex-wrap: wrap;
     }
 
     .slider-container {
       display: flex;
       align-items: center;
       gap: 8px;
+      min-width: 180px;
     }
     input[type=range] { accent-color: var(--cyan); cursor: pointer; }
 
@@ -227,15 +230,40 @@
 
   <div id="sub-bar">
     <span style="color: #ff0055;" id="status-msg">🎓 Grouped gaze keyboard active</span>
-    <div style="display: flex; gap: 20px;">
-      <div class="slider-container">
-        <label>Dwell: <span id="dwell-val">1.5</span>s</label>
-        <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.5" oninput="updateDwell(this.value)">
-      </div>
-      <div class="slider-container">
-        <label>Smooth: <span id="smooth-val">0.2</span></label>
-        <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.2" oninput="updateSmooth(this.value)">
-      </div>
+
+    <div class="slider-container">
+      <label>Dwell: <span id="dwell-val">1.5</span>s</label>
+      <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.5" oninput="updateDwell(this.value)">
+    </div>
+
+    <div class="slider-container">
+      <label>Smooth: <span id="smooth-val">0.2</span></label>
+      <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.2" oninput="updateSmooth(this.value)">
+    </div>
+
+    <div class="slider-container">
+      <label>Group: <span id="group-radius-val">170</span></label>
+      <input type="range" id="group-radius-slider" min="120" max="220" step="5" value="170" oninput="updateGroupRadius(this.value)">
+    </div>
+
+    <div class="slider-container">
+      <label>Letter: <span id="letter-radius-val">150</span></label>
+      <input type="range" id="letter-radius-slider" min="110" max="190" step="5" value="150" oninput="updateLetterRadius(this.value)">
+    </div>
+
+    <div class="slider-container">
+      <label>Grace: <span id="grace-val">1200</span>ms</label>
+      <input type="range" id="grace-slider" min="400" max="1800" step="50" value="1200" oninput="updateGrace(this.value)">
+    </div>
+
+    <div class="slider-container">
+      <label>Samples: <span id="samples-val">5</span></label>
+      <input type="range" id="samples-slider" min="3" max="8" step="1" value="5" oninput="updateStableSamples(this.value)">
+    </div>
+
+    <div class="slider-container">
+      <label>Switch: <span id="switch-val">180</span>ms</label>
+      <input type="range" id="switch-slider" min="80" max="300" step="10" value="180" oninput="updateSwitchHysteresis(this.value)">
     </div>
   </div>
 
@@ -264,6 +292,102 @@
       { label: "SPACE", keys: ["SP"] },
       { label: "DEL", keys: ["⌫"] }
     ];
+
+    const STORAGE_KEY = "gaze_keyboard_tuning_v1";
+
+    const defaultTuning = {
+      dwellMs: 1500,
+      smoothing: 0.2,
+      groupRadius: 170,
+      letterRadius: 150,
+      resetGraceMs: 1200,
+      stableSampleCount: 5,
+      switchHysteresisMs: 180
+    };
+
+    let tuning = { ...defaultTuning };
+
+    function loadTuning() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        tuning = { ...defaultTuning, ...parsed };
+      } catch (e) {
+        tuning = { ...defaultTuning };
+      }
+    }
+
+    function saveTuning() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(tuning));
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    function updateSliderLabels() {
+      document.getElementById("dwell-val").innerText = (tuning.dwellMs / 1000).toFixed(1);
+      document.getElementById("smooth-val").innerText = tuning.smoothing.toFixed(1);
+      document.getElementById("group-radius-val").innerText = tuning.groupRadius;
+      document.getElementById("letter-radius-val").innerText = tuning.letterRadius;
+      document.getElementById("grace-val").innerText = tuning.resetGraceMs;
+      document.getElementById("samples-val").innerText = tuning.stableSampleCount;
+      document.getElementById("switch-val").innerText = tuning.switchHysteresisMs;
+    }
+
+    function applyTuningToControls() {
+      document.getElementById("dwell-slider").value = (tuning.dwellMs / 1000).toFixed(1);
+      document.getElementById("smooth-slider").value = tuning.smoothing.toFixed(1);
+      document.getElementById("group-radius-slider").value = tuning.groupRadius;
+      document.getElementById("letter-radius-slider").value = tuning.letterRadius;
+      document.getElementById("grace-slider").value = tuning.resetGraceMs;
+      document.getElementById("samples-slider").value = tuning.stableSampleCount;
+      document.getElementById("switch-slider").value = tuning.switchHysteresisMs;
+      updateSliderLabels();
+    }
+
+    function updateDwell(v) {
+      tuning.dwellMs = parseFloat(v) * 1000;
+      saveTuning();
+      updateSliderLabels();
+    }
+
+    function updateSmooth(v) {
+      tuning.smoothing = parseFloat(v);
+      saveTuning();
+      updateSliderLabels();
+    }
+
+    function updateGroupRadius(v) {
+      tuning.groupRadius = Number(v);
+      saveTuning();
+      updateSliderLabels();
+    }
+
+    function updateLetterRadius(v) {
+      tuning.letterRadius = Number(v);
+      saveTuning();
+      updateSliderLabels();
+    }
+
+    function updateGrace(v) {
+      tuning.resetGraceMs = Number(v);
+      saveTuning();
+      updateSliderLabels();
+    }
+
+    function updateStableSamples(v) {
+      tuning.stableSampleCount = Number(v);
+      saveTuning();
+      updateSliderLabels();
+    }
+
+    function updateSwitchHysteresis(v) {
+      tuning.switchHysteresisMs = Number(v);
+      saveTuning();
+      updateSliderLabels();
+    }
 
     let saccadeFreezeTimer = null;
     let isSaccadeLocked = false;
@@ -296,9 +420,6 @@
       { name: "Bottom-Right", x: 0.9, y: 0.8 }
     ];
 
-    let smoothingFactor = 0.2;
-    let DWELL_TIME_MS = 1500;
-
     const debugLog = [];
 
     function logDebug(eventName, extra = {}) {
@@ -311,7 +432,7 @@
         stableTarget: stableTarget ? (stableTarget.dataset.group || stableTarget.dataset.key) : null,
         stableSamples,
         dwellElapsed: stableTarget ? performance.now() - stableStart : 0,
-        dwellMs: DWELL_TIME_MS
+        dwellMs: tuning.dwellMs
       };
       Object.assign(entry, extra);
       debugLog.push(entry);
@@ -324,12 +445,6 @@
     let stableTarget = null;
     let stableSamples = 0;
     let stableStart = 0;
-
-    const STABLE_SAMPLE_COUNT = 6;
-    const SWITCH_HYSTERESIS_MS = 180;
-    const GROUP_RADIUS = 160;
-    const LETTER_RADIUS = 140;
-    const RESET_GRACE_MS = 900;
 
     function clearTargetHighlights() {
       document.querySelectorAll(".group-key, .letter-key").forEach(btn => {
@@ -413,16 +528,6 @@
       const outputBar = document.getElementById("output-bar");
       const txt = outputBar.innerText;
       outputBar.innerText = txt.length > 1 ? txt.slice(0, -1) : "Type here...";
-    }
-
-    function updateDwell(v) {
-      DWELL_TIME_MS = parseFloat(v) * 1000;
-      document.getElementById("dwell-val").innerText = v;
-    }
-
-    function updateSmooth(v) {
-      smoothingFactor = parseFloat(v);
-      document.getElementById("smooth-val").innerText = v;
     }
 
     function renderGroupSelection() {
@@ -515,10 +620,6 @@
       renderGroupSelection();
     }
 
-    function setSpikeGuard(x, y) {
-      return false;
-    }
-
     function findNearestTarget(selector, maxDist) {
       const buttons = document.querySelectorAll(selector);
       let best = null;
@@ -543,15 +644,15 @@
       if (isCalibrating) return;
 
       const selector = phase === "group" ? ".group-key" : ".letter-key";
-      const maxDist = phase === "group" ? GROUP_RADIUS : LETTER_RADIUS;
+      const maxDist = phase === "group" ? tuning.groupRadius : tuning.letterRadius;
       const best = findNearestTarget(selector, maxDist);
 
       if (!best) {
-        if (stableTarget && performance.now() - stableStart < RESET_GRACE_MS) {
+        if (stableTarget && performance.now() - stableStart < tuning.resetGraceMs) {
           return;
         }
 
-        if (stableTarget && performance.now() - stableStart >= RESET_GRACE_MS) {
+        if (stableTarget && performance.now() - stableStart >= tuning.resetGraceMs) {
           logDebug("reset-after-grace", {
             reason: "target lost for too long",
             elapsed: performance.now() - stableStart
@@ -584,7 +685,7 @@
           samples: stableSamples
         });
 
-        if (now - stableStart >= DWELL_TIME_MS && stableSamples >= STABLE_SAMPLE_COUNT) {
+        if (now - stableStart >= tuning.dwellMs && stableSamples >= tuning.stableSampleCount) {
           if (phase === "group") {
             const group = GROUPS.find(g => g.label === best.dataset.group);
             if (group) {
@@ -602,7 +703,7 @@
         return;
       }
 
-      if (now - stableStart > SWITCH_HYSTERESIS_MS) {
+      if (now - stableStart > tuning.switchHysteresisMs) {
         const previousTarget = stableTarget ? (stableTarget.dataset.group || stableTarget.dataset.key) : null;
         stableTarget = best;
         stableStart = now;
@@ -652,8 +753,8 @@
             isSaccadeLocked = false;
           }, 350);
         } else if (!isSaccadeLocked) {
-          smoothedGazeX += (rawX - smoothedGazeX) * smoothingFactor;
-          smoothedGazeY += (rawY - smoothedGazeY) * smoothingFactor;
+          smoothedGazeX += (rawX - smoothedGazeX) * tuning.smoothing;
+          smoothedGazeY += (rawY - smoothedGazeY) * tuning.smoothing;
         }
       } else {
         smoothedGazeX = rawX;
@@ -675,6 +776,9 @@
     }
 
     window.onload = async function() {
+      loadTuning();
+      applyTuningToControls();
+
       if (!window.saveDataAcrossSessions) {
         localforage.setItem("webgazerGlobalData", null);
         localforage.setItem("webgazerGlobalSettings", null);
