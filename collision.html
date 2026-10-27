@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Confidence Gaze Keyboard</title>
+  <title>Grouped Gaze Keyboard</title>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -449,6 +449,7 @@
     let smoothedGazeY = null;
 
     let correctedGaze = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+
     let isCalibrating = true;
     let calibModeType = "9zone";
     let calibStep = 0;
@@ -470,6 +471,13 @@
     let stableTarget = null;
     let stableSamples = 0;
     let stableStart = 0;
+
+    function isWithinKeyboardBounds(x, y) {
+      const keyboard = document.getElementById("keyboard-layer");
+      if (!keyboard) return true;
+      const rect = keyboard.getBoundingClientRect();
+      return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    }
 
     function logDebug(eventName, extra = {}) {
       const entry = {
@@ -623,7 +631,6 @@
       row2.innerHTML = "";
 
       const cols = group.keys.length;
-
       let rowOneKeys = [];
       let rowTwoKeys = [];
 
@@ -741,12 +748,12 @@
         autoDelete = true;
       } else if (value === "SP") {
         const outputBar = document.getElementById("output-bar");
-        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-        outputBar.innerText = (txt + " ").trim() || "Type here...";
+        let current = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
+        outputBar.innerText = current + " ";
       } else {
         const outputBar = document.getElementById("output-bar");
-        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-        outputBar.innerText = txt + value;
+        let current = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
+        outputBar.innerText = current + value;
       }
 
       logDebug("letter-selected", { selected: value, autoDelete });
@@ -787,6 +794,11 @@
       const selector = phase === "group" ? ".group-key" : ".letter-key";
       const maxDist = phase === "group" ? tuning.groupRadius : tuning.letterRadius;
       const best = findNearestTarget(selector, maxDist);
+
+      if (!isWithinKeyboardBounds(correctedGaze.x, correctedGaze.y)) {
+        resetHoverState();
+        return;
+      }
 
       if (!best) {
         if (stableTarget && performance.now() - stableStart < tuning.resetGraceMs) {
@@ -844,7 +856,7 @@
       }
 
       if (now - stableStart > tuning.switchHysteresisMs) {
-        const previousTarget = stableTarget ? (stableTarget.dataset.group || stableTarget.dataset.key) : null;
+        const previousTarget = stableTarget ? (stableTarget.dataset.group || best.dataset.key) : null;
         stableTarget = best;
         stableStart = now;
         stableSamples = 1;
