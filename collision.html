@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Grouped Gaze Keyboard</title>
+  <title>Confidence Gaze Keyboard</title>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -231,7 +231,6 @@
   </style>
 </head>
 <body>
-
   <div id="raw-gaze-dot"></div>
   <div id="virtual-cursor"></div>
 
@@ -249,38 +248,38 @@
     <span style="color: #ff0055;" id="status-msg">🎓 Grouped gaze keyboard active</span>
 
     <div class="slider-container">
-      <label>Dwell: <span id="dwell-val">1.5</span>s</label>
-      <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.5" oninput="updateDwell(this.value)">
+      <label>Dwell: <span id="dwell-val">1.2</span>s</label>
+      <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.2" oninput="updateDwell(this.value)">
     </div>
 
     <div class="slider-container">
-      <label>Smooth: <span id="smooth-val">0.2</span></label>
-      <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.2" oninput="updateSmooth(this.value)">
+      <label>Smooth: <span id="smooth-val">0.8</span></label>
+      <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.8" oninput="updateSmooth(this.value)">
     </div>
 
     <div class="slider-container">
-      <label>Group: <span id="group-radius-val">170</span></label>
-      <input type="range" id="group-radius-slider" min="120" max="220" step="5" value="170" oninput="updateGroupRadius(this.value)">
+      <label>Group: <span id="group-radius-val">150</span></label>
+      <input type="range" id="group-radius-slider" min="120" max="220" step="5" value="150" oninput="updateGroupRadius(this.value)">
     </div>
 
     <div class="slider-container">
-      <label>Letter: <span id="letter-radius-val">150</span></label>
-      <input type="range" id="letter-radius-slider" min="110" max="190" step="5" value="150" oninput="updateLetterRadius(this.value)">
+      <label>Letter: <span id="letter-radius-val">135</span></label>
+      <input type="range" id="letter-radius-slider" min="110" max="190" step="5" value="135" oninput="updateLetterRadius(this.value)">
     </div>
 
     <div class="slider-container">
-      <label>Grace: <span id="grace-val">1200</span>ms</label>
-      <input type="range" id="grace-slider" min="400" max="1800" step="50" value="1200" oninput="updateGrace(this.value)">
+      <label>Grace: <span id="grace-val">950</span>ms</label>
+      <input type="range" id="grace-slider" min="400" max="1800" step="50" value="950" oninput="updateGrace(this.value)">
     </div>
 
     <div class="slider-container">
-      <label>Samples: <span id="samples-val">5</span></label>
-      <input type="range" id="samples-slider" min="3" max="8" step="1" value="5" oninput="updateStableSamples(this.value)">
+      <label>Samples: <span id="samples-val">8</span></label>
+      <input type="range" id="samples-slider" min="3" max="8" step="1" value="8" oninput="updateStableSamples(this.value)">
     </div>
 
     <div class="slider-container">
-      <label>Switch: <span id="switch-val">180</span>ms</label>
-      <input type="range" id="switch-slider" min="80" max="300" step="10" value="180" oninput="updateSwitchHysteresis(this.value)">
+      <label>Switch: <span id="switch-val">300</span>ms</label>
+      <input type="range" id="switch-slider" min="80" max="300" step="10" value="300" oninput="updateSwitchHysteresis(this.value)">
     </div>
   </div>
 
@@ -309,10 +308,9 @@
 
   <script>
     const GROUPS = [
-      { label: "QWERTY", keys: ["Q","W","E","R","T","Y"] },
-      { label: "ASDFGH", keys: ["A","S","D","F","G","H"] },
-      { label: "ZXCVBN", keys: ["Z","X","C","V","B","N"] },
-      { label: "IOPLM", keys: ["I","O","P","L","M"] },
+      { label: "QWERTY", keys: ["Q","W","E","R","T","Y","U","I","O","P"] },
+      { label: "ASDFGH", keys: ["A","S","D","F","G","H","J","K","L"] },
+      { label: "ZXCVBN", keys: ["Z","X","C","V","B","N","M"] },
       { label: "SPACE", keys: ["SP"] },
       { label: "DEL", keys: ["⌫"] }
     ];
@@ -321,13 +319,13 @@
     const ADAPTIVE_MODE_KEY = "gaze_keyboard_adaptive_v1";
 
     const defaultTuning = {
-      dwellMs: 1500,
-      smoothing: 0.2,
-      groupRadius: 170,
-      letterRadius: 150,
-      resetGraceMs: 1200,
-      stableSampleCount: 5,
-      switchHysteresisMs: 180
+      dwellMs: 1200,
+      smoothing: 0.8,
+      groupRadius: 150,
+      letterRadius: 135,
+      resetGraceMs: 950,
+      stableSampleCount: 8,
+      switchHysteresisMs: 300
     };
 
     let tuning = { ...defaultTuning };
@@ -358,17 +356,13 @@
     function saveTuning() {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(tuning));
-      } catch (e) {
-        // ignore
-      }
+      } catch (e) {}
     }
 
     function saveAdaptiveState() {
       try {
         localStorage.setItem(ADAPTIVE_MODE_KEY, String(adaptiveEnabled));
-      } catch (e) {
-        // ignore
-      }
+      } catch (e) {}
     }
 
     function updateSliderLabels() {
@@ -394,13 +388,13 @@
     }
 
     function updateDwell(v) {
-      tuning.dwellMs = parseFloat(v) * 1000;
+      tuning.dwellMs = Number(parseFloat(v) * 1000);
       saveTuning();
       updateSliderLabels();
     }
 
     function updateSmooth(v) {
-      tuning.smoothing = parseFloat(v);
+      tuning.smoothing = Number(parseFloat(v));
       saveTuning();
       updateSliderLabels();
     }
@@ -442,19 +436,6 @@
       logDebug("adaptive-toggle", { adaptiveEnabled });
     }
 
-    window.addEventListener("keydown", (e) => {
-      if (e.key.toLowerCase() === "a") {
-        toggleAdaptiveMode();
-      }
-      if (e.key === "Backspace" || e.key === "Delete") {
-        logDebug("delete", { source: "keyboard", key: e.key });
-        evaluateAdaptiveFeedback();
-      }
-      if (e.key.toLowerCase() === "d") {
-        window.dumpDebug();
-      }
-    });
-
     let saccadeFreezeTimer = null;
     let isSaccadeLocked = false;
 
@@ -466,8 +447,8 @@
     let rawGazeY = null;
     let smoothedGazeX = null;
     let smoothedGazeY = null;
-    let correctedGaze = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 
+    let correctedGaze = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
     let isCalibrating = true;
     let calibModeType = "9zone";
     let calibStep = 0;
@@ -505,7 +486,7 @@
       Object.assign(entry, extra);
       debugLog.push(entry);
 
-      if (debugLog.length > 500) {
+      if (debugLog.length > 400) {
         debugLog.shift();
       }
 
@@ -558,12 +539,14 @@
       calibClicks = 0;
 
       if (calibModeType === "perkey") {
-        calibSequence = GROUPS.flatMap((group, groupIndex) => group.keys.map((k, keyIndex) => ({
-          name: `${group.label} / ${k}`,
-          x0: (window.innerWidth * 0.5) - 300 + (keyIndex * 110),
-          y0: (window.innerHeight * 0.55) + (groupIndex * 100),
-          key: k
-        })));
+        calibSequence = GROUPS.flatMap((group, groupIndex) =>
+          group.keys.map((k, keyIndex) => ({
+            name: `${group.label} / ${k}`,
+            x0: (window.innerWidth * 0.5) - 300 + (keyIndex * 110),
+            y0: (window.innerHeight * 0.55) + (groupIndex * 100),
+            key: k
+          }))
+        );
         document.getElementById("calib-title").innerText = "⌨️ Per-Key Sweep Calibration";
       } else {
         calibSequence = zone9Sequence;
@@ -578,8 +561,7 @@
       if (!isCalibrating) return;
       if (!window.currentCalibrationTargetCoords) return;
 
-      const coords = window.currentCalibrationTargetCoords;
-      webgazer.recordScreenPosition(coords.x, coords.y, "click");
+      webgazer.recordScreenPosition(window.currentCalibrationTargetCoords.x, window.currentCalibrationTargetCoords.y, "click");
       calibClicks++;
 
       if (calibClicks >= 3) {
@@ -604,8 +586,8 @@
       row1.innerHTML = "";
       row2.innerHTML = "";
 
-      const groups1 = GROUPS.slice(0, 3);
-      const groups2 = GROUPS.slice(3);
+      const groups1 = GROUPS.slice(0, 2);
+      const groups2 = GROUPS.slice(2);
 
       groups1.forEach((group) => {
         const btn = document.createElement("button");
@@ -640,7 +622,20 @@
       row.innerHTML = "";
       row2.innerHTML = "";
 
-      group.keys.forEach((key, index) => {
+      const cols = group.keys.length;
+
+      let rowOneKeys = [];
+      let rowTwoKeys = [];
+
+      if (cols <= 6) {
+        rowOneKeys = group.keys.slice(0, Math.ceil(cols / 2));
+        rowTwoKeys = group.keys.slice(1, cols);
+      } else {
+        rowOneKeys = group.keys.slice(0, 5);
+        rowTwoKeys = group.keys.slice(5);
+      }
+
+      rowOneKeys.forEach((key, index) => {
         const btn = document.createElement("button");
         btn.className = "letter-key";
         btn.innerText = key;
@@ -649,6 +644,20 @@
         btn.style.height = "110px";
         btn.style.fontSize = "32px";
         btn.onclick = () => chooseLetter(key);
+
+        if (index < 3) row.appendChild(btn);
+        else row2.appendChild(btn);
+      });
+
+      rowTwoKeys.forEach((key, index) => {
+        const btn = document.createElement("button");
+        btn.className = "letter-key";
+        btn.innerText = key;
+        btn.style.width = "110px";
+        btn.style.height = "110px";
+        btn.style.fontSize = "32px";
+        btn.onclick = () => chooseLetter(key);
+        btn.dataset.key = key;
 
         if (index < 3) row.appendChild(btn);
         else row2.appendChild(btn);
@@ -669,7 +678,7 @@
       const selections = debugLog.filter(e => e.event === "letter-selected").length;
       const deletes = debugLog.filter(e => e.event === "delete").length;
       const accidentalRate = selections > 0
-        ? (debugLog.filter(e => e.event === "delete" && e.source !== "ui-button").length / selections) * 100
+        ? ((debugLog.filter(e => e.event === "delete" && e.source !== "ui-button").length || 0) / selections) * 100
         : 0;
 
       document.getElementById("selection-count").innerText = selections;
@@ -689,9 +698,7 @@
       let accidentalCount = 0;
 
       for (const sel of selections) {
-        const deletedSoon = deletes.some(d =>
-          d.t > sel.t && (d.t - sel.t) < 2000
-        );
+        const deletedSoon = deletes.some(d => d.t > sel.t && (d.t - sel.t) < 2000);
         if (deletedSoon) accidentalCount++;
       }
 
@@ -742,17 +749,8 @@
         outputBar.innerText = txt + value;
       }
 
-      logDebug("letter-selected", {
-        selected: value,
-        autoDelete
-      });
-
-      if (autoDelete) {
-        logDebug("delete", {
-          source: "auto-delete-letter",
-          selected: value
-        });
-      }
+      logDebug("letter-selected", { selected: value, autoDelete });
+      if (autoDelete) logDebug("delete", { source: "auto-delete-letter", selected: value });
 
       evaluateAdaptiveFeedback();
 
@@ -822,7 +820,6 @@
 
       if (stableTarget === best) {
         stableSamples++;
-
         logDebug("same-target", {
           target: best.dataset.group || best.dataset.key,
           samples: stableSamples
@@ -881,6 +878,7 @@
 
       const rawX = data.x;
       const rawY = data.y;
+
       rawGazeX = rawX;
       rawGazeY = rawY;
 
@@ -904,8 +902,7 @@
         smoothedGazeY = rawY;
       }
 
-      const corrected = correctRawGaze(smoothedGazeX, smoothedGazeY);
-      correctedGaze = corrected;
+      correctedGaze = { x: smoothedGazeX, y: smoothedGazeY };
 
       if (!isCalibrating) {
         updateSelectionState();
@@ -963,6 +960,24 @@
         console.log(text);
       }
     };
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Backspace" || e.key === "Delete") {
+        logDebug("delete", {
+          source: "keyboard",
+          key: e.key
+        });
+        evaluateAdaptiveFeedback();
+      }
+
+      if (e.key.toLowerCase() === "a") {
+        toggleAdaptiveMode();
+      }
+
+      if (e.key.toLowerCase() === "d") {
+        window.dumpDebug();
+      }
+    });
   </script>
 </body>
 </html>
