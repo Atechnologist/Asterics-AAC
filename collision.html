@@ -322,7 +322,7 @@
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(tuning));
       } catch (e) {
-        // ignore
+        // ignore storage failure
       }
     }
 
@@ -437,7 +437,7 @@
       Object.assign(entry, extra);
       debugLog.push(entry);
 
-      if (debugLog.length > 300) {
+      if (debugLog.length > 400) {
         debugLog.shift();
       }
     }
@@ -528,6 +528,8 @@
       const outputBar = document.getElementById("output-bar");
       const txt = outputBar.innerText;
       outputBar.innerText = txt.length > 1 ? txt.slice(0, -1) : "Type here...";
+      logDebug("delete", { source: "ui-button", textLength: txt.length });
+      evaluateAdaptiveFeedback();
     }
 
     function renderGroupSelection() {
@@ -597,12 +599,61 @@
       renderLetterSelection(group);
     }
 
+    function evaluateAdaptiveFeedback() {
+      const recent = debugLog.slice(-200);
+      const selections = recent.filter(e => e.event === "letter-selected");
+      const deletes = recent.filter(e => e.event === "delete");
+
+      if (selections.length === 0) return;
+
+      let accidentalCount = 0;
+
+      for (const sel of selections) {
+        const deletedSoon = deletes.some(d =>
+          d.t > sel.t && (d.t - sel.t) < 2000
+        );
+        if (deletedSoon) accidentalCount++;
+      }
+
+      const accidentalRate = accidentalCount / selections.length;
+
+      // If user is deleting letters soon after selection, become more conservative
+      if (accidentalRate > 0.25) {
+        tuning.dwellMs = Math.min(2500, tuning.dwellMs + 150);
+        tuning.stableSampleCount = Math.min(8, tuning.stableSampleCount + 1);
+        tuning.switchHysteresisMs = Math.min(300, tuning.switchHysteresisMs + 20);
+        tuning.groupRadius = Math.max(140, tuning.groupRadius - 5);
+        tuning.letterRadius = Math.max(120, tuning.letterRadius - 5);
+        logDebug("adaptive-more-conservative", {
+          accidentalRate,
+          dwellMs: tuning.dwellMs,
+          stableSampleCount: tuning.stableSampleCount
+        });
+      } else if (accidentalRate < 0.08 && selections.length > 10) {
+        // If the user is not deleting, gradually allow faster selection
+        tuning.dwellMs = Math.max(900, tuning.dwellMs - 60);
+        tuning.stableSampleCount = Math.max(4, tuning.stableSampleCount - 1);
+        tuning.switchHysteresisMs = Math.max(120, tuning.switchHysteresisMs - 10);
+        logDebug("adaptive-faster", {
+          accidentalRate,
+          dwellMs: tuning.dwellMs,
+          stableSampleCount: tuning.stableSampleCount
+        });
+      }
+
+      saveTuning();
+      applyTuningToControls();
+    }
+
     function chooseLetter(value) {
+      let autoDelete = false;
+
       if (value === "⌫") {
         const outputBar = document.getElementById("output-bar");
         let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
         txt = txt.slice(0, -1);
         outputBar.innerText = txt || "Type here...";
+        autoDelete = true;
       } else if (value === "SP") {
         const outputBar = document.getElementById("output-bar");
         let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
@@ -612,6 +663,20 @@
         let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
         outputBar.innerText = txt + value;
       }
+
+      logDebug("letter-selected", {
+        selected: value,
+        autoDelete
+      });
+
+      if (autoDelete) {
+        logDebug("delete", {
+          source: "auto-delete-letter",
+          selected: value
+        });
+      }
+
+      evaluateAdaptiveFeedback();
 
       phase = "group";
       selectedGroup = null;
@@ -821,6 +886,14 @@
     };
 
     window.addEventListener("keydown", (e) => {
+      if (e.key === "Backspace" || e.key === "Delete") {
+        logDebug("delete", {
+          source: "keyboard",
+          key: e.key
+        });
+        evaluateAdaptiveFeedback();
+      }
+
       if (e.key.toLowerCase() === "d") {
         window.dumpDebug();
       }
