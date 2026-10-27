@@ -1,1 +1,454 @@
+<!DOCTYPE html>
+<html lang="en" class="notranslate" translate="no">
+<head>
+    <script>
+    // Safe global mock for ResponsiveVoice to prevent AAC speech crashes
+    window.responsiveVoice = window.responsiveVoice || {
+        speak: function(text) { console.log("Mock Speech:", text); },
+        stop: function() {},
+        cancel: function() {},
+        isPlaying: function() { return false; },
+        deviceSupportsSpeech: function() { return true; },
+        init: function() {}
+    };
+</script>
+    <title>Asterics AAC</title>
+    <meta id="viewPortMeta" name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="google-site-verification" content="UWnxfeRniUm-l7GAbNdqfZQmCCaAU3HB6jGOuEHZ26k" />
 
+    <link rel="icon" href="app/img/favicon-no-circle.svg" type="image/svg+xml">
+    <link rel="icon" href="app/img/favicon-no-circle.png" type="image/png">
+    <link rel="manifest" href="app/manifest.webmanifest">
+
+    <link rel="stylesheet" href="app/css/fontawesome/css/all.css">
+    <link rel="stylesheet" href="app/css/custom.css">
+    <link rel="stylesheet" href="app/css/jquery-ui.min.css">
+    <link rel="stylesheet" href="app/css/skeleton.css">
+    <link rel="stylesheet" href="app/css/bootstrap-grid.css">
+    <link rel="stylesheet" href="app/css/grid-styles.css">
+
+    <!-- Resilient CDN Stack for Eye-Tracking Engine -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tfjs/3.21.0/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh@0.0.5/dist/facemesh.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <!-- ResponsiveVoice TTS Engine required by AsTeRICS Grid -->
+    <script src="https://code.responsivevoice.org/responsivevoice.js?key=YOUR_KEY_OR_FREE"></script>
+</head>
+<body onload="window.loaded = true;">
+<div style="display: none" aria-hidden="false">
+    {{ $t('accessKey1NavigationAccessKey2Main') }}
+</div>
+<div id="app" class="holy-grail">
+    <h1 class="sr-only">Asterics AAC</h1>
+    <div id="touchElement" class="grid-container" style="z-index: 2; display: none; -webkit-touch-callout: none; -webkit-user-select: none;">
+    </div>
+    <audio style="display: none" id="audioPlayer" src="" preload="none"></audio>
+    <video style="display: none" id="videoPlayer" src="" preload="none"></video>
+    <notification-bar ref="notificationBar"></notification-bar>
+    <progress-bar-modal v-show="showModal === modalTypes.MODAL_PROGRESSBAR" ref="progressBar" @close="showModal = null"></progress-bar-modal>
+    <search-modal v-if="showModal === modalTypes.MODAL_SEARCH" @close="showModal = null;" :route-to-edit="Router.getCurrentView() === Router.VIEWS.GridEditView" :options="modalOptions"></search-modal>
+    <message-box v-show="showModal === modalTypes.MODAL_MESSAGEBOX" ref="messageBox" @close="showModal = null"></message-box>
+    <div class="grid-container grid-mask" v-if="false">
+        <i class="fas fa-4x fa-spinner fa-spin" style="top: 40%;"></i>
+        <div style="position: fixed; top: 50%; width: 100%; text-align: center; font-size: 2em;">
+            <span>loading...</span>
+        </div>
+    </div>
+    <div class="holy-grail-body" v-cloak>
+        <div class="holy-grail-sidebar-1 hg-sidebar no-print" v-show="showSidebar">
+            <div style="flex: 0 0 auto;">
+                <div class="show-mobile">
+                    <a tabindex="1" href="javascript:void(0)" :aria-label="$t('closeSidebar')" @click="closeSidebar()"><button tabindex="-1"><i class="fas fa-2x fa-bars inline"></i></button></a>
+                </div>
+                <div class="hide-mobile" style="display: inline-flex">
+                    <a tabindex="1" href="javascript:void(0)" :aria-label="$t('closeSidebar')" @click="closeSidebar()" style="margin: 0.2em 0.5em 0 1.2em"><i class="fas fa-2x fa-bars inline"></i></a>
+                    <a tabindex="-1" aria-hidden="true" href="javascript:void(0)" @click="toMain"><h1 class="inline hide-mobile"><img id="astericsIcon" src="app/img/asterics-aac-logo-raw.svg" height="40" alt="Asterics AAC"/></h1></a>
+                </div>
+            </div>
+
+            <nav role="navigation" class="srow content" style="flex: 1 1 auto" accesskey="1">
+                <div v-if="currentUser">
+                    <h2 class="hide-mobile" style="margin-top: 1.5em;">{{ $t('navigation') }}</h2>
+                    <br class="show-mobile" aria-hidden="true"/>
+                    <ul>
+                        <li><a tabindex="2" href="javascript:void(0)" @click="toMain" :aria-label="$t('mainView')"><button tabindex="-1"><i class="fas fa-2x fa-home"></i><span class="hide-mobile">{{ $t('mainView') }}</span></button></a></li>
+                        <li><a tabindex="3" href="#grids" :aria-label="$t('manageGrids')"><button tabindex="-1"><i class="fas fa-2x fa-list-ul"></i><span class="hide-mobile">{{ $t('manageGrids') }}</span></button></a></li>
+                        <li><a tabindex="4" href="#dictionaries" :aria-label="$t('manageDictionaries')"><button tabindex="-1"><i class="fas fa-2x fa-book"></i><span class="hide-mobile">{{ $t('manageDictionaries') }}</span></button></a></li>
+                    </ul>
+                </div>
+
+                <h2 class="hide-mobile">{{ $t('users') }}</h2>
+                <ul>
+                    <li><a tabindex="5" href="#login" :aria-label="$t('changeUser')">
+                        <button tabindex="-1">
+                            <i class="fas fa-2x fa-users"></i><span v-show="!currentUser" class="hide-mobile">{{ $t('login') }}</span><span v-show="currentUser" class="hide-mobile">{{ $t('changeUser') }}</span>
+                        </button></a>
+                    </li>
+                    <li class="hide-mobile"><a tabindex="6" href="#register" :aria-label="$t('addOnlineUser')"><button tabindex="-1"><i class="fas fa-2x fa-user-plus"></i><span class="hide-mobile">{{ $t('addOnlineUser') }}</span></button></a></li>
+                    <li class="hide-mobile"><a tabindex="7" href="#add" :aria-label="$t('addOfflineUser')"><button tabindex="-1"><i class="fas fa-2x fa-user-plus"></i><span>{{ $t('addOfflineUser') }}</span></button></a></li>
+                </ul>
+
+                <br class="hide-mobile" aria-hidden="true"/>
+                <ul style="margin-bottom: 0;">
+                    <li v-show="currentUser"><a tabindex="8" href="#settings" :aria-label="$t('settings')"><button tabindex="-1"><i class="fas fa-2x fa-cog"></i><span class="hide-mobile">{{ $t('settings') }}</span></button></a></li>
+                    <li class="hide-mobile"><a tabindex="9" href="#about" :aria-label="$t('aboutAstericsGrid')"><button tabindex="-1"><i class="fas fa-2x fa-info-circle"></i><span class="hide-mobile">{{ $t('aboutAstericsGrid') }}</span></button></a></li>
+                    <li><a tabindex="10" href="#help" :aria-label="$t('help')"><button tabindex="-1" id="helpButton"><i class="fas fa-2x fa-question-circle"></i><span class="hide-mobile">{{ $t('help') }}</span></button></a></li>
+                    <li class="show-mobile"><a tabindex="11" href="javascript:;" :aria-label="$t('more')" @click="moreNavigation()" id="moreNavigation"><button tabindex="-1"><i class="fas fa-2x fa-ellipsis-v"></i></button></a></li>
+                </ul>
+            </nav>
+            <div style="flex: 0 0 auto;" id="syncVisualizationWrapper">
+                <span v-show="currentUser && !isLocalUser" class="hide-mobile"><span>{{ $t('loggedInAs') }}</span> <i>{{currentUser}}</i></span>
+                <span v-show="currentUser && isLocalUser" class="hide-mobile"><span>{{ $t('usingOfflineUser') }}</span> <i>{{currentUser}}</i></span>
+                <span v-show="!currentUser" class="hide-mobile">{{ $t('notLoggedIn') }}</span>
+                <span id="syncVisualization" v-if="currentUser && !isLocalUser" class="fa-stack fa-1x right" :title="syncState | translate">
+                    <i class="fas fa-cloud fa-stack-2x" style="color: lightblue"></i>
+                    <i v-show="syncState === constants.DB_SYNC_STATE_SYNCINC" class="fas fa-sync-alt fa-stack-1x fa-spin"></i>
+                    <i v-show="syncState === constants.DB_SYNC_STATE_SYNCED" class="fas fa-check fa-stack-1x"></i>
+                    <i v-show="syncState === constants.DB_SYNC_STATE_STOPPED" class="fas fa-pause fa-stack-1x"></i>
+                    <i v-show="syncState === constants.DB_SYNC_STATE_ONLINEONLY" class="fas fa-globe fa-stack-1x"></i>
+                    <i v-show="!syncState || syncState === constants.DB_SYNC_STATE_FAIL" class="fas fa-times fa-stack-1x"></i>
+                </span>
+                <span id="syncVisualization2" v-if="currentUser && isLocalUser && syncState === constants.DB_SYNC_STATE_SYNCINC" class="fa-stack fa-1x right" :title="$t('cachingImages')">
+                    <i class="fas fa-sync-alt fa-stack-1x fa-spin"></i>
+                </span>
+            </div>
+        </div>
+        <main role="main" class="holy-grail-content" accesskey="2">
+            <!-- Main page content -->
+            <div class="srow content text-content" v-if="!component">
+                <div class="grid-container grid-mask">
+                    <i class="fas fa-4x fa-spinner fa-spin"></i>
+                </div>
+            </div>
+            <component v-if="component" v-bind:is="component" v-bind="properties" :key="componentKey"></component>
+        </main>
+    </div>
+</div>
+
+<!-- browser compatibility checks and polyfills -->
+<script type="text/javascript" src='app/lib/modernizr-custom.js'></script>
+<script type="text/javascript">
+    // polyfill for String.replaceAll
+    if(!String.prototype.replaceAll){Object.defineProperty(String.prototype,'replaceAll',{configurable:!0,writable:!0,enumerable:!1,value:function(search,replace){return this.replace(Object.prototype.toString.call(search)==='[object RegExp]'?search.global?search:RegExp(search.source,/\/([a-z]*)$/.exec(search.toString())[1]+'g'):RegExp(String(search).replace(/[.^$*+?()[{|\\]/g,"\\$&"),"g"),replace)}})}
+
+    testEval("function x(a = 1){}", "default parameters")
+    if(![].fill) {
+        logAndRedirect("Browser doesn't support Array.fill");
+    }
+
+    checkModernizr('promises');
+    checkModernizr('indexeddb');
+
+    function checkModernizr(modernizrFeature) {
+        Modernizr.on(modernizrFeature, function (result) {
+            if (!result) {
+                logAndRedirect(modernizrFeature)
+            }
+        });
+    }
+
+    function logAndRedirect(missingFeature) {
+        console.warn("Browser doesn't support " + missingFeature + ".");
+        window.location.replace("unsupported.html");
+    }
+
+    function testEval(evalString, msg) {
+        try {
+            eval(evalString);
+        } catch (e) {
+            console.log(e);
+            logAndRedirect(msg);
+        }
+    }
+</script>
+
+<!-- libraries, not provided by npm -->
+<script src="app/lib/jquery.min.js"></script>
+<script src="app/lib/jquery-ui.min.js"></script>
+<script type="text/javascript" src='app/lib/jquery.contextMenu.min.js'></script>
+<script type="text/javascript" src='app/lib/object-model.min.js'></script>
+<script type="text/javascript" src='app/lib/pouchdb-8.0.1.min.js'></script>
+<script type="text/javascript" src='app/lib/loglevel.min.js'></script>
+<script type="text/javascript" src='app/lib/sjcl.min.js'></script>
+
+<script type="text/javascript">
+    if (Function.bind) {
+        window.originalLog = console.log.bind(console);
+        console.log = function () {
+            if (['ResponsiveVoice r1.6.5', 'isHidden: false', 'Prerender: false', 'Configuring'].indexOf(arguments[0]) !== -1) {
+                return;
+            } else if (arguments[0] === 'RV: Voice support ready') {
+                console.log = window.originalLog;
+            } else {
+                window.originalLog.apply(null, arguments);
+            }
+        }
+    }
+</script>
+
+<!-- PROTOTYPE-TESTED CONFIDENCE-DWELL EYE TRACKING ENGINE INTEGRATION -->
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    // Suppress TensorFlow FaceMesh willReadFrequently canvas warning
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function(type, attributes) {
+        if (type === '2d') {
+            attributes = attributes || {};
+            attributes.willReadFrequently = true;
+        }
+        return originalGetContext.call(this, type, attributes);
+    };
+
+    const checkInterval = setInterval(async () => {
+        if (typeof webgazer !== 'undefined') {
+            clearInterval(checkInterval);
+            try {
+                window.localStorage.removeItem('webgazerGlobalData');
+
+                await webgazer.begin();
+                webgazer.removeMouseEventListeners();
+                webgazer.showVideoPreview(true);
+                webgazer.showPredictionPoints(false);
+
+                // 1. Launch Startup Calibration Overlay
+                createCalibrationOverlay(() => {
+                    startEyeTrackingLoop();
+                });
+
+            } catch (err) {
+                console.error("WebGazer initialization error:", err);
+            }
+        }
+    }, 200);
+});
+
+function startEyeTrackingLoop() {
+    // Tuning parameters from the stable standalone prototype
+    const config = {
+        dwellMs: 1200,
+        smoothing: 0.8,
+        groupRadius: 150,
+        resetGraceMs: 950,
+        stableSampleCount: 8,
+        switchHysteresisMs: 300
+    };
+
+    let smoothedGazeX = null;
+    let smoothedGazeY = null;
+    let stableTarget = null;
+    let stableSamples = 0;
+    let stableStart = 0;
+
+    webgazer.setGazeListener((data, timestamp) => {
+        if (!data) return;
+
+        const rawX = data.x;
+        const rawY = data.y;
+
+        // Apply Smoothing filter
+        if (smoothedGazeX !== null && smoothedGazeY !== null) {
+            smoothedGazeX += (rawX - smoothedGazeX) * config.smoothing;
+            smoothedGazeY += (rawY - smoothedGazeY) * config.smoothing;
+        } else {
+            smoothedGazeX = rawX;
+            smoothedGazeY = rawY;
+        }
+
+        // Update simulated gaze cursor visual representation
+        const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
+        cursor.style.left = `${smoothedGazeX}px`;
+        cursor.style.top = `${smoothedGazeY}px`;
+
+        // Find nearest interactable grid target using bounding boxes and proximity threshold
+        const buttons = document.querySelectorAll('.grid-item, button, [role="button"], .q-btn');
+        let best = null;
+        let bestDist = Infinity;
+
+        for (const btn of buttons) {
+            const rect = btn.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) continue; // Skip hidden elements
+
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            const dist = Math.hypot(smoothedGazeX - cx, smoothedGazeY - cy);
+
+            if (dist < config.groupRadius && dist < bestDist) {
+                best = btn;
+                bestDist = dist;
+            }
+        }
+
+        const now = performance.now();
+
+        if (!best) {
+            // Off-board drift protection: respect grace period before clearing state
+            if (stableTarget && now - stableStart < config.resetGraceMs) {
+                return;
+            }
+            if (stableTarget && now - stableStart >= config.resetGraceMs) {
+                resetHoverState();
+            }
+            return;
+        }
+
+        if (!stableTarget) {
+            stableTarget = best;
+            stableStart = now;
+            stableSamples = 1;
+            highlightTarget(best);
+            return;
+        }
+
+        if (stableTarget === best) {
+            stableSamples++;
+
+            // Trigger activation when dwell time and stable sample thresholds are met
+            if (now - stableStart >= config.dwellMs && stableSamples >= config.stableSampleCount) {
+                triggerSelection(best);
+                resetHoverState();
+            }
+            return;
+        }
+
+        // Target switch hysteresis protection
+        if (now - stableStart > config.switchHysteresisMs) {
+            stableTarget = best;
+            stableStart = now;
+            stableSamples = 1;
+            highlightTarget(best);
+        }
+    });
+}
+
+function highlightTarget(target) {
+    document.querySelectorAll('.gaze-active-target').forEach(el => {
+        el.classList.remove('gaze-active-target');
+    });
+    target.classList.add('gaze-active-target');
+}
+
+function resetHoverState() {
+    stableTarget = null;
+    stableSamples = 0;
+    stableStart = 0;
+    document.querySelectorAll('.gaze-active-target').forEach(el => {
+        el.classList.remove('gaze-active-target');
+    });
+}
+
+function triggerSelection(target) {
+    const rect = target.getBoundingClientRect();
+    const clientX = rect.left + rect.width / 2;
+    const clientY = rect.top + rect.height / 2;
+
+    // Record click position to WebGazer regression model for implicit optimization
+    webgazer.recordScreenPosition(clientX, clientY, 'click');
+
+    // Safely dispatch interaction events to trigger AsTeRICS Grid action
+    target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX, clientY }));
+    target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX, clientY }));
+    target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX, clientY }));
+    target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX, clientY }));
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX, clientY }));
+}
+
+// 5-Point Startup Calibration Overlay
+function createCalibrationOverlay(onComplete) {
+    if (document.getElementById('gaze-calibration-overlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'gaze-calibration-overlay';
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100vw';
+    overlay.style.height = '100vh';
+    overlay.style.backgroundColor = 'rgba(10, 10, 10, 0.95)';
+    overlay.style.zIndex = '999999';
+    overlay.style.display = 'flex';
+    overlay.style.flexDirection = 'column';
+    overlay.style.alignItems = 'center';
+    overlay.style.justifyContent = 'center';
+    overlay.style.color = '#fff';
+    overlay.style.fontFamily = 'sans-serif';
+
+    overlay.innerHTML = `
+        <h2 style="margin-bottom: 10px; font-size: 24px;">Eye-Tracker Setup Calibration</h2>
+        <p style="max-width: 450px; text-align: center; color: #bbb; margin-bottom: 30px; line-height: 1.5;">
+            Stare directly at the glowing green dot and click it <strong>3 times</strong> with your mouse. Repeat for all positions to map your grid accurately.
+        </p>
+        <div id="calibration-target" style="width: 40px; height: 40px; background: #00ffcc; border-radius: 50%; cursor: pointer; box-shadow: 0 0 25px #00ffcc; transition: all 0.15s;"></div>
+        <p id="calib-status" style="margin-top: 25px; font-weight: bold; color: #00ffcc; font-size: 16px;">Target 1 of 5: Click 3 times</p>
+    `;
+    document.body.appendChild(overlay);
+
+    const target = document.getElementById('calibration-target');
+    const statusText = document.getElementById('calib-status');
+    
+    const points = [
+        {x: '15vw', y: '20vh'}, {x: '85vw', y: '20vh'},
+        {x: '50vw', y: '50vh'},
+        {x: '15vw', y: '80vh'}, {x: '85vw', y: '80vh'}
+    ];
+    let currentPoint = 0;
+    let clickCount = 0;
+
+    function updateTargetPosition() {
+        if (currentPoint >= points.length) {
+            overlay.remove();
+            if (typeof onComplete === 'function') onComplete();
+            return;
+        }
+        target.style.position = 'absolute';
+        target.style.left = points[currentPoint].x;
+        target.style.top = points[currentPoint].y;
+        clickCount = 0;
+        statusText.innerText = `Target ${currentPoint + 1} of ${points.length}: Click 3 times while staring at the dot.`;
+    }
+
+    target.addEventListener('click', (e) => {
+        webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
+        clickCount++;
+        statusText.innerText = `Point ${currentPoint + 1} of 5: Click count ${clickCount}/3`;
+
+        if (clickCount >= 3) {
+            currentPoint++;
+            updateTargetPosition();
+        }
+    });
+
+    updateTargetPosition();
+}
+
+function createSimulatedCursor() {
+    const div = document.getElementById('gaze-cursor-sim') || document.createElement('div');
+    if (!div.id) {
+        div.id = 'gaze-cursor-sim';
+        div.style.position = 'fixed';
+        div.style.width = '14px';
+        div.style.height = '14px';
+        div.style.backgroundColor = 'rgba(0, 255, 204, 0.9)';
+        div.style.border = '2px solid white';
+        div.style.borderRadius = '50%';
+        div.style.pointerEvents = 'none';
+        div.style.zIndex = '999998';
+        div.style.transform = 'translate(-50%, -50%)';
+        document.body.appendChild(div);
+    }
+    return div;
+}
+</script>
+
+<style>
+.gaze-active-target {
+    transform: scale(1.03) !important;
+    box-shadow: 0 0 25px #00ffcc !important;
+    border: 3px solid #00ffcc !important;
+    background-color: rgba(0, 255, 204, 0.2) !important;
+    transition: transform 0.08s ease-in-out;
+}
+</style>
+<script type="module" src="app/build/asterics-aac.bundle.js"></script>
+</body>
+</html>
