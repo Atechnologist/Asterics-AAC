@@ -107,39 +107,7 @@
     const smoothingFactor = 0.5; // Balanced smoothing for low latency
 
     document.addEventListener("DOMContentLoaded", () => {
-        // Suppress TensorFlow FaceMesh willReadFrequently canvas warning
-        const originalGetContext = HTMLCanvasElement.prototype.getContext;
-        HTMLCanvasElement.prototype.getContext = function(type, attributes) {
-            if (type === '2d') {
-                attributes = attributes || {};
-                attributes.willReadFrequently = true;
-            }
-            return originalGetContext.call(this, type, attributes);
-        };
-
-        const checkInterval = setInterval(async () => {
-            if (typeof webgazer !== 'undefined') {
-                clearInterval(checkInterval);
-                try {
-                    window.localStorage.removeItem('webgazerGlobalData');
-
-                    await webgazer.begin();
-                    // Keep mouse event listeners active so click-to-calibrate works seamlessly!
-                    webgazer.showVideoPreview(true);
-                    webgazer.showPredictionPoints(false);
-                    webgazer.showFaceOverlay(true);
-                    webgazer.applyKalmanFilter(true);
-
-                    // 1. Launch Startup Calibration Overlay
-                    createCalibrationOverlay(() => {
-                        startVectorGazeTracking();
-                    });
-
-                } catch (err) {
-                    console.error("WebGazer initialization error:", err);
-                }
-            }
-        }, 200);
+        ...
     });
 
     // ==========================================
