@@ -2,7 +2,7 @@
 <html lang="en" class="notranslate" translate="no">
 <head>
     <script>
-    // Safe global mock for ResponsiveVoice to prevent AAC speech crashes
+    // Safe mock for ResponsiveVoice to prevent AAC speech crashes
     window.responsiveVoice = window.responsiveVoice || {
         speak: function(text) { console.log("Mock Speech:", text); },
         stop: function() {},
@@ -189,288 +189,301 @@
 
 <!-- PROTOTYPE-TESTED CONFIDENCE-DWELL EYE TRACKING ENGINE INTEGRATION -->
 <script>
-document.addEventListener("DOMContentLoaded", () => {
-    // Suppress TensorFlow FaceMesh willReadFrequently canvas warning
-    const originalGetContext = HTMLCanvasElement.prototype.getContext;
-    HTMLCanvasElement.prototype.getContext = function(type, attributes) {
-        if (type === '2d') {
-            attributes = attributes || {};
-            attributes.willReadFrequently = true;
-        }
-        return originalGetContext.call(this, type, attributes);
-    };
-
-    const checkInterval = setInterval(async () => {
-        if (typeof webgazer !== 'undefined') {
-            clearInterval(checkInterval);
-            try {
-                window.localStorage.removeItem('webgazerGlobalData');
-
-                await webgazer.begin();
-                webgazer.removeMouseEventListeners();
-                webgazer.showVideoPreview(true);
-                webgazer.showPredictionPoints(false);
-
-                // 1. Launch Startup Calibration Overlay
-                createCalibrationOverlay(() => {
-                    startEyeTrackingLoop();
-                });
-
-            } catch (err) {
-                console.error("WebGazer initialization error:", err);
-            }
-        }
-    }, 200);
-});
-
-function startEyeTrackingLoop() {
-    // Tuning parameters from the stable standalone prototype
-    const config = {
-        dwellMs: 1200,
-        smoothing: 0.8,
-        groupRadius: 150,
-        resetGraceMs: 950,
-        stableSampleCount: 8,
-        switchHysteresisMs: 300
-    };
-
     let smoothedGazeX = null;
     let smoothedGazeY = null;
-    let stableTarget = null;
-    let stableSamples = 0;
-    let stableStart = 0;
+    const smoothingFactor = 0.5; // Balanced smoothing for low latency
 
-    webgazer.setGazeListener((data, timestamp) => {
-        if (!data) return;
+    document.addEventListener("DOMContentLoaded", () => {
+        const originalGetContext = HTMLCanvasElement.prototype.getContext;
+        HTMLCanvasElement.prototype.getContext = function(type, attributes) {
+            if (type === '2d') {
+                attributes = attributes || {};
+                attributes.willReadFrequently = true;
+            }
+            return originalGetContext.call(this, type, attributes);
+        };
 
-        const rawX = data.x;
-        const rawY = data.y;
+        const checkInterval = setInterval(async () => {
+            if (typeof webgazer !== 'undefined') {
+                clearInterval(checkInterval);
+                try {
+                    window.localStorage.removeItem('webgazerGlobalData');
 
-        // Apply Smoothing filter
-        if (smoothedGazeX !== null && smoothedGazeY !== null) {
-            smoothedGazeX += (rawX - smoothedGazeX) * config.smoothing;
-            smoothedGazeY += (rawY - smoothedGazeY) * config.smoothing;
-        } else {
-            smoothedGazeX = rawX;
-            smoothedGazeY = rawY;
-        }
+                    await webgazer.begin();
+                    webgazer.showVideoPreview(true);
+                    webgazer.showPredictionPoints(false);
+                    webgazer.showFaceOverlay(true);
+                    webgazer.applyKalmanFilter(true);
 
-        // Update simulated gaze cursor visual representation
-        const cursor = document.getElementById('gaze-cursor-sim') || createSimulatedCursor();
-        cursor.style.left = `${smoothedGazeX}px`;
-        cursor.style.top = `${smoothedGazeY}px`;
+                    createCalibrationOverlay(() => {
+                        startVectorGazeTracking();
+                    });
 
-        // Find nearest interactable grid target using bounding boxes and proximity threshold
-        const buttons = document.querySelectorAll('.grid-item, button, a, input, [role="button"], .q-btn');
-        let best = null;
-        let bestDist = Infinity;
+                } catch (err) {
+                    console.error("WebGazer initialization error:", err);
+                }
+            }
+        }, 200);
+    });
 
-        for (const btn of buttons) {
-            const rect = btn.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0) continue; // Skip hidden elements
+    function getSnappedGazeTarget(gazeX, gazeY) {
+        const targetElements = document.querySelectorAll('.grid-item, button, a, input, [role="button"], .q-btn');
+        const SNAP_BUFFER = 75;
 
-            const cx = rect.left + rect.width / 2;
-            const cy = rect.top + rect.height / 2;
-            const dist = Math.hypot(smoothedGazeX - cx, smoothedGazeY - cy);
+        for (let element of targetElements) {
+            const bounds = element.getBoundingClientRect();
+            if (bounds.width === 0 || bounds.height === 0) continue;
 
-            if (dist < config.groupRadius && dist < bestDist) {
-                best = btn;
-                bestDist = dist;
+            const minX = bounds.left - SNAP_BUFFER;
+            const maxX = bounds.right + SNAP_BUFFER;
+            const minY = bounds.top - SNAP_BUFFER;
+            const maxY = bounds.bottom + SNAP_BUFFER;
+
+            if (gazeX >= minX && gazeX <= maxX && gazeY >= minY && gazeY <= maxY) {
+                element.classList.add('gaze-focused');
+                return {
+                    element: element,
+                    x: bounds.left + bounds.width / 2,
+                    y: bounds.top + bounds.height / 2,
+                    isSnapped: true
+                };
+            } else {
+                element.classList.remove('gaze-focused');
             }
         }
+        return { element: null, x: gazeX, y: gazeY, isSnapped: false };
+    }
 
-        const now = performance.now();
+    function triggerSelection(target) {
+        const clickable = target.closest ? (
+            target.closest('button, a, input, [role="button"], .q-btn, .grid-item') || target
+        ) : target;
 
-        if (!best) {
-            // Off-board drift protection: respect grace period before clearing state
-            if (stableTarget && now - stableStart < config.resetGraceMs) {
+        const rect = clickable.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
+
+        if (typeof webgazer !== 'undefined' && webgazer.recordScreenPosition) {
+            webgazer.recordScreenPosition(clientX, clientY, 'click');
+        }
+
+        clickable.dispatchEvent(new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+            button: 0,
+            buttons: 1
+        }));
+
+        clickable.dispatchEvent(new MouseEvent('mouseup', {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+            button: 0,
+            buttons: 0
+        }));
+
+        clickable.dispatchEvent(new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+            button: 0,
+            buttons: 0
+        }));
+
+        if (typeof clickable.click === 'function') {
+            clickable.click();
+        }
+    }
+
+    function startVectorGazeTracking() {
+        let lastTarget = null;
+        let cachedPositions = null;
+        let frameCounter = 0;
+        let dwellStart = null;
+        let dwellTarget = null;
+
+        webgazer.setGazeListener(async (data, elapsedTime) => {
+            if (!data) return;
+
+            if (smoothedGazeX === null || smoothedGazeY === null) {
+                smoothedGazeX = data.x;
+                smoothedGazeY = data.y;
+            } else {
+                smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
+                smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
+            }
+
+            const target = getSnappedGazeTarget(smoothedGazeX, smoothedGazeY);
+
+            let overlayCanvas = document.getElementById('vector-overlay-canvas');
+            if (!overlayCanvas) {
+                overlayCanvas = document.createElement('canvas');
+                overlayCanvas.id = 'vector-overlay-canvas';
+                overlayCanvas.style.position = 'fixed';
+                overlayCanvas.style.top = '0';
+                overlayCanvas.style.left = '0';
+                overlayCanvas.style.width = '100vw';
+                overlayCanvas.style.height = '100vh';
+                overlayCanvas.style.pointerEvents = 'none';
+                overlayCanvas.style.zIndex = '999997';
+                document.body.appendChild(overlayCanvas);
+            }
+
+            overlayCanvas.width = window.innerWidth;
+            overlayCanvas.height = window.innerHeight;
+            const ctx = overlayCanvas.getContext('2d');
+            ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+            frameCounter++;
+            const tracker = webgazer.getTracker();
+            if (frameCounter % 3 === 0 && tracker && typeof tracker.getPositions === 'function') {
+                cachedPositions = await tracker.getPositions();
+            }
+
+            const previewWidth = webgazer.params.videoViewerWidth || 320;
+            const whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
+
+            let leftEyeX = window.innerWidth * 0.15;
+            let leftEyeY = window.innerHeight * 0.20;
+            let rightEyeX = window.innerWidth * 0.22;
+            let rightEyeY = window.innerHeight * 0.20;
+
+            if (cachedPositions && cachedPositions[145] && cachedPositions[374]) {
+                leftEyeX = previewWidth - cachedPositions[145][0] * whr[0];
+                leftEyeY = cachedPositions[145][1] * whr[1];
+                rightEyeX = previewWidth - cachedPositions[374][0] * whr[0];
+                rightEyeY = cachedPositions[374][1] * whr[1];
+            }
+
+            ctx.strokeStyle = target.isSnapped ? "rgba(46, 204, 113, 0.95)" : "rgba(231, 76, 60, 0.85)";
+            ctx.lineWidth = target.isSnapped ? 4.0 : 2.5;
+
+            ctx.beginPath();
+            ctx.moveTo(leftEyeX, leftEyeY);
+            ctx.lineTo(target.x, target.y);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(rightEyeX, rightEyeY);
+            ctx.lineTo(target.x, target.y);
+            ctx.stroke();
+
+            // Handle Dwell / Hover Events
+            if (target.isSnapped && target.element) {
+                const bestTarget = target.element;
+                const targetX = target.x;
+                const targetY = target.y;
+
+                if (bestTarget !== lastTarget) {
+                    if (lastTarget) {
+                        lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, clientX: targetX, clientY: targetY }));
+                        lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, clientX: targetX, clientY: targetY }));
+                    }
+
+                    bestTarget.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, clientX: targetX, clientY: targetY }));
+                    bestTarget.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: targetX, clientY: targetY }));
+                    lastTarget = bestTarget;
+                    dwellStart = performance.now();
+                    dwellTarget = bestTarget;
+                }
+
+                bestTarget.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: targetX, clientY: targetY }));
+                bestTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: targetX, clientY: targetY }));
+
+                if (dwellTarget === bestTarget && performance.now() - dwellStart >= 1100) {
+                    triggerSelection(bestTarget);
+                    dwellStart = null;
+                    dwellTarget = null;
+                    lastTarget = null;
+                }
+
+            } else if (lastTarget) {
+                lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }));
+                lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+                lastTarget = null;
+                dwellStart = null;
+                dwellTarget = null;
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (typeof webgazer !== 'undefined' && webgazer.recordScreenPosition) {
+                webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
+            }
+        });
+    }
+
+    function createCalibrationOverlay(onComplete) {
+        if (document.getElementById('gaze-calibration-overlay')) return;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'gaze-calibration-overlay';
+        overlay.style.position = 'fixed';
+        overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100vw';
+        overlay.style.height = '100vh';
+        overlay.style.backgroundColor = 'rgba(10, 10, 10, 0.95)';
+        overlay.style.zIndex = '999999';
+        overlay.style.display = 'flex';
+        overlay.style.flexDirection = 'column';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.color = '#fff';
+        overlay.style.fontFamily = 'sans-serif';
+
+        overlay.innerHTML = `
+            <h2 style="margin-bottom: 10px; font-size: 24px;">Eye-Tracker Setup Calibration</h2>
+            <p style="max-width: 450px; text-align: center; color: #bbb; margin-bottom: 30px; line-height: 1.5;">
+                Stare directly at the glowing green dot and click it <strong>3 times</strong> with your mouse. Repeat for all positions to map your grid accurately.
+            </p>
+            <div id="calibration-target" style="width: 40px; height: 40px; background: #00ffcc; border-radius: 50%; cursor: pointer; box-shadow: 0 0 25px #00ffcc; transition: all 0.15s;"></div>
+            <p id="calib-status" style="margin-top: 25px; font-weight: bold; color: #00ffcc; font-size: 16px;">Target 1 of 5: Click 3 times</p>
+        `;
+        document.body.appendChild(overlay);
+
+        const target = document.getElementById('calibration-target');
+        const statusText = document.getElementById('calib-status');
+
+        const points = [
+            {x: '15vw', y: '15vh'}, {x: '85vw', y: '15vh'},
+            {x: '50vw', y: '50vh'},
+            {x: '15vw', y: '85vh'}, {x: '85vw', y: '85vh'}
+        ];
+        let currentPoint = 0;
+        let clickCount = 0;
+
+        function updateTargetPosition() {
+            if (currentPoint >= points.length) {
+                overlay.remove();
+                if (typeof onComplete === 'function') onComplete();
                 return;
             }
-            if (stableTarget && now - stableStart >= config.resetGraceMs) {
-                resetHoverState();
+            target.style.position = 'absolute';
+            target.style.left = points[currentPoint].x;
+            target.style.top = points[currentPoint].y;
+            clickCount = 0;
+            statusText.innerText = `Target ${currentPoint + 1} of ${points.length}: Click 3 times while staring at the dot.`;
+        }
+
+        target.addEventListener('click', (e) => {
+            webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
+            clickCount++;
+            statusText.innerText = `Point ${currentPoint + 1} of 5: Click count ${clickCount}/3`;
+
+            if (clickCount >= 3) {
+                currentPoint++;
+                updateTargetPosition();
             }
-            return;
-        }
+        });
 
-        if (!stableTarget) {
-            stableTarget = best;
-            stableStart = now;
-            stableSamples = 1;
-            highlightTarget(best);
-            return;
-        }
-
-        if (stableTarget === best) {
-            stableSamples++;
-
-            // Trigger activation when dwell time and stable sample thresholds are met
-            if (now - stableStart >= config.dwellMs && stableSamples >= config.stableSampleCount) {
-                triggerSelection(best);
-                resetHoverState();
-            }
-            return;
-        }
-
-        // Target switch hysteresis protection
-        if (now - stableStart > config.switchHysteresisMs) {
-            stableTarget = best;
-            stableStart = now;
-            stableSamples = 1;
-            highlightTarget(best);
-        }
-    });
-}
-
-function highlightTarget(target) {
-    document.querySelectorAll('.gaze-active-target').forEach(el => {
-        el.classList.remove('gaze-active-target');
-    });
-    if (target && target.classList) {
-        target.classList.add('gaze-active-target');
+        updateTargetPosition();
     }
-}
-
-function resetHoverState() {
-    stableTarget = null;
-    stableSamples = 0;
-    stableStart = 0;
-    document.querySelectorAll('.gaze-active-target').forEach(el => {
-        el.classList.remove('gaze-active-target');
-    });
-}
-
-function triggerSelection(target) {
-    const clickable = target.closest ? (target.closest('button, a, input, [role="button"], .q-btn, .grid-item') || target) : target;
-    const rect = clickable.getBoundingClientRect();
-    const clientX = rect.left + rect.width / 2;
-    const clientY = rect.top + rect.height / 2;
-
-    if (typeof webgazer !== 'undefined' && webgazer.recordScreenPosition) {
-        webgazer.recordScreenPosition(clientX, clientY, 'click');
-    }
-
-    // Fire the full native mouse sequence Asterics AAC expects
-    clickable.dispatchEvent(new MouseEvent('mousedown', {
-        bubbles: true,
-        cancelable: true,
-        clientX,
-        clientY,
-        button: 0,
-        buttons: 1
-    }));
-
-    clickable.dispatchEvent(new MouseEvent('mouseup', {
-        bubbles: true,
-        cancelable: true,
-        clientX,
-        clientY,
-        button: 0,
-        buttons: 0
-    }));
-
-    clickable.dispatchEvent(new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        clientX,
-        clientY,
-        button: 0,
-        buttons: 0
-    }));
-
-    // Optional final fallback only if the element is not a native clickable control
-    // and no event listener was hit. This avoids double-triggering in many cases.
-    if (clickable && typeof clickable.click === 'function' && !clickable.matches('button, a, input, [role="button"]')) {
-        clickable.click();
-    }
-}
-
-// 5-Point Startup Calibration Overlay
-function createCalibrationOverlay(onComplete) {
-    if (document.getElementById('gaze-calibration-overlay')) return;
-
-    const overlay = document.createElement('div');
-    overlay.id = 'gaze-calibration-overlay';
-    overlay.style.position = 'fixed';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100vw';
-    overlay.style.height = '100vh';
-    overlay.style.backgroundColor = 'rgba(10, 10, 10, 0.95)';
-    overlay.style.zIndex = '999999';
-    overlay.style.display = 'flex';
-    overlay.style.flexDirection = 'column';
-    overlay.style.alignItems = 'center';
-    overlay.style.justifyContent = 'center';
-    overlay.style.color = '#fff';
-    overlay.style.fontFamily = 'sans-serif';
-
-    overlay.innerHTML = `
-        <h2 style="margin-bottom: 10px; font-size: 24px;">Eye-Tracker Setup Calibration</h2>
-        <p style="max-width: 450px; text-align: center; color: #bbb; margin-bottom: 30px; line-height: 1.5;">
-            Stare directly at the glowing green dot and click it <strong>3 times</strong> with your mouse. Repeat for all positions to map your grid accurately.
-        </p>
-        <div id="calibration-target" style="width: 40px; height: 40px; background: #00ffcc; border-radius: 50%; cursor: pointer; box-shadow: 0 0 25px #00ffcc; transition: all 0.15s;"></div>
-        <p id="calib-status" style="margin-top: 25px; font-weight: bold; color: #00ffcc; font-size: 16px;">Target 1 of 5: Click 3 times</p>
-    `;
-    document.body.appendChild(overlay);
-
-    const target = document.getElementById('calibration-target');
-    const statusText = document.getElementById('calib-status');
-    
-    const points = [
-        {x: '15vw', y: '20vh'}, {x: '85vw', y: '20vh'},
-        {x: '50vw', y: '50vh'},
-        {x: '15vw', y: '80vh'}, {x: '85vw', y: '80vh'}
-    ];
-    let currentPoint = 0;
-    let clickCount = 0;
-
-    function updateTargetPosition() {
-        if (currentPoint >= points.length) {
-            overlay.remove();
-            if (typeof onComplete === 'function') onComplete();
-            return;
-        }
-        target.style.position = 'absolute';
-        target.style.left = points[currentPoint].x;
-        target.style.top = points[currentPoint].y;
-        clickCount = 0;
-        statusText.innerText = `Target ${currentPoint + 1} of ${points.length}: Click 3 times while staring at the dot.`;
-    }
-
-    target.addEventListener('click', (e) => {
-        webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
-        clickCount++;
-        statusText.innerText = `Point ${currentPoint + 1} of 5: Click count ${clickCount}/3`;
-
-        if (clickCount >= 3) {
-            currentPoint++;
-            updateTargetPosition();
-        }
-    });
-
-    updateTargetPosition();
-}
-
-function createSimulatedCursor() {
-    const div = document.getElementById('gaze-cursor-sim') || document.createElement('div');
-    if (!div.id) {
-        div.id = 'gaze-cursor-sim';
-        div.style.position = 'fixed';
-        div.style.width = '14px';
-        div.style.height = '14px';
-        div.style.backgroundColor = 'rgba(0, 255, 204, 0.9)';
-        div.style.border = '2px solid white';
-        div.style.borderRadius = '50%';
-        div.style.pointerEvents = 'none';
-        div.style.zIndex = '999998';
-        div.style.transform = 'translate(-50%, -50%)';
-        document.body.appendChild(div);
-    }
-    return div;
-}
 </script>
-
 <style>
 .gaze-active-target {
     transform: scale(1.03) !important;
