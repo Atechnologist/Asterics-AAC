@@ -261,7 +261,7 @@ function startEyeTrackingLoop() {
         cursor.style.top = `${smoothedGazeY}px`;
 
         // Find nearest interactable grid target using bounding boxes and proximity threshold
-        const buttons = document.querySelectorAll('.grid-item, button, [role="button"], .q-btn');
+        const buttons = document.querySelectorAll('.grid-item, button, a, input, [role="button"], .q-btn');
         let best = null;
         let bestDist = Infinity;
 
@@ -325,7 +325,9 @@ function highlightTarget(target) {
     document.querySelectorAll('.gaze-active-target').forEach(el => {
         el.classList.remove('gaze-active-target');
     });
-    target.classList.add('gaze-active-target');
+    if (target && target.classList) {
+        target.classList.add('gaze-active-target');
+    }
 }
 
 function resetHoverState() {
@@ -338,37 +340,50 @@ function resetHoverState() {
 }
 
 function triggerSelection(target) {
-    const rect = target.getBoundingClientRect();
+    const clickable = target.closest ? (target.closest('button, a, input, [role="button"], .q-btn, .grid-item') || target) : target;
+    const rect = clickable.getBoundingClientRect();
     const clientX = rect.left + rect.width / 2;
     const clientY = rect.top + rect.height / 2;
 
-    // Record click position to WebGazer regression model for implicit optimization
-    webgazer.recordScreenPosition(clientX, clientY, 'click');
-
-    // 1. Try triggering Vue/Quasar component click method if bound
-    if (target.__vue__ && typeof target.id === 'function') {
-        // Safe check for Vue internal click handler
+    if (typeof webgazer !== 'undefined' && webgazer.recordScreenPosition) {
+        webgazer.recordScreenPosition(clientX, clientY, 'click');
     }
-    
-    // 2. Direct DOM dispatch (Pointer + Mouse + Native Click)
-    const clickEvent = new MouseEvent('click', {
-        view: window,
+
+    // Fire the full native mouse sequence Asterics AAC expects
+    clickable.dispatchEvent(new MouseEvent('mousedown', {
         bubbles: true,
         cancelable: true,
-        clientX: clientX,
-        clientY: clientY
-    });
+        clientX,
+        clientY,
+        button: 0,
+        buttons: 1
+    }));
 
-    target.dispatchEvent(clickEvent);
+    clickable.dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        button: 0,
+        buttons: 0
+    }));
 
-    // 3. Fallback: find any inner Vue wrapper or anchor tag and trigger its click
-    const innerClickable = target.querySelector('a, button, input') || target;
-    if (innerClickable !== target) {
-        innerClickable.click();
-    } else {
-        target.click();
+    clickable.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        button: 0,
+        buttons: 0
+    }));
+
+    // Optional final fallback only if the element is not a native clickable control
+    // and no event listener was hit. This avoids double-triggering in many cases.
+    if (clickable && typeof clickable.click === 'function' && !clickable.matches('button, a, input, [role="button"]')) {
+        clickable.click();
     }
 }
+
 // 5-Point Startup Calibration Overlay
 function createCalibrationOverlay(onComplete) {
     if (document.getElementById('gaze-calibration-overlay')) return;
