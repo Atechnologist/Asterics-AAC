@@ -1,1015 +1,315 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="notranslate" translate="no">
 <head>
-  <meta charset="utf-8">
-  <title>Grouped Gaze Keyboard</title>
-  <style>
-    :root {
-      --bg: #0a0a0a;
-      --panel: rgba(15,15,15,0.95);
-      --cyan: #00ffcc;
-      --magenta: #ff0055;
-      --text: #ffffff;
-    }
+    <title>Asterics AAC</title>
+    <meta id="viewPortMeta" name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="google-site-verification" content="UWnxfeRniUm-l7GAbNdqfZQmCCaAU3HB6jGOuEHZ26k" />
 
-    html, body {
-      margin: 0;
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
-      background: var(--bg);
-      color: var(--text);
-      font-family: sans-serif;
-      user-select: none;
-    }
+    <link rel="icon" href="app/img/favicon-no-circle.svg" type="image/svg+xml">
+    <link rel="icon" href="app/img/favicon-no-circle.png" type="image/png">
+    <link rel="manifest" href="app/manifest.webmanifest">
 
-    #top-bar {
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      height: 75px;
-      background: var(--panel);
-      border-bottom: 2px solid var(--cyan);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 15px;
-      box-sizing: border-box;
-      z-index: 10000;
-    }
+    <link rel="stylesheet" href="app/css/fontawesome/css/all.css">
+    <link rel="stylesheet" href="app/css/custom.css">
+    <link rel="stylesheet" href="app/css/jquery-ui.min.css">
+    <link rel="stylesheet" href="app/css/skeleton.css">
+    <link rel="stylesheet" href="app/css/bootstrap-grid.css">
+    <link rel="stylesheet" href="app/css/grid-styles.css">
 
-    #output-bar {
-      flex: 1;
-      height: 45px;
-      background: rgba(5,5,5,0.9);
-      border: 2px solid var(--cyan);
-      border-radius: 6px;
-      color: var(--cyan);
-      font-size: 20px;
-      display: flex;
-      align-items: center;
-      padding: 0 15px;
-      margin-right: 15px;
-      overflow: hidden;
-      white-space: nowrap;
-      box-sizing: border-box;
-    }
+    <!-- WebGazer + TFJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tfjs/3.21.0/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh@0.0.5/dist/facemesh.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
 
-    .control-group {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-
-    .action-btn {
-      border-radius: 6px;
-      font-weight: bold;
-      cursor: pointer;
-      font-size: 12px;
-      border: 1px solid var(--cyan);
-      background: #1e1e1e;
-      color: var(--cyan);
-      padding: 6px 10px;
-    }
-
-    .action-btn.primary { color: var(--cyan); }
-    .action-btn.danger {
-      border-color: #ff4444;
-      color: #ff4444;
-    }
-
-    #sub-bar {
-      position: fixed;
-      top: 75px; left: 0; right: 0;
-      min-height: 70px;
-      background: rgba(25,25,25,0.9);
-      border-bottom: 1px solid #333;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 20px;
-      box-sizing: border-box;
-      z-index: 9999;
-      font-size: 13px;
-      color: #aaa;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-
-    .slider-container {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 180px;
-    }
-
-    input[type=range] { accent-color: var(--cyan); cursor: pointer; }
-
-    #raw-gaze-dot {
-      position: absolute;
-      width: 12px;
-      height: 12px;
-      background: rgba(255,255,255,0.7);
-      border: 1px solid rgba(255,255,255,0.8);
-      border-radius: 50%;
-      transform: translate(-50%, -50%);
-      z-index: 15000;
-      pointer-events: none;
-      display: none;
-    }
-
-    #virtual-cursor {
-      position: absolute;
-      width: 18px;
-      height: 18px;
-      border: 2px solid var(--cyan);
-      border-radius: 50%;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      box-shadow: 0 0 10px rgba(0,255,204,0.9);
-      z-index: 20000;
-      display: none;
-    }
-
-    #keyboard-layer {
-      position: absolute;
-      left: 50%;
-      top: 58%;
-      transform: translate(-50%, -50%);
-      width: min(90vw, 1000px);
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
-      z-index: 150;
-    }
-
-    .row {
-      display: flex;
-      justify-content: center;
-      gap: 18px;
-    }
-
-    .group-key, .letter-key {
-      border: 3px solid var(--cyan);
-      background: rgba(15,15,15,0.9);
-      color: var(--cyan);
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      box-shadow: 0 0 12px rgba(0,255,204,0.18);
-    }
-
-    .group-key {
-      min-width: 170px;
-      height: 90px;
-      font-size: 26px;
-    }
-
-    .letter-key {
-      width: 110px;
-      height: 110px;
-      font-size: 30px;
-    }
-
-    .group-key.active, .letter-key.active {
-      background: var(--cyan);
-      color: #000;
-      box-shadow: 0 0 18px rgba(0,255,204,0.7);
-    }
-
-    #calibration-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(10,10,10,0.92);
-      z-index: 30000;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      padding-top: 100px;
-      text-align: center;
-      pointer-events: none;
-    }
-
-    #calib-dot {
-      position: absolute;
-      width: 52px;
-      height: 52px;
-      background: var(--magenta);
-      border-radius: 50%;
-      transform: translate(-50%, -50%);
-      cursor: pointer;
-      box-shadow: 0 0 35px rgba(255,0,85,0.9);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      font-size: 18px;
-      color: #fff;
-      border: 3px solid #fff;
-      pointer-events: auto;
-      z-index: 35000;
-    }
-
-    #status-box {
-      position: fixed;
-      right: 24px;
-      bottom: 18px;
-      background: rgba(20,20,20,0.9);
-      border: 1px solid var(--cyan);
-      border-radius: 8px;
-      color: var(--text);
-      padding: 10px 12px;
-      font-size: 12px;
-      line-height: 1.4;
-      z-index: 50000;
-      min-width: 220px;
-      box-shadow: 0 0 12px rgba(0,255,204,0.15);
-    }
-
-    .gaze-active-target {
-      transform: scale(1.03) !important;
-      box-shadow: 0 0 25px rgba(0,255,204,0.9) !important;
-      border: 3px solid #00ffcc !important;
-      background: rgba(0,255,204,0.12) !important;
-      transition: transform 0.08s ease-in-out;
-    }
-  </style>
+    <style>
+        .gaze-active-target {
+            transform: scale(1.03) !important;
+            box-shadow: 0 0 25px #00ffcc !important;
+            border: 3px solid #00ffcc !important;
+            background-color: rgba(0, 255, 204, 0.2) !important;
+            transition: transform 0.08s ease-in-out;
+        }
+    </style>
 </head>
-<body>
-  <div id="raw-gaze-dot"></div>
-  <div id="virtual-cursor"></div>
-
-  <div id="top-bar">
-    <div id="output-bar">Type here...</div>
-
-    <div class="control-group">
-      <button class="action-btn primary" onclick="startCalibration('9zone')">🎯 9-Zone Grid</button>
-      <button class="action-btn primary" onclick="startCalibration('perkey')">⌨️ Per-Key Sweep</button>
-      <button class="action-btn danger" onclick="clearText()">Delete</button>
+<body onload="window.loaded = true;">
+<div style="display: none" aria-hidden="false">
+    {{ $t('accessKey1NavigationAccessKey2Main') }}
+</div>
+<div id="app" class="holy-grail">
+    <h1 class="sr-only">Asterics AAC</h1>
+    <div id="touchElement" class="grid-container" style="z-index: 2; display: none; -webkit-touch-callout: none; -webkit-user-select: none;">
     </div>
-  </div>
-
-  <div id="sub-bar">
-    <span style="color: #ff0055;" id="status-msg">🎓 Grouped gaze keyboard active</span>
-
-    <div class="slider-container">
-      <label>Dwell: <span id="dwell-val">1.2</span>s</label>
-      <input type="range" id="dwell-slider" min="0.5" max="3.0" step="0.1" value="1.2" oninput="updateDwell(this.value)">
+    <audio style="display: none" id="audioPlayer" src="" preload="none"></audio>
+    <video style="display: none" id="videoPlayer" src="" preload="none"></video>
+    <notification-bar ref="notificationBar"></notification-bar>
+    <progress-bar-modal v-show="showModal === modalTypes.MODAL_PROGRESSBAR" ref="progressBar" @close="showModal = null"></progress-bar-modal>
+    <search-modal v-if="showModal === modalTypes.MODAL_SEARCH" @close="showModal = null;" :route-to-edit="Router.getCurrentView() === Router.VIEWS.GridEditView" :options="modalOptions"></search-modal>
+    <message-box v-show="showModal === modalTypes.MODAL_MESSAGEBOX" ref="messageBox" @close="showModal = null"></message-box>
+    <div class="grid-container grid-mask" v-if="false">
+        <i class="fas fa-4x fa-spinner fa-spin" style="top: 40%;"></i>
+        <div style="position: fixed; top: 50%; width: 100%; text-align: center; font-size: 2em;">
+            <span>loading...</span>
+        </div>
     </div>
+    <div class="holy-grail-body" v-cloak>
+        <div class="holy-grail-sidebar-1 hg-sidebar no-print" v-show="showSidebar">
+            <div style="flex: 0 0 auto;">
+                <div class="show-mobile">
+                    <a tabindex="1" href="javascript:void(0)" :aria-label="$t('closeSidebar')" @click="closeSidebar()"><button tabindex="-1"><i class="fas fa-2x fa-bars inline"></i></button></a>
+                </div>
+                <div class="hide-mobile" style="display: inline-flex">
+                    <a tabindex="1" href="javascript:void(0)" :aria-label="$t('closeSidebar')" @click="closeSidebar()" style="margin: 0.2em 0.5em 0 1.2em"><i class="fas fa-2x fa-bars inline"></i></a>
+                    <a tabindex="-1" aria-hidden="true" href="javascript:void(0)" @click="toMain"><h1 class="inline hide-mobile"><img id="astericsIcon" src="app/img/asterics-aac-logo-raw.svg" height="40" alt="Asterics AAC"/></h1></a>
+                </div>
+            </div>
 
-    <div class="slider-container">
-      <label>Smooth: <span id="smooth-val">0.8</span></label>
-      <input type="range" id="smooth-slider" min="0.1" max="0.9" step="0.05" value="0.8" oninput="updateSmooth(this.value)">
+            <nav role="navigation" class="srow content" style="flex: 1 1 auto" accesskey="1">
+                <div v-if="currentUser">
+                    <h2 class="hide-mobile" style="margin-top: 1.5em;">{{ $t('navigation') }}</h2>
+                    <br class="show-mobile" aria-hidden="true"/>
+                    <ul>
+                        <li><a tabindex="2" href="javascript:void(0)" @click="toMain" :aria-label="$t('mainView')"><button tabindex="-1"><i class="fas fa-2x fa-home"></i><span class="hide-mobile">{{ $t('mainView') }}</span></button></a></li>
+                        <li><a tabindex="3" href="#grids" :aria-label="$t('manageGrids')"><button tabindex="-1"><i class="fas fa-2x fa-list-ul"></i><span class="hide-mobile">{{ $t('manageGrids') }}</span></button></a></li>
+                        <li><a tabindex="4" href="#dictionaries" :aria-label="$t('manageDictionaries')"><button tabindex="-1"><i class="fas fa-2x fa-book"></i><span class="hide-mobile">{{ $t('manageDictionaries') }}</span></button></a></li>
+                    </ul>
+                </div>
+
+                <h2 class="hide-mobile">{{ $t('users') }}</h2>
+                <ul>
+                    <li><a tabindex="5" href="#login" :aria-label="$t('changeUser')">
+                        <button tabindex="-1">
+                            <i class="fas fa-2x fa-users"></i><span v-show="!currentUser" class="hide-mobile">{{ $t('login') }}</span><span v-show="currentUser" class="hide-mobile">{{ $t('changeUser') }}</span>
+                        </button></a>
+                    </li>
+                    <li class="hide-mobile"><a tabindex="6" href="#register" :aria-label="$t('addOnlineUser')"><button tabindex="-1"><i class="fas fa-2x fa-user-plus"></i><span class="hide-mobile">{{ $t('addOnlineUser') }}</span></button></a></li>
+                    <li class="hide-mobile"><a tabindex="7" href="#add" :aria-label="$t('addOfflineUser')"><button tabindex="-1"><i class="fas fa-2x fa-user-plus"></i><span>{{ $t('addOfflineUser') }}</span></button></a></li>
+                </ul>
+
+                <br class="hide-mobile" aria-hidden="true"/>
+                <ul style="margin-bottom: 0;">
+                    <li v-show="currentUser"><a tabindex="8" href="#settings" :aria-label="$t('settings')"><button tabindex="-1"><i class="fas fa-2x fa-cog"></i><span class="hide-mobile">{{ $t('settings') }}</span></button></a></li>
+                    <li class="hide-mobile"><a tabindex="9" href="#about" :aria-label="$t('aboutAstericsGrid')"><button tabindex="-1"><i class="fas fa-2x fa-info-circle"></i><span class="hide-mobile">{{ $t('aboutAstericsGrid') }}</span></button></a></li>
+                    <li><a tabindex="10" href="#help" :aria-label="$t('help')"><button tabindex="-1" id="helpButton"><i class="fas fa-2x fa-question-circle"></i><span class="hide-mobile">{{ $t('help') }}</span></button></a></li>
+                    <li class="show-mobile"><a tabindex="11" href="javascript:;" :aria-label="$t('more')" @click="moreNavigation()" id="moreNavigation"><button tabindex="-1"><i class="fas fa-2x fa-ellipsis-v"></i></button></a></li>
+                </ul>
+            </nav>
+            <div style="flex: 0 0 auto;" id="syncVisualizationWrapper">
+                <span v-show="currentUser && !isLocalUser" class="hide-mobile"><span>{{ $t('loggedInAs') }}</span> <i>{{currentUser}}</i></span>
+                <span v-show="currentUser && isLocalUser" class="hide-mobile"><span>{{ $t('usingOfflineUser') }}</span> <i>{{currentUser}}</i></span>
+                <span v-show="!currentUser" class="hide-mobile">{{ $t('notLoggedIn') }}</span>
+                <span id="syncVisualization" v-if="currentUser && !isLocalUser" class="fa-stack fa-1x right" :title="syncState | translate">
+                    <i class="fas fa-cloud fa-stack-2x" style="color: lightblue"></i>
+                    <i v-show="syncState === constants.DB_SYNC_STATE_SYNCINC" class="fas fa-sync-alt fa-stack-1x fa-spin"></i>
+                    <i v-show="syncState === constants.DB_SYNC_STATE_SYNCED" class="fas fa-check fa-stack-1x"></i>
+                    <i v-show="syncState === constants.DB_SYNC_STATE_STOPPED" class="fas fa-pause fa-stack-1x"></i>
+                    <i v-show="syncState === constants.DB_SYNC_STATE_ONLINEONLY" class="fas fa-globe fa-stack-1x"></i>
+                    <i v-show="!syncState || syncState === constants.DB_SYNC_STATE_FAIL" class="fas fa-times fa-stack-1x"></i>
+                </span>
+                <span id="syncVisualization2" v-if="currentUser && isLocalUser && syncState === constants.DB_SYNC_STATE_SYNCINC" class="fa-stack fa-1x right" :title="$t('cachingImages')">
+                    <i class="fas fa-sync-alt fa-stack-1x fa-spin"></i>
+                </span>
+            </div>
+        </div>
+        <main role="main" class="holy-grail-content" accesskey="2">
+            <!-- Main page content -->
+            <div class="srow content text-content" v-if="!component">
+                <div class="grid-container grid-mask">
+                    <i class="fas fa-4x fa-spinner fa-spin"></i>
+                </div>
+            </div>
+            <component v-if="component" v-bind:is="component" v-bind="properties" :key="componentKey"></component>
+        </main>
     </div>
+</div>
 
-    <div class="slider-container">
-      <label>Group: <span id="group-radius-val">150</span></label>
-      <input type="range" id="group-radius-slider" min="120" max="220" step="5" value="150" oninput="updateGroupRadius(this.value)">
-    </div>
+<!-- browser compatibility checks and polyfills -->
+<script type="text/javascript" src='app/lib/modernizr-custom.js'></script>
+<script type="text/javascript">
+    // polyfill for String.replaceAll, https://stackoverflow.com/questions/1144783/how-do-i-replace-all-occurrences-of-a-string-in-javascript
+    if(!String.prototype.replaceAll){Object.defineProperty(String.prototype,'replaceAll',{configurable:!0,writable:!0,enumerable:!1,value:function(search,replace){return this.replace(Object.prototype.toString.call(search)==='[object RegExp]'?search.global?search:RegExp(search.source,/\/([a-z]*)$/.exec(search.toString())[1]+'g'):RegExp(String(search).replace(/[.^$*+?()[{|\\]/g,"\\$&"),"g"),replace)}})}
 
-    <div class="slider-container">
-      <label>Letter: <span id="letter-radius-val">135</span></label>
-      <input type="range" id="letter-radius-slider" min="110" max="190" step="5" value="135" oninput="updateLetterRadius(this.value)">
-    </div>
-
-    <div class="slider-container">
-      <label>Grace: <span id="grace-val">950</span>ms</label>
-      <input type="range" id="grace-slider" min="400" max="1800" step="50" value="950" oninput="updateGrace(this.value)">
-    </div>
-
-    <div class="slider-container">
-      <label>Samples: <span id="samples-val">8</span></label>
-      <input type="range" id="samples-slider" min="3" max="8" step="1" value="8" oninput="updateStableSamples(this.value)">
-    </div>
-
-    <div class="slider-container">
-      <label>Switch: <span id="switch-val">300</span>ms</label>
-      <input type="range" id="switch-slider" min="80" max="300" step="10" value="300" oninput="updateSwitchHysteresis(this.value)">
-    </div>
-  </div>
-
-  <div id="keyboard-layer">
-    <div class="row" id="group-row-1"></div>
-    <div class="row" id="group-row-2"></div>
-  </div>
-
-  <div id="calibration-overlay">
-    <h2 style="color: #00ffcc; margin-bottom: 10px;" id="calib-title">Gaze Calibration Required</h2>
-    <p id="calib-text" style="color: #bbb; max-width: 500px; line-height: 1.5; margin-bottom: 25px;">
-      Stare directly at the glowing circle and click it <strong>3 times</strong> with your mouse.
-    </p>
-    <div id="calib-dot">1</div>
-  </div>
-
-  <div id="status-box">
-    <div><strong>Adaptive:</strong> <span id="adaptive-mode">ON</span></div>
-    <div><strong>Selections:</strong> <span id="selection-count">0</span></div>
-    <div><strong>Deletes:</strong> <span id="delete-count">0</span></div>
-    <div><strong>Accidental rate:</strong> <span id="accidental-rate">0%</span></div>
-  </div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.8.1/localforage.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
-
-  <script>
-    const GROUPS = [
-      { label: "QWERTY", keys: ["Q","W","E","R","T","Y","U","I","O","P"] },
-      { label: "ASDFGH", keys: ["A","S","D","F","G","H","J","K","L"] },
-      { label: "ZXCVBN", keys: ["Z","X","C","V","B","N","M"] },
-      { label: "SPACE", keys: ["SP"] },
-      { label: "DEL", keys: ["⌫"] }
-    ];
-
-    const STORAGE_KEY = "gaze_keyboard_tuning_v1";
-    const ADAPTIVE_MODE_KEY = "gaze_keyboard_adaptive_v1";
-
-    const defaultTuning = {
-      dwellMs: 1200,
-      smoothing: 0.8,
-      groupRadius: 150,
-      letterRadius: 135,
-      resetGraceMs: 950,
-      stableSampleCount: 8,
-      switchHysteresisMs: 300
-    };
-
-    let tuning = { ...defaultTuning };
-    let adaptiveEnabled = true;
-
-    const debugLog = [];
-
-    function loadTuning() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        tuning = { ...defaultTuning, ...parsed };
-      } catch (e) {
-        tuning = { ...defaultTuning };
-      }
+    testEval("function x(a = 1){}", "default parameters")
+    if(![].fill) {
+        logAndRedirect("Browser doesn't support Array.fill");
     }
 
-    function loadAdaptiveState() {
-      try {
-        const raw = localStorage.getItem(ADAPTIVE_MODE_KEY);
-        adaptiveEnabled = raw === null ? true : raw === "true";
-      } catch (e) {
-        adaptiveEnabled = true;
-      }
+    checkModernizr('promises');
+    checkModernizr('indexeddb');
+
+    function checkModernizr(modernizrFeature) {
+        Modernizr.on(modernizrFeature, function (result) {
+            if (!result) {
+                logAndRedirect(modernizrFeature)
+            }
+        });
     }
 
-    function saveTuning() {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(tuning));
-      } catch (e) {}
+    function logAndRedirect(missingFeature) {
+        console.warn("Browser doesn't support " + missingFeature + ".");
+        window.location.replace("unsupported.html");
     }
 
-    function saveAdaptiveState() {
-      try {
-        localStorage.setItem(ADAPTIVE_MODE_KEY, String(adaptiveEnabled));
-      } catch (e) {}
+    function testEval(evalString, msg) {
+        try {
+            eval(evalString);
+        } catch (e) {
+            console.log(e);
+            logAndRedirect(msg);
+        }
     }
+</script>
 
-    function updateSliderLabels() {
-      document.getElementById("dwell-val").innerText = (tuning.dwellMs / 1000).toFixed(1);
-      document.getElementById("smooth-val").innerText = tuning.smoothing.toFixed(1);
-      document.getElementById("group-radius-val").innerText = tuning.groupRadius;
-      document.getElementById("letter-radius-val").innerText = tuning.letterRadius;
-      document.getElementById("grace-val").innerText = tuning.resetGraceMs;
-      document.getElementById("samples-val").innerText = tuning.stableSampleCount;
-      document.getElementById("switch-val").innerText = tuning.switchHysteresisMs;
-      document.getElementById("adaptive-mode").innerText = adaptiveEnabled ? "ON" : "OFF";
+<!-- libraries, not provided by npm -->
+<script src="app/lib/jquery.min.js"></script>
+<script src="app/lib/jquery-ui.min.js"></script>
+<script type="text/javascript" src='app/lib/jquery.contextMenu.min.js'></script>
+<script type="text/javascript" src='app/lib/object-model.min.js'></script>
+<script type="text/javascript" src='app/lib/pouchdb-8.0.1.min.js'></script>
+<script type="text/javascript" src='app/lib/loglevel.min.js'></script>
+<script type="text/javascript" src='app/lib/sjcl.min.js'></script>
+
+<script type="text/javascript">
+    if (Function.bind) {
+        window.originalLog = console.log.bind(console);
+        console.log = function () {
+            if (['ResponsiveVoice r1.6.5', 'isHidden: false', 'Prerender: false', 'Configuring'].indexOf(arguments[0]) !== -1) {
+                return;
+            } else if (arguments[0] === 'RV: Voice support ready') {
+                console.log = window.originalLog;
+            } else {
+                window.originalLog.apply(null, arguments);
+            }
+        }
     }
+</script>
 
-    function applyTuningToControls() {
-      document.getElementById("dwell-slider").value = (tuning.dwellMs / 1000).toFixed(1);
-      document.getElementById("smooth-slider").value = tuning.smoothing.toFixed(1);
-      document.getElementById("group-radius-slider").value = tuning.groupRadius;
-      document.getElementById("letter-radius-slider").value = tuning.letterRadius;
-      document.getElementById("grace-slider").value = tuning.resetGraceMs;
-      document.getElementById("samples-slider").value = tuning.stableSampleCount;
-      document.getElementById("switch-slider").value = tuning.switchHysteresisMs;
-      updateSliderLabels();
-    }
-
-    function updateDwell(v) {
-      tuning.dwellMs = Number(parseFloat(v) * 1000);
-      saveTuning();
-      updateSliderLabels();
-    }
-
-    function updateSmooth(v) {
-      tuning.smoothing = Number(parseFloat(v));
-      saveTuning();
-      updateSliderLabels();
-    }
-
-    function updateGroupRadius(v) {
-      tuning.groupRadius = Number(v);
-      saveTuning();
-      updateSliderLabels();
-    }
-
-    function updateLetterRadius(v) {
-      tuning.letterRadius = Number(v);
-      saveTuning();
-      updateSliderLabels();
-    }
-
-    function updateGrace(v) {
-      tuning.resetGraceMs = Number(v);
-      saveTuning();
-      updateSliderLabels();
-    }
-
-    function updateStableSamples(v) {
-      tuning.stableSampleCount = Number(v);
-      saveTuning();
-      updateSliderLabels();
-    }
-
-    function updateSwitchHysteresis(v) {
-      tuning.switchHysteresisMs = Number(v);
-      saveTuning();
-      updateSliderLabels();
-    }
-
-    function toggleAdaptiveMode() {
-      adaptiveEnabled = !adaptiveEnabled;
-      saveAdaptiveState();
-      updateSliderLabels();
-      logDebug("adaptive-toggle", { adaptiveEnabled });
-    }
-
-    let saccadeFreezeTimer = null;
-    let isSaccadeLocked = false;
-
-    let phase = "group";
-    let selectedGroup = null;
-    let selectedKey = null;
-
-    let rawGazeX = null;
-    let rawGazeY = null;
+<script>
+    // --- Eye gaze dwell selection for Asterics Grid buttons ---
     let smoothedGazeX = null;
     let smoothedGazeY = null;
 
-    let correctedGaze = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-
-    let isCalibrating = true;
-    let calibModeType = "9zone";
-    let calibStep = 0;
-    let calibClicks = 0;
-    let calibSequence = [];
-
-    const zone9Sequence = [
-      { name: "Top-Left", x: 0.1, y: 0.2 },
-      { name: "Top-Center", x: 0.5, y: 0.2 },
-      { name: "Top-Right", x: 0.9, y: 0.2 },
-      { name: "Mid-Left", x: 0.1, y: 0.5 },
-      { name: "Center Screen", x: 0.5, y: 0.5 },
-      { name: "Mid-Right", x: 0.9, y: 0.5 },
-      { name: "Bottom-Left", x: 0.1, y: 0.8 },
-      { name: "Bottom-Center", x: 0.5, y: 0.8 },
-      { name: "Bottom-Right", x: 0.9, y: 0.8 }
-    ];
-
-    let stableTarget = null;
-    let stableSamples = 0;
-    let stableStart = 0;
-
-    function isWithinKeyboardBounds(x, y) {
-      const keyboard = document.getElementById("keyboard-layer");
-      if (!keyboard) return true;
-      const rect = keyboard.getBoundingClientRect();
-      return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-    }
-
-    function logDebug(eventName, extra = {}) {
-      const entry = {
-        t: performance.now(),
-        phase,
-        event: eventName,
-        x: correctedGaze.x,
-        y: correctedGaze.y,
-        stableTarget: stableTarget ? (stableTarget.dataset.group || stableTarget.dataset.key) : null,
-        stableSamples,
-        dwellElapsed: stableTarget ? performance.now() - stableStart : 0,
-        dwellMs: tuning.dwellMs
-      };
-      Object.assign(entry, extra);
-      debugLog.push(entry);
-
-      if (debugLog.length > 400) debugLog.shift();
-      updateStatusBox();
-    }
-
-    function clearTargetHighlights() {
-      document.querySelectorAll(".group-key, .letter-key").forEach(btn => {
-        btn.classList.remove("active");
-      });
-    }
-
-    function resetHoverState() {
-      stableTarget = null;
-      stableSamples = 0;
-      stableStart = 0;
-      clearTargetHighlights();
-    }
-
-    function updateCalibrationTarget() {
-      if (calibStep >= calibSequence.length) {
-        isCalibrating = false;
-        document.getElementById("calibration-overlay").style.display = "none";
-        return;
-      }
-
-      const target = calibSequence[calibStep];
-      const targetX = target.x0 !== undefined ? target.x0 : window.innerWidth * target.x;
-      const targetY = target.y0 !== undefined ? target.y0 : window.innerHeight * target.y;
-
-      const dot = document.getElementById("calib-dot");
-      dot.style.left = targetX + "px";
-      dot.style.top = targetY + "px";
-      dot.innerText = target.key || (calibStep + 1);
-
-      document.getElementById("calib-text").innerHTML =
-        `Step ${calibStep + 1} of ${calibSequence.length} (${target.name})<br>Stare directly at the red dot and click it 3 times (${calibClicks}/3).`;
-
-      window.currentCalibrationTargetCoords = { x: targetX, y: targetY };
-    }
-
-    function startCalibration(type) {
-      isCalibrating = true;
-      calibModeType = type;
-      calibStep = 0;
-      calibClicks = 0;
-
-      if (calibModeType === "perkey") {
-        calibSequence = GROUPS.flatMap((group, groupIndex) =>
-          group.keys.map((k, keyIndex) => ({
-            name: `${group.label} / ${k}`,
-            x0: (window.innerWidth * 0.5) - 300 + (keyIndex * 110),
-            y0: (window.innerHeight * 0.55) + (groupIndex * 100),
-            key: k
-          }))
-        );
-        document.getElementById("calib-title").innerText = "⌨️ Per-Key Sweep Calibration";
-      } else {
-        calibSequence = zone9Sequence;
-        document.getElementById("calib-title").innerText = "🎯 9-Zone Grid Calibration";
-      }
-
-      document.getElementById("calibration-overlay").style.display = "flex";
-      updateCalibrationTarget();
-    }
-
-    document.getElementById("calib-dot").addEventListener("click", function() {
-      if (!isCalibrating) return;
-      if (!window.currentCalibrationTargetCoords) return;
-
-      webgazer.recordScreenPosition(window.currentCalibrationTargetCoords.x, window.currentCalibrationTargetCoords.y, "click");
-      calibClicks++;
-
-      if (calibClicks >= 3) {
-        calibClicks = 0;
-        calibStep++;
-      }
-
-      updateCalibrationTarget();
-    });
-
-    function clearText() {
-      const outputBar = document.getElementById("output-bar");
-      const txt = outputBar.innerText;
-      outputBar.innerText = txt.length > 1 ? txt.slice(0, -1) : "Type here...";
-      logDebug("delete", { source: "ui-button", textLength: txt.length });
-      evaluateAdaptiveFeedback();
-    }
-
-    function renderGroupSelection() {
-      const row1 = document.getElementById("group-row-1");
-      const row2 = document.getElementById("group-row-2");
-      row1.innerHTML = "";
-      row2.innerHTML = "";
-
-      const groups1 = GROUPS.slice(0, 2);
-      const groups2 = GROUPS.slice(2);
-
-      groups1.forEach((group) => {
-        const btn = document.createElement("button");
-        btn.className = "group-key";
-        btn.innerText = group.label;
-        btn.dataset.group = group.label;
-        btn.style.width = "180px";
-        btn.style.height = "90px";
-        btn.style.fontSize = "26px";
-        btn.onclick = () => selectGroup(group);
-        row1.appendChild(btn);
-      });
-
-      groups2.forEach((group) => {
-        const btn = document.createElement("button");
-        btn.className = "group-key";
-        btn.innerText = group.label;
-        btn.dataset.group = group.label;
-        btn.style.width = "180px";
-        btn.style.height = "90px";
-        btn.style.fontSize = "26px";
-        btn.onclick = () => selectGroup(group);
-        row2.appendChild(btn);
-      });
-
-      resetHoverState();
-    }
-
-    function renderLetterSelection(group) {
-      const row = document.getElementById("group-row-1");
-      const row2 = document.getElementById("group-row-2");
-      row.innerHTML = "";
-      row2.innerHTML = "";
-
-      const cols = group.keys.length;
-      let rowOneKeys = [];
-      let rowTwoKeys = [];
-
-      if (cols <= 6) {
-        rowOneKeys = group.keys.slice(0, Math.ceil(cols / 2));
-        rowTwoKeys = group.keys.slice(Math.ceil(cols / 2));
-      } else {
-        rowOneKeys = group.keys.slice(0, 5);
-        rowTwoKeys = group.keys.slice(5);
-      }
-
-      rowOneKeys.forEach((key) => {
-        const btn = document.createElement("button");
-        btn.className = "letter-key";
-        btn.innerText = key;
-        btn.dataset.key = key;
-        btn.style.width = "110px";
-        btn.style.height = "110px";
-        btn.style.fontSize = "32px";
-        btn.onclick = () => chooseLetter(key);
-        row.appendChild(btn);
-      });
-
-      rowTwoKeys.forEach((key) => {
-        const btn = document.createElement("button");
-        btn.className = "letter-key";
-        btn.innerText = key;
-        btn.dataset.key = key;
-        btn.style.width = "110px";
-        btn.style.height = "110px";
-        btn.style.fontSize = "32px";
-        btn.onclick = () => chooseLetter(key);
-        row2.appendChild(btn);
-      });
-
-      resetHoverState();
-    }
-
-    function selectGroup(group) {
-      selectedGroup = group;
-      phase = "letter";
-      selectedKey = null;
-      resetHoverState();
-      renderLetterSelection(group);
-    }
-
-    function updateStatusBox() {
-      const selections = debugLog.filter(e => e.event === "letter-selected").length;
-      const deletes = debugLog.filter(e => e.event === "delete").length;
-      const accidentalRate = selections > 0
-        ? ((debugLog.filter(e => e.event === "delete" && e.source !== "ui-button").length || 0) / selections) * 100
-        : 0;
-
-      document.getElementById("selection-count").innerText = selections;
-      document.getElementById("delete-count").innerText = deletes;
-      document.getElementById("accidental-rate").innerText = `${accidentalRate.toFixed(0)}%`;
-    }
-
-    function evaluateAdaptiveFeedback() {
-      if (!adaptiveEnabled) return;
-
-      const recent = debugLog.slice(-200);
-      const selections = recent.filter(e => e.event === "letter-selected");
-      const deletes = recent.filter(e => e.event === "delete");
-
-      if (selections.length === 0) return;
-
-      let accidentalCount = 0;
-
-      for (const sel of selections) {
-        const deletedSoon = deletes.some(d => d.t > sel.t && (d.t - sel.t) < 2000);
-        if (deletedSoon) accidentalCount++;
-      }
-
-      const accidentalRate = accidentalCount / selections.length;
-
-      if (accidentalRate > 0.25) {
-        tuning.dwellMs = Math.min(2500, tuning.dwellMs + 150);
-        tuning.stableSampleCount = Math.min(8, tuning.stableSampleCount + 1);
-        tuning.switchHysteresisMs = Math.min(300, tuning.switchHysteresisMs + 20);
-        tuning.groupRadius = Math.max(140, tuning.groupRadius - 5);
-        tuning.letterRadius = Math.max(120, tuning.letterRadius - 5);
-        logDebug("adaptive-more-conservative", {
-          accidentalRate,
-          dwellMs: tuning.dwellMs,
-          stableSampleCount: tuning.stableSampleCount
-        });
-      } else if (accidentalRate < 0.08 && selections.length > 10) {
-        tuning.dwellMs = Math.max(900, tuning.dwellMs - 60);
-        tuning.stableSampleCount = Math.max(4, tuning.stableSampleCount - 1);
-        tuning.switchHysteresisMs = Math.max(120, tuning.switchHysteresisMs - 10);
-        logDebug("adaptive-faster", {
-          accidentalRate,
-          dwellMs: tuning.dwellMs,
-          stableSampleCount: tuning.stableSampleCount
-        });
-      }
-
-      saveTuning();
-      applyTuningToControls();
-    }
-
-    function chooseLetter(value) {
-      let autoDelete = false;
-
-      if (value === "⌫") {
-        const outputBar = document.getElementById("output-bar");
-        let txt = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-        txt = txt.slice(0, -1);
-        outputBar.innerText = txt || "Type here...";
-        autoDelete = true;
-      } else if (value === "SP") {
-        const outputBar = document.getElementById("output-bar");
-        let current = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-        outputBar.innerText = current + " ";
-      } else {
-        const outputBar = document.getElementById("output-bar");
-        let current = outputBar.innerText === "Type here..." ? "" : outputBar.innerText;
-        outputBar.innerText = current + value;
-      }
-
-      logDebug("letter-selected", { selected: value, autoDelete });
-      if (autoDelete) logDebug("delete", { source: "auto-delete-letter", selected: value });
-
-      evaluateAdaptiveFeedback();
-
-      phase = "group";
-      selectedGroup = null;
-      selectedKey = null;
-      resetHoverState();
-      renderGroupSelection();
-    }
-
-    function findNearestTarget(selector, maxDist) {
-      const buttons = document.querySelectorAll(selector);
-      let best = null;
-      let bestDist = Infinity;
-
-      for (const btn of buttons) {
-        const rect = btn.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        const dist = Math.hypot(correctedGaze.x - cx, correctedGaze.y - cy);
-
-        if (dist < maxDist && dist < bestDist) {
-          best = btn;
-          bestDist = dist;
-        }
-      }
-
-      return best;
-    }
-
     function triggerSelection(target) {
-      const clickable = target.closest
-        ? (target.closest('button, a, input, [role="button"], .q-btn, .grid-item, .group-key, .letter-key') || target)
-        : target;
+        const clickable = target.closest
+            ? (target.closest('button, a, input, [role="button"], .q-btn, .grid-item') || target)
+            : target;
 
-      const rect = clickable.getBoundingClientRect();
-      const clientX = rect.left + rect.width / 2;
-      const clientY = rect.top + rect.height / 2;
+        const rect = clickable.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
 
-      if (typeof webgazer !== 'undefined' && webgazer.recordScreenPosition) {
-        webgazer.recordScreenPosition(clientX, clientY, 'click');
-      }
+        if (typeof webgazer !== 'undefined' && webgazer.recordScreenPosition) {
+            webgazer.recordScreenPosition(clientX, clientY, 'click');
+        }
 
-      clickable.dispatchEvent(new MouseEvent('mousedown', {
-        bubbles: true,
-        cancelable: true,
-        clientX,
-        clientY,
-        button: 0,
-        buttons: 1
-      }));
+        clickable.dispatchEvent(new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+            button: 0,
+            buttons: 1
+        }));
 
-      clickable.dispatchEvent(new MouseEvent('mouseup', {
-        bubbles: true,
-        cancelable: true,
-        clientX,
-        clientY,
-        button: 0,
-        buttons: 0
-      }));
+        clickable.dispatchEvent(new MouseEvent('mouseup', {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+            button: 0,
+            buttons: 0
+        }));
 
-      clickable.dispatchEvent(new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        clientX,
-        clientY,
-        button: 0,
-        buttons: 0
-      }));
+        clickable.dispatchEvent(new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+            button: 0,
+            buttons: 0
+        }));
 
-      if (typeof clickable.click === 'function') {
-        clickable.click();
-      }
+        if (typeof clickable.click === 'function') {
+            clickable.click();
+        }
     }
 
-    function updateSelectionState() {
-      if (isCalibrating) return;
+    function resetGazeTarget() {
+        const active = document.querySelector('.gaze-active-target');
+        if (active) {
+            active.classList.remove('gaze-active-target');
+        }
+        window.__gazeActiveTarget = null;
+        window.__gazeDwellStart = 0;
+    }
 
-      const selector = phase === "group" ? ".group-key" : ".letter-key";
-      const maxDist = phase === "group" ? tuning.groupRadius : tuning.letterRadius;
-      const best = findNearestTarget(selector, maxDist);
-
-      if (!isWithinKeyboardBounds(correctedGaze.x, correctedGaze.y)) {
-        resetHoverState();
-        return;
-      }
-
-      if (!best) {
-        if (stableTarget && performance.now() - stableStart < tuning.resetGraceMs) {
-          return;
+    function smoothGaze(rawX, rawY) {
+        if (smoothedGazeX === null || smoothedGazeY === null) {
+            smoothedGazeX = rawX;
+            smoothedGazeY = rawY;
+            return { x: rawX, y: rawY };
         }
 
-        if (stableTarget && performance.now() - stableStart >= tuning.resetGraceMs) {
-          resetHoverState();
-        }
-        return;
-      }
+        const smoothing = 0.7;
+        smoothedGazeX += (rawX - smoothedGazeX) * smoothing;
+        smoothedGazeY += (rawY - smoothedGazeY) * smoothing;
 
-      const now = performance.now();
+        return { x: smoothedGazeX, y: smoothedGazeY };
+    }
 
-      if (!stableTarget) {
-        stableTarget = best;
-        stableStart = now;
-        stableSamples = 1;
-        clearTargetHighlights();
-        best.classList.add("active");
-        return;
-      }
+    function initGridGazeDwell() {
+        const checkInterval = setInterval(async () => {
+            if (typeof webgazer === 'undefined') return;
 
-      if (stableTarget === best) {
-        stableSamples++;
+            clearInterval(checkInterval);
 
-        if (now - stableStart >= tuning.dwellMs && stableSamples >= tuning.stableSampleCount) {
-          if (phase === "group") {
-            const group = GROUPS.find(g => g.label === best.dataset.group);
-            if (group) {
-              phase = "letter";
-              resetHoverState();
-              renderLetterSelection(group);
+            try {
+                await webgazer.begin();
+                webgazer.showVideoPreview(false);
+                webgazer.showPredictionPoints(false);
+                webgazer.showFaceOverlay(false);
+                webgazer.applyKalmanFilter(true);
+
+                webgazer.setGazeListener((data) => {
+                    if (!data) return;
+
+                    const smoothed = smoothGaze(data.x, data.y);
+                    const x = smoothed.x;
+                    const y = smoothed.y;
+
+                    const elementUnderGaze = document.elementFromPoint(x, y);
+                    const interactive = elementUnderGaze && elementUnderGaze.closest
+                        ? elementUnderGaze.closest('.grid-item, button, [role="button"], .q-btn, a, input')
+                        : null;
+
+                    if (!interactive) {
+                        resetGazeTarget();
+                        return;
+                    }
+
+                    if (window.__gazeActiveTarget !== interactive) {
+                        const oldTarget = document.querySelector('.gaze-active-target');
+                        if (oldTarget) oldTarget.classList.remove('gaze-active-target');
+
+                        window.__gazeActiveTarget = interactive;
+                        interactive.classList.add('gaze-active-target');
+                        window.__gazeDwellStart = performance.now();
+                        return;
+                    }
+
+                    if (performance.now() - window.__gazeDwellStart >= 1000) {
+                        triggerSelection(interactive);
+                        resetGazeTarget();
+                    }
+                });
+            } catch (err) {
+                console.error("WebGazer init error:", err);
             }
-          } else {
-            chooseLetter(best.dataset.key);
-          }
-        }
-        return;
-      }
-
-      if (now - stableStart > tuning.switchHysteresisMs) {
-        stableTarget = best;
-        stableStart = now;
-        stableSamples = 1;
-        clearTargetHighlights();
-        best.classList.add("active");
-      }
+        }, 200);
     }
 
-    function renderVisuals() {
-      const rawDot = document.getElementById("raw-gaze-dot");
-      const vCursor = document.getElementById("virtual-cursor");
+    initGridGazeDwell();
+</script>
 
-      if (rawGazeX !== null && rawGazeY !== null) {
-        rawDot.style.left = rawGazeX + "px";
-        rawDot.style.top = rawGazeY + "px";
-        rawDot.style.display = "block";
-      }
-
-      vCursor.style.left = correctedGaze.x + "px";
-      vCursor.style.top = correctedGaze.y + "px";
-      vCursor.style.display = "block";
-    }
-
-    function processGaze(data) {
-      if (!data) return;
-
-      const rawX = data.x;
-      const rawY = data.y;
-
-      rawGazeX = rawX;
-      rawGazeY = rawY;
-
-      if (smoothedGazeX !== null && smoothedGazeY !== null) {
-        const instVelocity = Math.hypot(rawX - smoothedGazeX, rawY - smoothedGazeY);
-
-        if (instVelocity > 180 && !isSaccadeLocked) {
-          isSaccadeLocked = true;
-          smoothedGazeX = rawX;
-          smoothedGazeY = rawY;
-          clearTimeout(saccadeFreezeTimer);
-          saccadeFreezeTimer = setTimeout(() => {
-            isSaccadeLocked = false;
-          }, 350);
-        } else if (!isSaccadeLocked) {
-          smoothedGazeX += (rawX - smoothedGazeX) * tuning.smoothing;
-          smoothedGazeY += (rawY - smoothedGazeY) * tuning.smoothing;
-        }
-      } else {
-        smoothedGazeX = rawX;
-        smoothedGazeY = rawY;
-      }
-
-      correctedGaze = { x: smoothedGazeX, y: smoothedGazeY };
-
-      if (!isCalibrating) {
-        updateSelectionState();
-      }
-
-      renderVisuals();
-    }
-
-    function gazeTickListener(data) {
-      processGaze(data);
-    }
-
-    window.onload = async function() {
-      loadTuning();
-      loadAdaptiveState();
-      applyTuningToControls();
-
-      renderGroupSelection();
-
-      if (typeof webgazer !== 'undefined') {
-        try {
-          await webgazer.begin();
-          webgazer.showVideoPreview(false);
-          webgazer.showPredictionPoints(false);
-          webgazer.showFaceOverlay(false);
-          webgazer.applyKalmanFilter(true);
-          webgazer.setGazeListener(gazeTickListener);
-          startCalibration("9zone");
-        } catch (e) {
-          console.error("WebGazer failed to initialize:", e);
-        }
-      } else {
-        console.error("WebGazer is not available.");
-      }
-    };
-
-    const style = document.createElement("style");
-    style.textContent = `
-      .webgazer-video-container,
-      .webgazer-face-overlay,
-      .webgazer-prediction-point {
-        display: none !important;
-      }
-    `;
-    document.head.appendChild(style);
-
-    window.__gazeDebug = debugLog;
-    window.dumpDebug = () => console.table(debugLog.slice(-50));
-    window.copyDebug = async () => {
-      const text = JSON.stringify(debugLog.slice(-50), null, 2);
-      try {
-        await navigator.clipboard.writeText(text);
-        console.log("Debug copied to clipboard");
-      } catch (err) {
-        console.log(text);
-      }
-    };
-
-    window.addEventListener("keydown", (e) => {
-      if (e.key === "Backspace" || e.key === "Delete") {
-        logDebug("delete", { source: "keyboard", key: e.key });
-        evaluateAdaptiveFeedback();
-      }
-
-      if (e.key.toLowerCase() === "a") {
-        toggleAdaptiveMode();
-      }
-
-      if (e.key.toLowerCase() === "d") {
-        window.dumpDebug();
-      }
-    });
-  </script>
+<script type="module" src="app/build/asterics-aac.bundle.js"></script>
 </body>
 </html>
