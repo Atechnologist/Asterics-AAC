@@ -184,7 +184,6 @@
 </script>
 
 <script>
-    // --- Eye gaze dwell selection for Asterics Grid buttons ---
     let smoothedGazeX = null;
     let smoothedGazeY = null;
 
@@ -235,9 +234,7 @@
 
     function resetGazeTarget() {
         const active = document.querySelector('.gaze-active-target');
-        if (active) {
-            active.classList.remove('gaze-active-target');
-        }
+        if (active) active.classList.remove('gaze-active-target');
         window.__gazeActiveTarget = null;
         window.__gazeDwellStart = 0;
     }
@@ -252,14 +249,12 @@
         const smoothing = 0.7;
         smoothedGazeX += (rawX - smoothedGazeX) * smoothing;
         smoothedGazeY += (rawY - smoothedGazeY) * smoothing;
-
         return { x: smoothedGazeX, y: smoothedGazeY };
     }
 
     function initGridGazeDwell() {
         const checkInterval = setInterval(async () => {
             if (typeof webgazer === 'undefined') return;
-
             clearInterval(checkInterval);
 
             try {
@@ -301,6 +296,7 @@
                         resetGazeTarget();
                     }
                 });
+
             } catch (err) {
                 console.error("WebGazer init error:", err);
             }
@@ -309,6 +305,8 @@
 
     initGridGazeDwell();
 </script>
+
+
 
 <script type="module" src="app/build/asterics-aac.bundle.js"></script>
 </body>
