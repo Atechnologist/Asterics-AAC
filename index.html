@@ -1,6 +1,25 @@
 <!DOCTYPE html>
 <html lang="en" class="notranslate" translate="no">
 <head>
+    <script>
+        // Safe global mock for ResponsiveVoice to prevent AAC speech crashes
+        window.responsiveVoice = window.responsiveVoice || {
+            speak: function(text) { console.log("Mock Speech:", text); },
+            stop: function() {},
+            cancel: function() {},
+            isPlaying: function() { return false; },
+            deviceSupportsSpeech: function() { return true; },
+            init: function() {}
+        };
+
+        // Custom gaze mode guards
+        window.__gazeCustomMode = true;
+        window.__gazeCalibrationStarted = false;
+        window.__gazeCalibrationOverlayStarted = false;
+        window.__gazeActiveTarget = null;
+        window.__gazeDwellStart = 0;
+    </script>
+
     <title>Asterics AAC</title>
     <meta id="viewPortMeta" name="viewport" content="width=device-width, initial-scale=1">
     <meta name="google-site-verification" content="UWnxfeRniUm-l7GAbNdqfZQmCCaAU3HB6jGOuEHZ26k" />
@@ -16,10 +35,12 @@
     <link rel="stylesheet" href="app/css/bootstrap-grid.css">
     <link rel="stylesheet" href="app/css/grid-styles.css">
 
-    <!-- WebGazer + TFJS -->
+    <!-- Resilient CDN Stack for Eye-Tracking Engine -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tfjs/3.21.0/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh@0.0.5/dist/facemesh.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://code.responsivevoice.org/responsivevoice.js?key=YOUR_KEY_OR_FREE"></script>
 
     <style>
         .gaze-active-target {
@@ -125,7 +146,7 @@
 <!-- browser compatibility checks and polyfills -->
 <script type="text/javascript" src='app/lib/modernizr-custom.js'></script>
 <script type="text/javascript">
-    // polyfill for String.replaceAll, https://stackoverflow.com/questions/1144783/how-do-i-replace-all-occurrences-of-a-string-in-javascript
+    // polyfill for String.replaceAll
     if(!String.prototype.replaceAll){Object.defineProperty(String.prototype,'replaceAll',{configurable:!0,writable:!0,enumerable:!1,value:function(search,replace){return this.replace(Object.prototype.toString.call(search)==='[object RegExp]'?search.global?search:RegExp(search.source,/\/([a-z]*)$/.exec(search.toString())[1]+'g'):RegExp(String(search).replace(/[.^$*+?()[{|\\]/g,"\\$&"),"g"),replace)}})}
 
     testEval("function x(a = 1){}", "default parameters")
@@ -184,6 +205,7 @@
 </script>
 
 <script>
+    // --- WebGazer dwell click engine (real click only, no hover/tooltip events) ---
     let smoothedGazeX = null;
     let smoothedGazeY = null;
 
@@ -196,10 +218,12 @@
         const clientX = rect.left + rect.width / 2;
         const clientY = rect.top + rect.height / 2;
 
+        // Record position for implicit optimization
         if (typeof webgazer !== 'undefined' && webgazer.recordScreenPosition) {
             webgazer.recordScreenPosition(clientX, clientY, 'click');
         }
 
+        // Only real click events — no hover-triggering mouseover/enter events
         clickable.dispatchEvent(new MouseEvent('mousedown', {
             bubbles: true,
             cancelable: true,
@@ -252,7 +276,87 @@
         return { x: smoothedGazeX, y: smoothedGazeY };
     }
 
-    function initGridGazeDwell() {
+    function createCalibrationOverlay(onComplete) {
+        if (window.__gazeCalibrationOverlayStarted) return;
+        window.__gazeCalibrationOverlayStarted = true;
+
+        const existing = document.getElementById('gaze-calibration-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'gaze-calibration-overlay';
+        overlay.style.position = 'fixed';
+        overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100vw';
+        overlay.style.height = '100vh';
+        overlay.style.backgroundColor = 'rgba(10, 10, 10, 0.95)';
+        overlay.style.zIndex = '999999';
+        overlay.style.display = 'flex';
+        overlay.style.flexDirection = 'column';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.color = '#fff';
+        overlay.style.fontFamily = 'sans-serif';
+
+        overlay.innerHTML = `
+            <h2 style="margin-bottom: 10px; font-size: 24px;">Eye-Tracker Setup Calibration</h2>
+            <p style="max-width: 450px; text-align: center; color: #bbb; margin-bottom: 30px; line-height: 1.5;">
+                Stare directly at the glowing green dot and click it <strong>3 times</strong> with your mouse. Repeat for all positions to map your grid accurately.
+            </p>
+            <div id="calibration-target" style="width: 40px; height: 40px; background: #00ffcc; border-radius: 50%; cursor: pointer; box-shadow: 0 0 25px #00ffcc; transition: all 0.15s;"></div>
+            <p id="calib-status" style="margin-top: 25px; font-weight: bold; color: #00ffcc; font-size: 16px;">Target 1 of 5: Click 3 times</p>
+        `;
+
+        document.body.appendChild(overlay);
+
+        const target = document.getElementById('calibration-target');
+        const statusText = document.getElementById('calib-status');
+
+        const points = [
+            {x: '15vw', y: '20vh'}, {x: '85vw', y: '20vh'},
+            {x: '50vw', y: '50vh'},
+            {x: '15vw', y: '80vh'}, {x: '85vw', y: '80vh'}
+        ];
+
+        let currentPoint = 0;
+        let clickCount = 0;
+
+        function updateTargetPosition() {
+            if (currentPoint >= points.length) {
+                overlay.remove();
+                if (typeof onComplete === 'function') onComplete();
+                return;
+            }
+
+            target.style.position = 'absolute';
+            target.style.left = points[currentPoint].x;
+            target.style.top = points[currentPoint].y;
+            clickCount = 0;
+            statusText.innerText = `Target ${currentPoint + 1} of ${points.length}: Click 3 times while staring at the dot.`;
+        }
+
+        target.addEventListener('click', (e) => {
+            if (typeof webgazer !== 'undefined' && webgazer.recordScreenPosition) {
+                webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
+            }
+
+            clickCount++;
+            statusText.innerText = `Point ${currentPoint + 1} of 5: Click count ${clickCount}/3`;
+
+            if (clickCount >= 3) {
+                currentPoint++;
+                updateTargetPosition();
+            }
+        });
+
+        updateTargetPosition();
+    }
+
+    function startEyeTrackingLoop() {
+        if (window.__gazeCalibrationStarted) return;
+        window.__gazeCalibrationStarted = true;
+
         const checkInterval = setInterval(async () => {
             if (typeof webgazer === 'undefined') return;
             clearInterval(checkInterval);
@@ -303,10 +407,19 @@
         }, 200);
     }
 
-    initGridGazeDwell();
+    // Delayed startup so the app is ready and calibration is triggered once
+    window.addEventListener('load', function () {
+        if (window.__gazeCalibrationStarted) return;
+
+        setTimeout(function () {
+            if (typeof webgazer !== 'undefined' && !window.__gazeCalibrationStarted) {
+                createCalibrationOverlay(function () {
+                    startEyeTrackingLoop();
+                });
+            }
+        }, 350);
+    });
 </script>
-
-
 
 <script type="module" src="app/build/asterics-aac.bundle.js"></script>
 </body>
