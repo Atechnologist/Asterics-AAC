@@ -267,7 +267,274 @@
         mapRefreshIntervalMs: 200,
         rearmMs: 350
     };
+    
+const GAZE_SETTINGS_STORAGE_KEY = 'asterics-gaze-settings-v1';
 
+function initGazeSettingsMenu() {
+    const settings = [
+        {
+            key: 'dwellMs',
+            label: 'Dwell time',
+            min: 500,
+            max: 2500,
+            step: 100,
+            display: value => `${(value / 1000).toFixed(1)} s`
+        },
+        {
+            key: 'smoothing',
+            label: 'Gaze responsiveness',
+            min: 0.2,
+            max: 0.8,
+            step: 0.05,
+            display: value => Number(value).toFixed(2)
+        },
+        {
+            key: 'hitPaddingRatio',
+            label: 'Target tolerance',
+            min: 0.15,
+            max: 0.6,
+            step: 0.05,
+            display: value => Number(value).toFixed(2)
+        },
+        {
+            key: 'resetGraceMs',
+            label: 'Leave-target grace',
+            min: 0,
+            max: 600,
+            step: 50,
+            display: value => `${value} ms`
+        },
+        {
+            key: 'switchHysteresisMs',
+            label: 'Target switch stability',
+            min: 50,
+            max: 400,
+            step: 25,
+            display: value => `${value} ms`
+        },
+        {
+            key: 'minStableSamples',
+            label: 'Minimum stable samples',
+            min: 3,
+            max: 12,
+            step: 1,
+            display: value => `${value}`
+        }
+    ];
+
+    try {
+        const saved = JSON.parse(localStorage.getItem(GAZE_SETTINGS_STORAGE_KEY) || '{}');
+        settings.forEach(setting => {
+            const value = Number(saved[setting.key]);
+            if (Number.isFinite(value)) {
+                GAZE_TUNING[setting.key] = value;
+            }
+        });
+    } catch (error) {
+        console.warn('Could not load saved gaze settings:', error);
+    }
+
+    const style = document.createElement('style');
+    style.textContent = `
+        #gaze-settings-toggle {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            z-index: 99990;
+            padding: 9px 12px;
+            border: 1px solid #00c9a7;
+            border-radius: 6px;
+            background: #172321;
+            color: #fff;
+            font: 14px sans-serif;
+            cursor: pointer;
+        }
+
+        #gaze-settings-panel {
+            position: fixed;
+            top: 58px;
+            right: 12px;
+            z-index: 99990;
+            width: min(340px, calc(100vw - 24px));
+            max-height: calc(100vh - 75px);
+            overflow-y: auto;
+            padding: 14px;
+            border: 1px solid #00c9a7;
+            border-radius: 8px;
+            background: rgba(15, 20, 20, 0.97);
+            color: #fff;
+            font: 14px sans-serif;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+        }
+
+        #gaze-settings-panel[hidden] {
+            display: none;
+        }
+
+        #gaze-settings-panel h2 {
+            margin: 0 0 12px;
+            font-size: 18px;
+        }
+
+        .gaze-setting {
+            margin: 12px 0;
+        }
+
+        .gaze-setting-heading {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 5px;
+        }
+
+        .gaze-setting input {
+            width: 100%;
+            accent-color: #00ffcc;
+        }
+
+        #gaze-settings-actions {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        #gaze-settings-actions button {
+            padding: 7px 10px;
+            border: 1px solid #00c9a7;
+            border-radius: 5px;
+            background: #172321;
+            color: #fff;
+            cursor: pointer;
+        }
+
+        #gaze-settings-help {
+            color: #bbb;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+    `;
+    document.head.appendChild(style);
+
+    const toggle = document.createElement('button');
+    toggle.id = 'gaze-settings-toggle';
+    toggle.type = 'button';
+    toggle.textContent = 'Gaze settings';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', 'gaze-settings-panel');
+
+    const panel = document.createElement('section');
+    panel.id = 'gaze-settings-panel';
+    panel.hidden = true;
+    panel.setAttribute('aria-label', 'Gaze settings');
+
+    const title = document.createElement('h2');
+    title.textContent = 'Gaze settings';
+    panel.appendChild(title);
+
+    const help = document.createElement('p');
+    help.id = 'gaze-settings-help';
+    help.textContent =
+        'Changes apply immediately and are saved in this browser. Higher responsiveness follows gaze faster; lower values smooth more.';
+    panel.appendChild(help);
+
+    settings.forEach(setting => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'gaze-setting';
+
+        const heading = document.createElement('div');
+        heading.className = 'gaze-setting-heading';
+
+        const label = document.createElement('label');
+        const inputId = `gaze-setting-${setting.key}`;
+        label.htmlFor = inputId;
+        label.textContent = setting.label;
+
+        const output = document.createElement('output');
+        output.id = `${inputId}-value`;
+
+        const input = document.createElement('input');
+        input.id = inputId;
+        input.type = 'range';
+        input.min = String(setting.min);
+        input.max = String(setting.max);
+        input.step = String(setting.step);
+
+        const initialValue = Number(GAZE_TUNING[setting.key]);
+        input.value = String(
+            Number.isFinite(initialValue) ? initialValue : DEFAULT_GAZE_TUNING[setting.key]
+        );
+        output.textContent = setting.display(Number(input.value));
+
+        input.addEventListener('input', () => {
+            const value = Number(input.value);
+            GAZE_TUNING[setting.key] = value;
+            output.textContent = setting.display(value);
+            saveGazeSettings();
+        });
+
+        heading.append(label, output);
+        wrapper.append(heading, input);
+        panel.appendChild(wrapper);
+    });
+
+    const actions = document.createElement('div');
+    actions.id = 'gaze-settings-actions';
+
+    const resetButton = document.createElement('button');
+    resetButton.type = 'button';
+    resetButton.textContent = 'Reset defaults';
+    resetButton.addEventListener('click', () => {
+        Object.assign(GAZE_TUNING, DEFAULT_GAZE_TUNING);
+
+        settings.forEach(setting => {
+            const input = document.getElementById(`gaze-setting-${setting.key}`);
+            const output = document.getElementById(`gaze-setting-${setting.key}-value`);
+            const value = Number(GAZE_TUNING[setting.key]);
+
+            input.value = String(value);
+            output.textContent = setting.display(value);
+        });
+
+        saveGazeSettings();
+    });
+
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.textContent = 'Close';
+    closeButton.addEventListener('click', closePanel);
+
+    actions.append(resetButton, closeButton);
+    panel.appendChild(actions);
+
+    toggle.addEventListener('click', () => {
+        const opening = panel.hidden;
+        panel.hidden = !opening;
+        toggle.setAttribute('aria-expanded', String(opening));
+    });
+
+    document.body.append(toggle, panel);
+
+    function closePanel() {
+        panel.hidden = true;
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.focus();
+    }
+
+    function saveGazeSettings() {
+        try {
+            const values = {};
+            settings.forEach(setting => {
+                values[setting.key] = GAZE_TUNING[setting.key];
+            });
+            localStorage.setItem(GAZE_SETTINGS_STORAGE_KEY, JSON.stringify(values));
+        } catch (error) {
+            console.warn('Could not save gaze settings:', error);
+        }
+    }
+}
+
+initGazeSettingsMenu();
     let smoothedGazeX = null;
     let smoothedGazeY = null;
     let gazeStarted = false;
