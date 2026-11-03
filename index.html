@@ -440,7 +440,7 @@
         });
     }
 
-   function findCell(x, y) {
+ function findCell(x, y) {
     if (!activeCells.length) return null;
 
     const containing = activeCells
@@ -452,23 +452,6 @@
 
     return containing[0] || null;
 }
-
-            const padding = Math.max(
-                TUNING.minHitPaddingPx,
-                Math.min(
-                    TUNING.maxHitPaddingPx,
-                    Math.min(cell.width, cell.height) * TUNING.hitPaddingRatio
-                )
-            );
-
-            if (distance <= padding && distance < bestDistance) {
-                best = cell;
-                bestDistance = distance;
-            }
-        }
-
-        return best;
-    }
 
     function setGazeDots(rawX, rawY, smoothX, smoothY) {
         const rawDot = document.getElementById('gaze-raw-dot');
