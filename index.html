@@ -2,7 +2,7 @@
 <html lang="en" class="notranslate" translate="no">
 <head>
     <script>
-        // Fallback for when ResponsiveVoice is unavailable.
+        // Fallback if ResponsiveVoice doesn't load.
         window.responsiveVoice = window.responsiveVoice || {
             speak: function(text) { console.log("Mock Speech:", text); },
             stop: function() {},
@@ -28,7 +28,6 @@
     <link rel="stylesheet" href="app/css/bootstrap-grid.css">
     <link rel="stylesheet" href="app/css/grid-styles.css">
 
-    <!-- WebGazer dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tfjs/3.21.0/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh@0.0.5/dist/facemesh.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
@@ -126,19 +125,11 @@
         <div class="holy-grail-sidebar-1 hg-sidebar no-print" v-show="showSidebar">
             <div style="flex: 0 0 auto;">
                 <div class="show-mobile">
-                    <a tabindex="1" href="javascript:void(0)" :aria-label="$t('closeSidebar')" @click="closeSidebar()">
-                        <button tabindex="-1"><i class="fas fa-2x fa-bars inline"></i></button>
-                    </a>
+                    <a tabindex="1" href="javascript:void(0)" :aria-label="$t('closeSidebar')" @click="closeSidebar()"><button tabindex="-1"><i class="fas fa-2x fa-bars inline"></i></button></a>
                 </div>
                 <div class="hide-mobile" style="display: inline-flex">
-                    <a tabindex="1" href="javascript:void(0)" :aria-label="$t('closeSidebar')" @click="closeSidebar()" style="margin: 0.2em 0.5em 0 1.2em">
-                        <i class="fas fa-2x fa-bars inline"></i>
-                    </a>
-                    <a tabindex="-1" aria-hidden="true" href="javascript:void(0)" @click="toMain">
-                        <h1 class="inline hide-mobile">
-                            <img id="astericsIcon" src="app/img/asterics-aac-logo-raw.svg" height="40" alt="Asterics AAC"/>
-                        </h1>
-                    </a>
+                    <a tabindex="1" href="javascript:void(0)" :aria-label="$t('closeSidebar')" @click="closeSidebar()" style="margin: 0.2em 0.5em 0 1.2em"><i class="fas fa-2x fa-bars inline"></i></a>
+                    <a tabindex="-1" aria-hidden="true" href="javascript:void(0)" @click="toMain"><h1 class="inline hide-mobile"><img id="astericsIcon" src="app/img/asterics-aac-logo-raw.svg" height="40" alt="Asterics AAC"/></h1></a>
                 </div>
             </div>
 
@@ -155,15 +146,7 @@
 
                 <h2 class="hide-mobile">{{ $t('users') }}</h2>
                 <ul>
-                    <li>
-                        <a tabindex="5" href="#login" :aria-label="$t('changeUser')">
-                            <button tabindex="-1">
-                                <i class="fas fa-2x fa-users"></i>
-                                <span v-show="!currentUser" class="hide-mobile">{{ $t('login') }}</span>
-                                <span v-show="currentUser" class="hide-mobile">{{ $t('changeUser') }}</span>
-                            </button>
-                        </a>
-                    </li>
+                    <li><a tabindex="5" href="#login" :aria-label="$t('changeUser')"><button tabindex="-1"><i class="fas fa-2x fa-users"></i><span v-show="!currentUser" class="hide-mobile">{{ $t('login') }}</span><span v-show="currentUser" class="hide-mobile">{{ $t('changeUser') }}</span></button></a></li>
                     <li class="hide-mobile"><a tabindex="6" href="#register" :aria-label="$t('addOnlineUser')"><button tabindex="-1"><i class="fas fa-2x fa-user-plus"></i><span class="hide-mobile">{{ $t('addOnlineUser') }}</span></button></a></li>
                     <li class="hide-mobile"><a tabindex="7" href="#add" :aria-label="$t('addOfflineUser')"><button tabindex="-1"><i class="fas fa-2x fa-user-plus"></i><span>{{ $t('addOfflineUser') }}</span></button></a></li>
                 </ul>
@@ -181,7 +164,6 @@
                 <span v-show="currentUser && !isLocalUser" class="hide-mobile"><span>{{ $t('loggedInAs') }}</span> <i>{{currentUser}}</i></span>
                 <span v-show="currentUser && isLocalUser" class="hide-mobile"><span>{{ $t('usingOfflineUser') }}</span> <i>{{currentUser}}</i></span>
                 <span v-show="!currentUser" class="hide-mobile">{{ $t('notLoggedIn') }}</span>
-
                 <span id="syncVisualization" v-if="currentUser && !isLocalUser" class="fa-stack fa-1x right" :title="syncState | translate">
                     <i class="fas fa-cloud fa-stack-2x" style="color: lightblue"></i>
                     <i v-show="syncState === constants.DB_SYNC_STATE_SYNCINC" class="fas fa-sync-alt fa-stack-1x fa-spin"></i>
@@ -190,7 +172,6 @@
                     <i v-show="syncState === constants.DB_SYNC_STATE_ONLINEONLY" class="fas fa-globe fa-stack-1x"></i>
                     <i v-show="!syncState || syncState === constants.DB_SYNC_STATE_FAIL" class="fas fa-times fa-stack-1x"></i>
                 </span>
-
                 <span id="syncVisualization2" v-if="currentUser && isLocalUser && syncState === constants.DB_SYNC_STATE_SYNCINC" class="fa-stack fa-1x right" :title="$t('cachingImages')">
                     <i class="fas fa-sync-alt fa-stack-1x fa-spin"></i>
                 </span>
@@ -208,7 +189,6 @@
     </div>
 </div>
 
-<!-- Browser compatibility checks and polyfills -->
 <script type="text/javascript" src="app/lib/modernizr-custom.js"></script>
 <script type="text/javascript">
     if (!String.prototype.replaceAll) {
@@ -257,7 +237,6 @@
     }
 </script>
 
-<!-- Libraries, not provided by npm -->
 <script src="app/lib/jquery.min.js"></script>
 <script src="app/lib/jquery-ui.min.js"></script>
 <script type="text/javascript" src="app/lib/jquery.contextMenu.min.js"></script>
@@ -266,31 +245,14 @@
 <script type="text/javascript" src="app/lib/loglevel.min.js"></script>
 <script type="text/javascript" src="app/lib/sjcl.min.js"></script>
 
-<script type="text/javascript">
-    if (Function.bind) {
-        window.originalLog = console.log.bind(console);
-        console.log = function() {
-            if (['ResponsiveVoice r1.6.5', 'isHidden: false', 'Prerender: false', 'Configuring'].indexOf(arguments[0]) !== -1) {
-                return;
-            } else if (arguments[0] === 'RV: Voice support ready') {
-                console.log = window.originalLog;
-            } else {
-                window.originalLog.apply(null, arguments);
-            }
-        };
-    }
-</script>
-
-<!-- Use Asterics' local ResponsiveVoice file; the head mock remains a fallback. -->
-<script type="text/javascript" src="app/lib/responsive-voice.js"></script>
-
 <script>
-(function() {
+(function () {
     'use strict';
 
-    const SETTINGS_KEY = 'asterics-gaze-settings-v1';
+    const SETTINGS_KEY = 'asterics-gaze-settings-v2';
+    const CORRECTION_KEY = 'asterics-gaze-correction-v1';
 
-    const DEFAULT_TUNING = {
+    const DEFAULTS = {
         dwellMs: 1200,
         smoothing: 0.50,
         hitPaddingRatio: 0.35,
@@ -303,24 +265,23 @@
         mapRefreshIntervalMs: 200
     };
 
-    const GAZE_TUNING = { ...DEFAULT_TUNING };
+    const TUNING = { ...DEFAULTS };
 
-    let smoothedGazeX = null;
-    let smoothedGazeY = null;
-    let gazeStartupStarted = false;
+    let calibrationDone = false;
+    let activeCells = [];
+    let gazeX = null;
+    let gazeY = null;
+    let correction = null;
+    let recentGaze = [];
     let gazeLoopStarted = false;
-    let activeGridMap = [];
 
     function loadSettings() {
         try {
             const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-
-            Object.keys(DEFAULT_TUNING).forEach(key => {
-                if (Object.prototype.hasOwnProperty.call(saved, key)) {
-                    const value = Number(saved[key]);
-                    if (Number.isFinite(value)) GAZE_TUNING[key] = value;
-                }
-            });
+            for (const key of Object.keys(DEFAULTS)) {
+                const value = Number(saved[key]);
+                if (Number.isFinite(value)) TUNING[key] = value;
+            }
         } catch (error) {
             console.warn('Could not load gaze settings:', error);
         }
@@ -328,64 +289,226 @@
 
     function saveSettings() {
         try {
-            localStorage.setItem(SETTINGS_KEY, JSON.stringify(GAZE_TUNING));
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(TUNING));
         } catch (error) {
             console.warn('Could not save gaze settings:', error);
         }
     }
 
-    function initGazeSettingsMenu() {
-        const settings = [
-            {
-                key: 'dwellMs',
-                label: 'Dwell time',
-                min: 500,
-                max: 2500,
-                step: 100,
-                format: value => `${(value / 1000).toFixed(1)} s`
-            },
-            {
-                key: 'smoothing',
-                label: 'Gaze responsiveness',
-                min: 0.2,
-                max: 0.9,
-                step: 0.05,
-                format: value => Number(value).toFixed(2)
-            },
-            {
-                key: 'hitPaddingRatio',
-                label: 'Target tolerance',
-                min: 0.15,
-                max: 0.6,
-                step: 0.05,
-                format: value => Number(value).toFixed(2)
-            },
-            {
-                key: 'resetGraceMs',
-                label: 'Leave-target grace',
-                min: 0,
-                max: 600,
-                step: 50,
-                format: value => `${value} ms`
-            },
-            {
-                key: 'switchHysteresisMs',
-                label: 'Target switch stability',
-                min: 50,
-                max: 400,
-                step: 25,
-                format: value => `${value} ms`
-            },
-            {
-                key: 'minStableSamples',
-                label: 'Minimum stable samples',
-                min: 3,
-                max: 12,
-                step: 1,
-                format: value => `${value}`
+    function loadCorrection() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(CORRECTION_KEY) || 'null');
+            if (
+                saved &&
+                Array.isArray(saved.x) &&
+                Array.isArray(saved.y) &&
+                saved.x.length === 3 &&
+                saved.y.length === 3 &&
+                saved.x.every(Number.isFinite) &&
+                saved.y.every(Number.isFinite)
+            ) {
+                correction = saved;
             }
+        } catch (error) {
+            console.warn('Could not load gaze correction:', error);
+        }
+    }
+
+    function saveCorrection() {
+        try {
+            if (correction) {
+                localStorage.setItem(CORRECTION_KEY, JSON.stringify(correction));
+            } else {
+                localStorage.removeItem(CORRECTION_KEY);
+            }
+        } catch (error) {
+            console.warn('Could not save gaze correction:', error);
+        }
+    }
+
+    function correctGaze(x, y) {
+        if (!correction) return { x, y };
+
+        const mappedX = correction.x[0] * x + correction.x[1] * y + correction.x[2];
+        const mappedY = correction.y[0] * x + correction.y[1] * y + correction.y[2];
+
+        if (!Number.isFinite(mappedX) || !Number.isFinite(mappedY)) return { x, y };
+
+        return {
+            x: Math.max(0, Math.min(window.innerWidth, mappedX)),
+            y: Math.max(0, Math.min(window.innerHeight, mappedY))
+        };
+    }
+
+    function solve3x3(matrix, values) {
+        const rows = matrix.map((row, i) => [...row, values[i]]);
+
+        for (let col = 0; col < 3; col++) {
+            let pivot = col;
+            for (let row = col + 1; row < 3; row++) {
+                if (Math.abs(rows[row][col]) > Math.abs(rows[pivot][col])) pivot = row;
+            }
+
+            if (Math.abs(rows[pivot][col]) < 1e-8) return null;
+            [rows[col], rows[pivot]] = [rows[pivot], rows[col]];
+
+            const divisor = rows[col][col];
+            for (let j = col; j < 4; j++) rows[col][j] /= divisor;
+
+            for (let row = 0; row < 3; row++) {
+                if (row === col) continue;
+                const factor = rows[row][col];
+                for (let j = col; j < 4; j++) {
+                    rows[row][j] -= factor * rows[col][j];
+                }
+            }
+        }
+
+        return rows.map(row => row[3]);
+    }
+
+    function fitAffine(samples) {
+        if (!samples || samples.length < 9) return null;
+
+        let xx = 0, yy = 0, xy = 0, xsum = 0, ysum = 0;
+        let sx = 0, sy = 0, xsx = 0, xsy = 0, ysx = 0, ysy = 0;
+
+        for (const sample of samples) {
+            xx += sample.gazeX * sample.gazeX;
+            yy += sample.gazeY * sample.gazeY;
+            xy += sample.gazeX * sample.gazeY;
+            xsum += sample.gazeX;
+            ysum += sample.gazeY;
+
+            sx += sample.screenX;
+            sy += sample.screenY;
+            xsx += sample.gazeX * sample.screenX;
+            xsy += sample.gazeX * sample.screenY;
+            ysx += sample.gazeY * sample.screenX;
+            ysy += sample.gazeY * sample.screenY;
+        }
+
+        const n = samples.length;
+
+        const systemX = [
+            [xx, xy, xsum],
+            [xy, yy, ysum],
+            [xsum, ysum, n]
         ];
 
+        const systemY = [
+            [xx, xy, xsum],
+            [xy, yy, ysum],
+            [xsum, ysum, n]
+        ];
+
+        const fitX = solve3x3(systemX, [xsx, ysx, sx]);
+        const fitY = solve3x3(systemY, [xsy, ysy, sy]);
+
+        if (!fitX || !fitY) return null;
+
+        return {
+            x: fitX,
+            y: fitY
+        };
+    }
+
+    function updateSpatialMap() {
+        activeCells = Array.from(
+            document.querySelectorAll('.element-container:not([data-empty="true"])')
+        ).filter(element => {
+            if (!element.isConnected) return false;
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+
+            return rect.width > 0 &&
+                rect.height > 0 &&
+                style.display !== 'none' &&
+                style.visibility !== 'hidden';
+        }).map(element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                element,
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+                width: rect.width,
+                height: rect.height,
+                area: rect.width * rect.height
+            };
+        });
+    }
+
+    function findCell(x, y) {
+        if (!activeCells.length) return null;
+
+        const containing = activeCells
+            .filter(cell =>
+                x >= cell.left && x <= cell.right &&
+                y >= cell.top && y <= cell.bottom
+            )
+            .sort((a, b) => a.area - b.area);
+
+        if (containing.length) return containing[0];
+
+        let best = null;
+        let bestDistance = Infinity;
+
+        for (const cell of activeCells) {
+            const dx = Math.max(cell.left - x, 0, x - cell.right);
+            const dy = Math.max(cell.top - y, 0, y - cell.bottom);
+            const distance = Math.hypot(dx, dy);
+
+            const padding = Math.max(
+                TUNING.minHitPaddingPx,
+                Math.min(
+                    TUNING.maxHitPaddingPx,
+                    Math.min(cell.width, cell.height) * TUNING.hitPaddingRatio
+                )
+            );
+
+            if (distance <= padding && distance < bestDistance) {
+                best = cell;
+                bestDistance = distance;
+            }
+        }
+
+        return best;
+    }
+
+    function setGazeDots(rawX, rawY, smoothX, smoothY) {
+        const rawDot = document.getElementById('gaze-raw-dot');
+        const smoothDot = document.getElementById('gaze-cursor-sim');
+
+        if (rawDot) {
+            rawDot.style.left = `${rawX}px`;
+            rawDot.style.top = `${rawY}px`;
+            rawDot.style.display = 'block';
+        }
+
+        if (smoothDot) {
+            smoothDot.style.left = `${smoothX}px`;
+            smoothDot.style.top = `${smoothY}px`;
+            smoothDot.style.display = 'block';
+        }
+    }
+
+    function clearGazeHighlight(element) {
+        if (element && element.classList) {
+            element.classList.remove('gaze-active-target');
+        }
+    }
+
+    function triggerSelection(element) {
+        if (!element || !element.isConnected || element.matches(':disabled')) return;
+
+        // Asterics Grid selections work with one click. Do not dispatch
+        // multiple synthetic events plus a second .click().
+        element.click();
+    }
+
+    function addSettingsMenu() {
         const style = document.createElement('style');
         style.textContent = `
             #gaze-settings-toggle {
@@ -423,11 +546,6 @@
                 display: none;
             }
 
-            #gaze-settings-panel h2 {
-                margin: 0 0 12px;
-                font-size: 18px;
-            }
-
             .gaze-setting {
                 margin: 12px 0;
             }
@@ -459,33 +577,75 @@
                 color: #fff;
                 cursor: pointer;
             }
-
-            #gaze-settings-help {
-                color: #bbb;
-                font-size: 12px;
-                line-height: 1.4;
-            }
         `;
         document.head.appendChild(style);
+
+        const settings = [
+            {
+                key: 'dwellMs',
+                label: 'Dwell time',
+                min: 500,
+                max: 2500,
+                step: 100,
+                format: v => `${(v / 1000).toFixed(1)} s`
+            },
+            {
+                key: 'smoothing',
+                label: 'Gaze responsiveness',
+                min: 0.2,
+                max: 0.9,
+                step: 0.05,
+                format: v => Number(v).toFixed(2)
+            },
+            {
+                key: 'hitPaddingRatio',
+                label: 'Target tolerance',
+                min: 0.15,
+                max: 0.6,
+                step: 0.05,
+                format: v => Number(v).toFixed(2)
+            },
+            {
+                key: 'resetGraceMs',
+                label: 'Leave-target grace',
+                min: 0,
+                max: 600,
+                step: 50,
+                format: v => `${v} ms`
+            },
+            {
+                key: 'switchHysteresisMs',
+                label: 'Target switch stability',
+                min: 50,
+                max: 400,
+                step: 25,
+                format: v => `${v} ms`
+            },
+            {
+                key: 'minStableSamples',
+                label: 'Minimum stable samples',
+                min: 3,
+                max: 12,
+                step: 1,
+                format: v => `${v}`
+            }
+        ];
 
         const toggle = document.createElement('button');
         toggle.id = 'gaze-settings-toggle';
         toggle.type = 'button';
         toggle.textContent = 'Gaze settings';
         toggle.setAttribute('aria-expanded', 'false');
-        toggle.setAttribute('aria-controls', 'gaze-settings-panel');
 
         const panel = document.createElement('section');
         panel.id = 'gaze-settings-panel';
         panel.hidden = true;
-        panel.setAttribute('aria-label', 'Gaze settings');
 
-        const heading = document.createElement('h2');
-        heading.textContent = 'Gaze settings';
-        panel.appendChild(heading);
+        const title = document.createElement('h2');
+        title.textContent = 'Gaze settings';
+        panel.appendChild(title);
 
         const help = document.createElement('p');
-        help.id = 'gaze-settings-help';
         help.textContent = 'Adjust one setting at a time. Changes apply immediately and are saved in this browser.';
         panel.appendChild(help);
 
@@ -493,70 +653,68 @@
             const wrapper = document.createElement('div');
             wrapper.className = 'gaze-setting';
 
-            const labelRow = document.createElement('div');
-            labelRow.className = 'gaze-setting-heading';
+            const heading = document.createElement('div');
+            heading.className = 'gaze-setting-heading';
 
             const label = document.createElement('label');
-            const inputId = `gaze-setting-${setting.key}`;
-            label.htmlFor = inputId;
+            const id = `gaze-setting-${setting.key}`;
+            label.htmlFor = id;
             label.textContent = setting.label;
 
             const output = document.createElement('output');
-            output.id = `${inputId}-value`;
+            output.id = `${id}-value`;
 
             const input = document.createElement('input');
-            input.id = inputId;
+            input.id = id;
             input.type = 'range';
             input.min = String(setting.min);
             input.max = String(setting.max);
             input.step = String(setting.step);
-            input.value = String(GAZE_TUNING[setting.key]);
-
+            input.value = String(TUNING[setting.key]);
             output.textContent = setting.format(Number(input.value));
 
             input.addEventListener('input', () => {
-                const value = Number(input.value);
-                GAZE_TUNING[setting.key] = value;
-                output.textContent = setting.format(value);
+                TUNING[setting.key] = Number(input.value);
+                output.textContent = setting.format(TUNING[setting.key]);
                 saveSettings();
             });
 
-            labelRow.append(label, output);
-            wrapper.append(labelRow, input);
+            heading.append(label, output);
+            wrapper.append(heading, input);
             panel.appendChild(wrapper);
         });
 
         const actions = document.createElement('div');
         actions.id = 'gaze-settings-actions';
 
-        const resetButton = document.createElement('button');
-        resetButton.type = 'button';
-        resetButton.textContent = 'Reset defaults';
-        resetButton.addEventListener('click', () => {
-            Object.assign(GAZE_TUNING, DEFAULT_TUNING);
+        const recalibrate = document.createElement('button');
+        recalibrate.type = 'button';
+        recalibrate.textContent = 'Recalibrate (9 points)';
+        recalibrate.addEventListener('click', () => {
+            panel.hidden = true;
+            toggle.setAttribute('aria-expanded', 'false');
+            createCalibrationOverlay(() => {
+                panel.hidden = false;
+                toggle.setAttribute('aria-expanded', 'true');
+            });
+        });
+
+        const reset = document.createElement('button');
+        reset.type = 'button';
+        reset.textContent = 'Reset settings';
+        reset.addEventListener('click', () => {
+            Object.assign(TUNING, DEFAULTS);
+            saveSettings();
 
             settings.forEach(setting => {
                 const input = document.getElementById(`gaze-setting-${setting.key}`);
                 const output = document.getElementById(`gaze-setting-${setting.key}-value`);
-                const value = Number(GAZE_TUNING[setting.key]);
-
-                input.value = String(value);
-                output.textContent = setting.format(value);
+                input.value = String(TUNING[setting.key]);
+                output.textContent = setting.format(TUNING[setting.key]);
             });
-
-            saveSettings();
         });
 
-        const closeButton = document.createElement('button');
-        closeButton.type = 'button';
-        closeButton.textContent = 'Close';
-        closeButton.addEventListener('click', () => {
-            panel.hidden = true;
-            toggle.setAttribute('aria-expanded', 'false');
-            toggle.focus();
-        });
-
-        actions.append(resetButton, closeButton);
+        actions.append(recalibrate, reset);
         panel.appendChild(actions);
 
         toggle.addEventListener('click', () => {
@@ -567,124 +725,37 @@
         document.body.append(toggle, panel);
     }
 
-    function updateSpatialMap() {
-        activeGridMap = Array.from(
-            document.querySelectorAll('.element-container:not([data-empty="true"])')
-        ).filter(element => {
-            if (!element.isConnected) return false;
-
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-
-            return rect.width > 0 &&
-                rect.height > 0 &&
-                style.display !== 'none' &&
-                style.visibility !== 'hidden';
-        }).map(element => {
-            const rect = element.getBoundingClientRect();
-
-            return {
-                element,
-                left: rect.left,
-                top: rect.top,
-                right: rect.right,
-                bottom: rect.bottom,
-                width: rect.width,
-                height: rect.height,
-                area: rect.width * rect.height
-            };
-        });
-    }
-
-    function findGazeCell(x, y) {
-        if (!activeGridMap.length) return null;
-
-        const containing = activeGridMap
-            .filter(cell =>
-                x >= cell.left && x <= cell.right &&
-                y >= cell.top && y <= cell.bottom
-            )
-            .sort((a, b) => a.area - b.area);
-
-        if (containing.length) return containing[0];
-
-        let nearestCell = null;
-        let nearestDistance = Infinity;
-
-        for (const cell of activeGridMap) {
-            const dx = Math.max(cell.left - x, 0, x - cell.right);
-            const dy = Math.max(cell.top - y, 0, y - cell.bottom);
-            const distance = Math.hypot(dx, dy);
-
-            const padding = Math.max(
-                GAZE_TUNING.minHitPaddingPx,
-                Math.min(
-                    GAZE_TUNING.maxHitPaddingPx,
-                    Math.min(cell.width, cell.height) * GAZE_TUNING.hitPaddingRatio
-                )
-            );
-
-            if (distance <= padding && distance < nearestDistance) {
-                nearestCell = cell;
-                nearestDistance = distance;
-            }
-        }
-
-        return nearestCell;
-    }
-
-    function setGazeDots(rawX, rawY, smoothX, smoothY) {
-        const rawDot = document.getElementById('gaze-raw-dot');
-        const smoothDot = document.getElementById('gaze-cursor-sim');
-
-        rawDot.style.left = `${rawX}px`;
-        rawDot.style.top = `${rawY}px`;
-        rawDot.style.display = 'block';
-
-        smoothDot.style.left = `${smoothX}px`;
-        smoothDot.style.top = `${smoothY}px`;
-        smoothDot.style.display = 'block';
-    }
-
-    function setGazeHighlight(element) {
-        document.querySelectorAll('.gaze-active-target').forEach(active => {
-            if (active !== element) active.classList.remove('gaze-active-target');
-        });
-
-        if (element && element.isConnected) {
-            element.classList.add('gaze-active-target');
-        }
-    }
-
-    function clearGazeHighlight(element) {
-        if (element && element.classList) {
-            element.classList.remove('gaze-active-target');
-        }
-    }
-
-    function triggerSelection(element) {
-        if (!element || !element.isConnected || element.matches(':disabled')) return;
-
-        // Asterics Grid's mouse-click input handles this one click.
-        // Do not dispatch extra mousedown/up/click events as well.
-        element.click();
-    }
-
     function createCalibrationOverlay(onComplete) {
-        const oldOverlay = document.getElementById('gaze-calibration-overlay');
-        if (oldOverlay) oldOverlay.remove();
+        const previous = document.getElementById('gaze-calibration-overlay');
+        if (previous) previous.remove();
 
         const overlay = document.createElement('div');
         overlay.id = 'gaze-calibration-overlay';
+        overlay.style.cssText = [
+            'position:fixed',
+            'inset:0',
+            'z-index:999999',
+            'display:flex',
+            'flex-direction:column',
+            'align-items:center',
+            'justify-content:center',
+            'background:rgba(10,10,10,.95)',
+            'color:white',
+            'font-family:sans-serif',
+            'text-align:center'
+        ].join(';');
+
         overlay.innerHTML = `
-            <h2 style="margin: 0 16px 10px;">Eye-Tracker Calibration</h2>
-            <p style="max-width: 520px; margin: 0 16px 24px; color: #ccc; line-height: 1.5;">
-                Look directly at the target, then click it three times. Complete all nine positions.
+            <h2 style="margin:0 16px 10px;">Eye-Tracker Calibration</h2>
+            <p style="max-width:540px;margin:0 16px 20px;color:#ccc;line-height:1.5;">
+                Keep your head still. Look at each target and click it five times.
+                Pause briefly between clicks so the gaze estimate can settle.
             </p>
-            <button id="gaze-calibration-target" type="button" aria-label="Calibration target"></button>
-            <p id="gaze-calibration-status" style="margin-top: 26px; color: #00ffcc;">
-                Target 1 of 9 — clicks 0 of 3
-            </p>
+            <button id="gaze-calibration-target" type="button" aria-label="Calibration target"
+                style="position:fixed;width:44px;height:44px;padding:0;border:3px solid white;
+                border-radius:50%;background:#00ffcc;box-shadow:0 0 24px #00ffcc;
+                cursor:pointer;transform:translate(-50%,-50%);z-index:1000000"></button>
+            <p id="gaze-calibration-status" style="margin-top:30px;color:#00ffcc"></p>
         `;
         document.body.appendChild(overlay);
 
@@ -697,63 +768,190 @@
             { x: 0.08, y: 0.90 }, { x: 0.50, y: 0.90 }, { x: 0.92, y: 0.90 }
         ];
 
+        const pairedSamples = [];
         let pointIndex = 0;
         let clicksAtPoint = 0;
 
         function showPoint() {
             if (pointIndex >= points.length) {
+                const fitted = fitAffine(pairedSamples);
+
+                if (fitted) {
+                    correction = fitted;
+                    saveCorrection();
+                    status.textContent = 'Calibration complete.';
+                } else {
+                    correction = null;
+                    saveCorrection();
+                    console.warn('Not enough usable gaze samples to fit correction.');
+                    status.textContent = 'Calibration complete, using uncorrected gaze.';
+                }
+
                 overlay.remove();
+                updateSpatialMap();
+
                 if (typeof onComplete === 'function') onComplete();
                 return;
             }
 
             const point = points[pointIndex];
-            const x = window.innerWidth * point.x;
-            const y = window.innerHeight * point.y;
+            const screenX = window.innerWidth * point.x;
+            const screenY = window.innerHeight * point.y;
 
-            target.style.left = `${x}px`;
-            target.style.top = `${y}px`;
+            target.style.left = `${screenX}px`;
+            target.style.top = `${screenY}px`;
             clicksAtPoint = 0;
-            status.textContent = `Target ${pointIndex + 1} of 9 — clicks 0 of 3`;
+            recentGaze = [];
+            status.textContent = `Point ${pointIndex + 1} of 9 — clicks 0 of 5`;
         }
 
         target.addEventListener('click', event => {
+            const point = points[pointIndex];
+            const screenX = window.innerWidth * point.x;
+            const screenY = window.innerHeight * point.y;
+
             if (window.webgazer && typeof window.webgazer.recordScreenPosition === 'function') {
-                window.webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
+                window.webgazer.recordScreenPosition(screenX, screenY, 'click');
+            }
+
+            const recent = recentGaze.filter(sample => sample.time >= performance.now() - 700);
+
+            if (recent.length >= 3) {
+                const meanX = recent.reduce((sum, item) => sum + item.x, 0) / recent.length;
+                const meanY = recent.reduce((sum, item) => sum + item.y, 0) / recent.length;
+
+                if (Number.isFinite(meanX) && Number.isFinite(meanY)) {
+                    pairedSamples.push({
+                        gazeX: meanX,
+                        gazeY: meanY,
+                        screenX,
+                        screenY
+                    });
+                }
             }
 
             clicksAtPoint++;
+            status.textContent = `Point ${pointIndex + 1} of 9 — clicks ${clicksAtPoint} of 5`;
 
-            if (clicksAtPoint >= 3) {
+            if (clicksAtPoint >= 5) {
                 pointIndex++;
                 showPoint();
-            } else {
-                status.textContent =
-                    `Target ${pointIndex + 1} of 9 — clicks ${clicksAtPoint} of 3`;
             }
         });
 
         showPoint();
     }
 
-    function startEyeTrackingLoop() {
+    function processGaze(data, state) {
+        if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
+
+        const now = performance.now();
+
+        recentGaze.push({ x: data.x, y: data.y, time: now });
+        recentGaze = recentGaze.filter(sample => now - sample.time < 1500);
+
+        const corrected = correctGaze(data.x, data.y);
+
+        if (gazeX === null || gazeY === null) {
+            gazeX = corrected.x;
+            gazeY = corrected.y;
+        } else {
+            gazeX += (corrected.x - gazeX) * TUNING.smoothing;
+            gazeY += (corrected.y - gazeY) * TUNING.smoothing;
+        }
+
+        setGazeDots(data.x, data.y, gazeX, gazeY);
+
+        if (!calibrationDone) return;
+
+        if (now - state.lastProcessedAt < TUNING.processingIntervalMs) return;
+        state.lastProcessedAt = now;
+
+        if (now - state.lastMapRefreshAt >= TUNING.mapRefreshIntervalMs) {
+            updateSpatialMap();
+            state.lastMapRefreshAt = now;
+        }
+
+        const cell = findCell(gazeX, gazeY);
+        const candidate = cell && cell.element && cell.element.isConnected ? cell.element : null;
+
+        if (state.lastSelectedTarget) {
+            if (candidate === state.lastSelectedTarget) return;
+            state.lastSelectedTarget = null;
+        }
+
+        if (!candidate) {
+            state.pendingTarget = null;
+            state.pendingAt = 0;
+
+            if (!state.missingSince) state.missingSince = now;
+
+            if (state.activeTarget && now - state.missingSince >= TUNING.resetGraceMs) {
+                clearGazeHighlight(state.activeTarget);
+                state.activeTarget = null;
+                state.dwellStartedAt = 0;
+                state.samples = 0;
+            }
+            return;
+        }
+
+        state.missingSince = 0;
+
+        if (candidate === state.activeTarget) {
+            state.samples++;
+
+            if (
+                now - state.dwellStartedAt >= TUNING.dwellMs &&
+                state.samples >= TUNING.minStableSamples
+            ) {
+                triggerSelection(candidate);
+                state.lastSelectedTarget = candidate;
+
+                clearGazeHighlight(candidate);
+                state.activeTarget = null;
+                state.dwellStartedAt = 0;
+                state.samples = 0;
+                state.pendingTarget = null;
+                state.pendingAt = 0;
+            }
+            return;
+        }
+
+        if (state.pendingTarget !== candidate) {
+            state.pendingTarget = candidate;
+            state.pendingAt = now;
+            return;
+        }
+
+        if (now - state.pendingAt < TUNING.switchHysteresisMs) return;
+
+        clearGazeHighlight(state.activeTarget);
+        state.activeTarget = candidate;
+        state.dwellStartedAt = now;
+        state.samples = 1;
+        state.pendingTarget = null;
+        state.pendingAt = 0;
+        candidate.classList.add('gaze-active-target');
+    }
+
+    function startGazeLoop() {
         if (gazeLoopStarted || !window.webgazer) return;
         gazeLoopStarted = true;
 
-        let activeTarget = null;
-        let dwellStartedAt = 0;
-        let stableSamples = 0;
-        let pendingTarget = null;
-        let pendingTargetStartedAt = 0;
-        let missingTargetStartedAt = 0;
-        let lastSelectedTarget = null;
-        let lastProcessedAt = 0;
-        let lastMapRefreshAt = 0;
+        const state = {
+            lastProcessedAt: 0,
+            lastMapRefreshAt: 0,
+            activeTarget: null,
+            dwellStartedAt: 0,
+            samples: 0,
+            pendingTarget: null,
+            pendingAt: 0,
+            missingSince: 0,
+            lastSelectedTarget: null
+        };
 
         updateSpatialMap();
 
-        // Watch for grid navigation and DOM changes. Position refreshes also
-        // run periodically and on resize/scroll.
         const observer = new MutationObserver(updateSpatialMap);
         observer.observe(document.body, {
             childList: true,
@@ -763,128 +961,41 @@
         window.addEventListener('resize', updateSpatialMap);
         window.addEventListener('scroll', updateSpatialMap, true);
 
-        window.webgazer.setGazeListener(data => {
-            if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
-
-            const now = performance.now();
-            if (now - lastProcessedAt < GAZE_TUNING.processingIntervalMs) return;
-            lastProcessedAt = now;
-
-            if (now - lastMapRefreshAt >= GAZE_TUNING.mapRefreshIntervalMs) {
-                updateSpatialMap();
-                lastMapRefreshAt = now;
-            }
-
-            if (smoothedGazeX === null || smoothedGazeY === null) {
-                smoothedGazeX = data.x;
-                smoothedGazeY = data.y;
-            } else {
-                smoothedGazeX += (data.x - smoothedGazeX) * GAZE_TUNING.smoothing;
-                smoothedGazeY += (data.y - smoothedGazeY) * GAZE_TUNING.smoothing;
-            }
-
-            setGazeDots(data.x, data.y, smoothedGazeX, smoothedGazeY);
-
-            const cell = findGazeCell(smoothedGazeX, smoothedGazeY);
-            const candidate = cell && cell.element && cell.element.isConnected
-                ? cell.element
-                : null;
-
-            // Prevent repeat activation while gaze remains on the selected cell.
-            if (lastSelectedTarget) {
-                if (candidate === lastSelectedTarget) return;
-                lastSelectedTarget = null;
-            }
-
-            if (!candidate) {
-                pendingTarget = null;
-                pendingTargetStartedAt = 0;
-
-                if (!missingTargetStartedAt) missingTargetStartedAt = now;
-
-                if (
-                    activeTarget &&
-                    now - missingTargetStartedAt >= GAZE_TUNING.resetGraceMs
-                ) {
-                    clearGazeHighlight(activeTarget);
-                    activeTarget = null;
-                    dwellStartedAt = 0;
-                    stableSamples = 0;
-                }
-                return;
-            }
-
-            missingTargetStartedAt = 0;
-
-            if (candidate === activeTarget) {
-                stableSamples++;
-
-                if (
-                    now - dwellStartedAt >= GAZE_TUNING.dwellMs &&
-                    stableSamples >= GAZE_TUNING.minStableSamples
-                ) {
-                    triggerSelection(candidate);
-                    lastSelectedTarget = candidate;
-
-                    clearGazeHighlight(candidate);
-                    activeTarget = null;
-                    dwellStartedAt = 0;
-                    stableSamples = 0;
-                    pendingTarget = null;
-                    pendingTargetStartedAt = 0;
-                }
-                return;
-            }
-
-            // Require a new candidate to persist briefly before switching.
-            if (pendingTarget !== candidate) {
-                pendingTarget = candidate;
-                pendingTargetStartedAt = now;
-                return;
-            }
-
-            if (now - pendingTargetStartedAt < GAZE_TUNING.switchHysteresisMs) return;
-
-            clearGazeHighlight(activeTarget);
-            activeTarget = candidate;
-            dwellStartedAt = now;
-            stableSamples = 1;
-            pendingTarget = null;
-            pendingTargetStartedAt = 0;
-            setGazeHighlight(activeTarget);
-        });
+        window.webgazer.setGazeListener(data => processGaze(data, state));
     }
 
-    async function startWebGazerAndCalibration() {
-        if (gazeStartupStarted) return;
-        gazeStartupStarted = true;
+    async function start() {
+        loadSettings();
+        loadCorrection();
+        addSettingsMenu();
 
         if (!window.webgazer) {
             console.error('WebGazer did not load. Check the browser console and network access.');
-            gazeStartupStarted = false;
             return;
         }
 
         try {
-            // Start once before calibration so its clicks can train WebGazer.
             await window.webgazer.begin();
-
             window.webgazer.showVideoPreview(true);
             window.webgazer.showPredictionPoints(false);
             window.webgazer.applyKalmanFilter(true);
 
-            createCalibrationOverlay(startEyeTrackingLoop);
+            startGazeLoop();
+
+            if (!correction) {
+                createCalibrationOverlay(() => {
+                    calibrationDone = true;
+                });
+            } else {
+                calibrationDone = true;
+            }
         } catch (error) {
             console.error('WebGazer initialization failed:', error);
-            gazeStartupStarted = false;
         }
     }
 
-    loadSettings();
-    initGazeSettingsMenu();
-
     window.addEventListener('load', () => {
-        setTimeout(startWebGazerAndCalibration, 500);
+        setTimeout(start, 500);
     });
 })();
 </script>
