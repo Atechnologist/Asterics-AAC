@@ -164,6 +164,7 @@
                 <span v-show="currentUser && !isLocalUser" class="hide-mobile"><span>{{ $t('loggedInAs') }}</span> <i>{{currentUser}}</i></span>
                 <span v-show="currentUser && isLocalUser" class="hide-mobile"><span>{{ $t('usingOfflineUser') }}</span> <i>{{currentUser}}</i></span>
                 <span v-show="!currentUser" class="hide-mobile">{{ $t('notLoggedIn') }}</span>
+
                 <span id="syncVisualization" v-if="currentUser && !isLocalUser" class="fa-stack fa-1x right" :title="syncState | translate">
                     <i class="fas fa-cloud fa-stack-2x" style="color: lightblue"></i>
                     <i v-show="syncState === constants.DB_SYNC_STATE_SYNCINC" class="fas fa-sync-alt fa-stack-1x fa-spin"></i>
@@ -172,6 +173,7 @@
                     <i v-show="syncState === constants.DB_SYNC_STATE_ONLINEONLY" class="fas fa-globe fa-stack-1x"></i>
                     <i v-show="!syncState || syncState === constants.DB_SYNC_STATE_FAIL" class="fas fa-times fa-stack-1x"></i>
                 </span>
+
                 <span id="syncVisualization2" v-if="currentUser && isLocalUser && syncState === constants.DB_SYNC_STATE_SYNCINC" class="fa-stack fa-1x right" :title="$t('cachingImages')">
                     <i class="fas fa-sync-alt fa-stack-1x fa-spin"></i>
                 </span>
@@ -250,7 +252,7 @@
     'use strict';
 
     const SETTINGS_KEY = 'asterics-gaze-settings-v2';
-    const CORRECTION_KEY = 'asterics-gaze-correction-v1';
+    const RANGE_KEY = 'asterics-gaze-range-v1';
 
     const DEFAULTS = {
         dwellMs: 1200,
@@ -268,12 +270,13 @@
     const TUNING = { ...DEFAULTS };
 
     let calibrationDone = false;
+    let gazeLoopStarted = false;
     let activeCells = [];
     let gazeX = null;
     let gazeY = null;
-    let correction = null;
     let recentGaze = [];
-    let gazeLoopStarted = false;
+    let gazeRange = null;
+    let useComfortRange = true;
 
     function loadSettings() {
         try {
@@ -291,125 +294,54 @@
         try {
             localStorage.setItem(SETTINGS_KEY, JSON.stringify(TUNING));
         } catch (error) {
-            console.warn('Could not save gaze settings:', error);
+            console.warn('Could not load gaze settings:', error);
         }
     }
 
-    function loadCorrection() {
+    function loadRange() {
         try {
-            const saved = JSON.parse(localStorage.getItem(CORRECTION_KEY) || 'null');
+            const saved = JSON.parse(localStorage.getItem(RANGE_KEY) || 'null');
             if (
                 saved &&
-                Array.isArray(saved.x) &&
-                Array.isArray(saved.y) &&
-                saved.x.length === 3 &&
-                saved.y.length === 3 &&
-                saved.x.every(Number.isFinite) &&
-                saved.y.every(Number.isFinite)
+                Number.isFinite(saved.minX) &&
+                Number.isFinite(saved.maxX) &&
+                Number.isFinite(saved.minY) &&
+                Number.isFinite(saved.maxY)
             ) {
-                correction = saved;
-            }
-        } catch (error) {
-            console.warn('Could not load gaze correction:', error);
-        }
-    }
-
-    function saveCorrection() {
-        try {
-            if (correction) {
-                localStorage.setItem(CORRECTION_KEY, JSON.stringify(correction));
+                gazeRange = saved;
             } else {
-                localStorage.removeItem(CORRECTION_KEY);
+                gazeRange = null;
             }
         } catch (error) {
-            console.warn('Could not save gaze correction:', error);
+            console.warn('Could not load gaze range:', error);
+            gazeRange = null;
         }
     }
 
-    function correctGaze(x, y) {
-        if (!correction) return { x, y };
+    function saveRange() {
+        try {
+            if (gazeRange) {
+                localStorage.setItem(RANGE_KEY, JSON.stringify(gazeRange));
+            } else {
+                localStorage.removeItem(RANGE_KEY);
+            }
+        } catch (error) {
+            console.warn('Could not save gaze range:', error);
+        }
+    }
 
-        const mappedX = correction.x[0] * x + correction.x[1] * y + correction.x[2];
-        const mappedY = correction.y[0] * x + correction.y[1] * y + correction.y[2];
+    function applyComfortRange(x, y) {
+        if (!useComfortRange || !gazeRange) return { x, y };
 
-        if (!Number.isFinite(mappedX) || !Number.isFinite(mappedY)) return { x, y };
+        const width = Math.max(1, gazeRange.maxX - gazeRange.minX);
+        const height = Math.max(1, gazeRange.maxY - gazeRange.minY);
+
+        const mappedX = ((x - gazeRange.minX) / width) * window.innerWidth;
+        const mappedY = ((y - gazeRange.minY) / height) * window.innerHeight;
 
         return {
-            x: Math.max(0, Math.min(window.innerWidth, mappedX)),
-            y: Math.max(0, Math.min(window.innerHeight, mappedY))
-        };
-    }
-
-    function solve3x3(matrix, values) {
-        const rows = matrix.map((row, i) => [...row, values[i]]);
-
-        for (let col = 0; col < 3; col++) {
-            let pivot = col;
-            for (let row = col + 1; row < 3; row++) {
-                if (Math.abs(rows[row][col]) > Math.abs(rows[pivot][col])) pivot = row;
-            }
-
-            if (Math.abs(rows[pivot][col]) < 1e-8) return null;
-            [rows[col], rows[pivot]] = [rows[pivot], rows[col]];
-
-            const divisor = rows[col][col];
-            for (let j = col; j < 4; j++) rows[col][j] /= divisor;
-
-            for (let row = 0; row < 3; row++) {
-                if (row === col) continue;
-                const factor = rows[row][col];
-                for (let j = col; j < 4; j++) {
-                    rows[row][j] -= factor * rows[col][j];
-                }
-            }
-        }
-
-        return rows.map(row => row[3]);
-    }
-
-    function fitAffine(samples) {
-        if (!samples || samples.length < 9) return null;
-
-        let xx = 0, yy = 0, xy = 0, xsum = 0, ysum = 0;
-        let sx = 0, sy = 0, xsx = 0, xsy = 0, ysx = 0, ysy = 0;
-
-        for (const sample of samples) {
-            xx += sample.gazeX * sample.gazeX;
-            yy += sample.gazeY * sample.gazeY;
-            xy += sample.gazeX * sample.gazeY;
-            xsum += sample.gazeX;
-            ysum += sample.gazeY;
-
-            sx += sample.screenX;
-            sy += sample.screenY;
-            xsx += sample.gazeX * sample.screenX;
-            xsy += sample.gazeX * sample.screenY;
-            ysx += sample.gazeY * sample.screenX;
-            ysy += sample.gazeY * sample.screenY;
-        }
-
-        const n = samples.length;
-
-        const systemX = [
-            [xx, xy, xsum],
-            [xy, yy, ysum],
-            [xsum, ysum, n]
-        ];
-
-        const systemY = [
-            [xx, xy, xsum],
-            [xy, yy, ysum],
-            [xsum, ysum, n]
-        ];
-
-        const fitX = solve3x3(systemX, [xsx, ysx, sx]);
-        const fitY = solve3x3(systemY, [xsy, ysy, sy]);
-
-        if (!fitX || !fitY) return null;
-
-        return {
-            x: fitX,
-            y: fitY
+            x: Math.min(window.innerWidth, Math.max(0, mappedX)),
+            y: Math.min(window.innerHeight, Math.max(0, mappedY))
         };
     }
 
@@ -440,18 +372,18 @@
         });
     }
 
- function findCell(x, y) {
-    if (!activeCells.length) return null;
+    function findCell(x, y) {
+        if (!activeCells.length) return null;
 
-    const containing = activeCells
-        .filter(cell =>
-            x >= cell.left && x <= cell.right &&
-            y >= cell.top && y <= cell.bottom
-        )
-        .sort((a, b) => a.area - b.area);
+        const containing = activeCells
+            .filter(cell =>
+                x >= cell.left && x <= cell.right &&
+                y >= cell.top && y <= cell.bottom
+            )
+            .sort((a, b) => a.area - b.area);
 
-    return containing[0] || null;
-}
+        return containing[0] || null;
+    }
 
     function setGazeDots(rawX, rawY, smoothX, smoothY) {
         const rawDot = document.getElementById('gaze-raw-dot');
@@ -479,8 +411,6 @@
     function triggerSelection(element) {
         if (!element || !element.isConnected || element.matches(':disabled')) return;
 
-        // Asterics Grid selections work with one click. Do not dispatch
-        // multiple synthetic events plus a second .click().
         element.click();
     }
 
@@ -582,14 +512,6 @@
                 format: v => Number(v).toFixed(2)
             },
             {
-                key: 'resetGraceMs',
-                label: 'Leave-target grace',
-                min: 0,
-                max: 600,
-                step: 50,
-                format: v => `${v} ms`
-            },
-            {
                 key: 'switchHysteresisMs',
                 label: 'Target switch stability',
                 min: 50,
@@ -675,6 +597,19 @@
             });
         });
 
+        const comfortCal = document.createElement('button');
+        comfortCal.type = 'button';
+        comfortCal.textContent = 'Calibrate comfort range';
+        comfortCal.addEventListener('click', () => {
+            panel.hidden = true;
+            toggle.setAttribute('aria-expanded', 'false');
+            createComfortRangeOverlay(() => {
+                saveRange();
+                panel.hidden = false;
+                toggle.setAttribute('aria-expanded', 'true');
+            });
+        });
+
         const reset = document.createElement('button');
         reset.type = 'button';
         reset.textContent = 'Reset settings';
@@ -690,7 +625,7 @@
             });
         });
 
-        actions.append(recalibrate, reset);
+        actions.append(recalibrate, comfortCal, reset);
         panel.appendChild(actions);
 
         toggle.addEventListener('click', () => {
@@ -744,28 +679,12 @@
             { x: 0.08, y: 0.90 }, { x: 0.50, y: 0.90 }, { x: 0.92, y: 0.90 }
         ];
 
-        const pairedSamples = [];
         let pointIndex = 0;
         let clicksAtPoint = 0;
 
         function showPoint() {
             if (pointIndex >= points.length) {
-                const fitted = fitAffine(pairedSamples);
-
-                if (fitted) {
-                    correction = fitted;
-                    saveCorrection();
-                    status.textContent = 'Calibration complete.';
-                } else {
-                    correction = null;
-                    saveCorrection();
-                    console.warn('Not enough usable gaze samples to fit correction.');
-                    status.textContent = 'Calibration complete, using uncorrected gaze.';
-                }
-
                 overlay.remove();
-                updateSpatialMap();
-
                 if (typeof onComplete === 'function') onComplete();
                 return;
             }
@@ -782,27 +701,17 @@
         }
 
         target.addEventListener('click', event => {
-            const point = points[pointIndex];
-            const screenX = window.innerWidth * point.x;
-            const screenY = window.innerHeight * point.y;
-
             if (window.webgazer && typeof window.webgazer.recordScreenPosition === 'function') {
-                window.webgazer.recordScreenPosition(screenX, screenY, 'click');
+                window.webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
             }
 
             const recent = recentGaze.filter(sample => sample.time >= performance.now() - 700);
-
-            if (recent.length >= 3) {
+            if (recent.length > 0) {
                 const meanX = recent.reduce((sum, item) => sum + item.x, 0) / recent.length;
                 const meanY = recent.reduce((sum, item) => sum + item.y, 0) / recent.length;
 
                 if (Number.isFinite(meanX) && Number.isFinite(meanY)) {
-                    pairedSamples.push({
-                        gazeX: meanX,
-                        gazeY: meanY,
-                        screenX,
-                        screenY
-                    });
+                    recentGaze.push({ x: meanX, y: meanY, time: performance.now() });
                 }
             }
 
@@ -818,22 +727,127 @@
         showPoint();
     }
 
+    function createComfortRangeOverlay(onComplete) {
+        const previous = document.getElementById('gaze-range-overlay');
+        if (previous) previous.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'gaze-range-overlay';
+        overlay.style.position = 'fixed';
+        overlay.style.inset = '0';
+        overlay.style.zIndex = '999999';
+        overlay.style.display = 'flex';
+        overlay.style.flexDirection = 'column';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.background = 'rgba(10, 10, 10, 0.95)';
+        overlay.style.color = '#fff';
+        overlay.style.fontFamily = 'sans-serif';
+        overlay.style.textAlign = 'center';
+
+        const points = [
+            { label: 'Top-left', x: 0.12, y: 0.18 },
+            { label: 'Top-right', x: 0.88, y: 0.18 },
+            { label: 'Bottom-right', x: 0.88, y: 0.82 },
+            { label: 'Bottom-left', x: 0.12, y: 0.82 }
+        ];
+
+        let step = 0;
+
+        const text = document.createElement('p');
+        text.textContent = 'Keep your head still and look at the red dot. Click once at each corner.';
+        text.style.maxWidth = '560px';
+        text.style.margin = '0 16px 18px';
+        text.style.lineHeight = '1.5';
+        text.style.color = '#ccc';
+
+        const target = document.createElement('button');
+        target.type = 'button';
+        target.style.position = 'fixed';
+        target.style.width = '44px';
+        target.style.height = '44px';
+        target.style.borderRadius = '50%';
+        target.style.border = '3px solid white';
+        target.style.background = '#ff0055';
+        target.style.boxShadow = '0 0 24px rgba(255, 0, 85, 0.9)';
+        target.style.transform = 'translate(-50%, -50%)';
+        target.style.cursor = 'pointer';
+        target.style.zIndex = '1000000';
+
+        const status = document.createElement('p');
+        status.style.marginTop = '20px';
+        status.style.color = '#fff';
+        status.style.fontSize = '18px';
+
+        overlay.appendChild(text);
+        overlay.appendChild(target);
+        overlay.appendChild(status);
+        document.body.appendChild(overlay);
+
+        function drawPoint() {
+            if (step >= points.length) {
+                overlay.remove();
+                if (typeof onComplete === 'function') onComplete();
+                return;
+            }
+
+            const point = points[step];
+            const x = window.innerWidth * point.x;
+            const y = window.innerHeight * point.y;
+
+            target.style.left = `${x}px`;
+            target.style.top = `${y}px`;
+            status.textContent = `${point.label} • point ${step + 1} of ${points.length}`;
+        }
+
+        target.addEventListener('click', event => {
+            if (window.webgazer && typeof window.webgazer.recordScreenPosition === 'function') {
+                window.webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
+            }
+
+            const samples = recentGaze.filter(sample => sample.time >= performance.now() - 800);
+            let avgX = 0;
+            let avgY = 0;
+
+            if (samples.length > 0) {
+                avgX = samples.reduce((sum, item) => sum + item.x, 0) / samples.length;
+                avgY = samples.reduce((sum, item) => sum + item.y, 0) / samples.length;
+            }
+
+            if (Number.isFinite(avgX) && Number.isFinite(avgY)) {
+                if (!gazeRange) {
+                    gazeRange = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+                }
+
+                gazeRange.minX = Math.min(gazeRange.minX, avgX);
+                gazeRange.maxX = Math.max(gazeRange.maxX, avgX);
+                gazeRange.minY = Math.min(gazeRange.minY, avgY);
+                gazeRange.maxY = Math.max(gazeRange.maxY, avgY);
+            }
+
+            step++;
+            drawPoint();
+        });
+
+        drawPoint();
+    }
+
     function processGaze(data, state) {
         if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
 
         const now = performance.now();
 
         recentGaze.push({ x: data.x, y: data.y, time: now });
-        recentGaze = recentGaze.filter(sample => now - sample.time < 1500);
+        recentGaze = recentGaze.filter(sample => sample.time >= now - 1500);
 
-        const corrected = { x: data.x, y: data.y };
+        const mapped = applyComfortRange(data.x, data.y);
 
         if (gazeX === null || gazeY === null) {
-            gazeX = corrected.x;
-            gazeY = corrected.y;
+            gazeX = mapped.x;
+            gazeY = mapped.y;
         } else {
-            gazeX += (corrected.x - gazeX) * TUNING.smoothing;
-            gazeY += (corrected.y - gazeY) * TUNING.smoothing;
+            gazeX += (mapped.x - gazeX) * TUNING.smoothing;
+            gazeY += (mapped.y - gazeY) * TUNING.smoothing;
         }
 
         setGazeDots(data.x, data.y, gazeX, gazeY);
@@ -859,7 +873,6 @@
         if (!candidate) {
             state.pendingTarget = null;
             state.pendingAt = 0;
-
             if (!state.missingSince) state.missingSince = now;
 
             if (state.activeTarget && now - state.missingSince >= TUNING.resetGraceMs) {
@@ -942,7 +955,7 @@
 
     async function start() {
         loadSettings();
-       // loadCorrection();
+        loadRange();
         addSettingsMenu();
 
         if (!window.webgazer) {
@@ -958,12 +971,10 @@
 
             startGazeLoop();
 
-            if (!correction) {
+            if (!calibrationDone) {
                 createCalibrationOverlay(() => {
                     calibrationDone = true;
                 });
-            } else {
-                calibrationDone = true;
             }
         } catch (error) {
             console.error('WebGazer initialization failed:', error);
