@@ -440,25 +440,18 @@
         });
     }
 
-    function findCell(x, y) {
-        if (!activeCells.length) return null;
+   function findCell(x, y) {
+    if (!activeCells.length) return null;
 
-        const containing = activeCells
-            .filter(cell =>
-                x >= cell.left && x <= cell.right &&
-                y >= cell.top && y <= cell.bottom
-            )
-            .sort((a, b) => a.area - b.area);
+    const containing = activeCells
+        .filter(cell =>
+            x >= cell.left && x <= cell.right &&
+            y >= cell.top && y <= cell.bottom
+        )
+        .sort((a, b) => a.area - b.area);
 
-        if (containing.length) return containing[0];
-
-        let best = null;
-        let bestDistance = Infinity;
-
-        for (const cell of activeCells) {
-            const dx = Math.max(cell.left - x, 0, x - cell.right);
-            const dy = Math.max(cell.top - y, 0, y - cell.bottom);
-            const distance = Math.hypot(dx, dy);
+    return containing[0] || null;
+}
 
             const padding = Math.max(
                 TUNING.minHitPaddingPx,
