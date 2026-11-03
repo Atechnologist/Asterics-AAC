@@ -850,7 +850,7 @@
         recentGaze.push({ x: data.x, y: data.y, time: now });
         recentGaze = recentGaze.filter(sample => now - sample.time < 1500);
 
-        const corrected = correctGaze(data.x, data.y);
+        const corrected = { x: data.x, y: data.y };
 
         if (gazeX === null || gazeY === null) {
             gazeX = corrected.x;
@@ -966,7 +966,7 @@
 
     async function start() {
         loadSettings();
-        loadCorrection();
+       // loadCorrection();
         addSettingsMenu();
 
         if (!window.webgazer) {
