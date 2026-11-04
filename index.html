@@ -677,24 +677,24 @@
             recentGaze = [];
         }
 
-        target.addEventListener('click', () => {
-            const cutoff = performance.now() - 900;
-            const samples = recentGaze.filter(sample => sample.time >= cutoff);
+       target.addEventListener('click', () => {
+    const cutoff = performance.now() - 2000;
+    const samples = recentGaze.filter(sample => sample.time >= cutoff);
 
-            if (samples.length < 5) {
-                status.textContent =
-                    'Not enough gaze readings yet. Keep looking at the target, then click again.';
-                return;
-            }
+    if (samples.length < 3) {
+        status.textContent =
+            `Only ${samples.length} gaze readings collected. Keep looking at the target for 2 seconds, then click again.`;
+        return;
+    }
 
-            readings.push({
-                x: median(samples.map(sample => sample.x)),
-                y: median(samples.map(sample => sample.y))
-            });
+    readings.push({
+        x: median(samples.map(sample => sample.x)),
+        y: median(samples.map(sample => sample.y))
+    });
 
-            pointIndex++;
-            showPoint();
-        });
+    pointIndex++;
+    showPoint();
+});
 
         showPoint();
     }
