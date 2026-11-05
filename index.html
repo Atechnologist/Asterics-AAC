@@ -255,15 +255,14 @@
     const MODE_KEY = 'asterics-gaze-mode-v1';
 
     const DEFAULTS = {
-        dwellMs: 1200,
-        smoothing: 0.50,
-        switchHysteresisMs: 150,
-        minStableSamples: 6,
-        processingIntervalMs: 50,
-        mapRefreshIntervalMs: 200,
-        joystickThreshold: 0.38
-    };
-
+    dwellMs: 900,
+    smoothing: 0.65,
+    switchHysteresisMs: 100,
+    minStableSamples: 4,
+    processingIntervalMs: 33,
+    mapRefreshIntervalMs: 200,
+    joystickThreshold: 0.38
+};
     const TUNING = { ...DEFAULTS };
 
     let activeCells = [];
