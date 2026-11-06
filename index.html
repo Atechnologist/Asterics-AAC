@@ -529,6 +529,20 @@
         }
     }
 
+    // --- INSTANT SELECTION SWITCH OVERRIDE ---
+    window.addEventListener('keydown', (event) => {
+        // Trigger selection instantly when Spacebar or Enter is pressed
+        if (event.code === 'Space' || event.code === 'Enter') {
+            event.preventDefault();
+            
+            // Find whatever element your gaze is currently highlighting
+            const activeTarget = document.querySelector('.gaze-active-target');
+            if (activeTarget && typeof triggerSelection === 'function') {
+                triggerSelection(activeTarget);
+                clearHighlight(activeTarget);
+            }
+        }
+    });
     function createCalibrationOverlay(onComplete) {
         const previous = document.getElementById('gaze-calibration-overlay');
         if (previous) previous.remove();
