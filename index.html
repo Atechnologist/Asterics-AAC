@@ -1038,10 +1038,35 @@
         }
     }
 
+   // --- ADVANCED STATE VARIABLES FOR GATING ---
+    let lastGazeX = null;
+    let lastGazeY = null;
+    let lastGazeTime = 0;
+
     function processGaze(data, state) {
         if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
 
         const now = performance.now();
+
+        // 1. SACCADE VELOCITY GATING: Skip frames where eyes are darting rapidly across the screen
+        if (lastGazeX !== null && lastGazeY !== null) {
+            const dt = now - lastGazeTime;
+            if (dt > 0) {
+                const distance = Math.hypot(data.x - lastGazeX, data.y - lastGazeY);
+                const velocity = distance / dt; // pixels per millisecond
+                
+                // If velocity exceeds 1.5 px/ms (in-flight saccade), pause processing briefly
+                if (velocity > 1.5) {
+                    lastGazeX = data.x;
+                    lastGazeY = data.y;
+                    lastGazeTime = now;
+                    return; 
+                }
+            }
+        }
+        lastGazeX = data.x;
+        lastGazeY = data.y;
+        lastGazeTime = now;
 
         // Keep recent raw gaze readings for comfort-range calibration.
         recentGaze.push({ x: data.x, y: data.y, time: now });
@@ -1055,7 +1080,14 @@
             state.lastMapRefreshAt = now;
         }
 
-        const mapped = applyComfortRange(data.x, data.y);
+        let mapped = applyComfortRange(data.x, data.y);
+
+        // 2. EDGE-COMPRESSION BIAS CORRECTION: Gently stretch outer-edge coordinates outward from center
+        const centerX = window.innerWidth / 2;
+        const centerY = window.innerHeight / 2;
+        const edgeFactor = 1.05; // 5% outward stretch
+        mapped.x = centerX + (mapped.x - centerX) * edgeFactor;
+        mapped.y = centerY + (mapped.y - centerY) * edgeFactor;
 
         if (gazeX === null || gazeY === null) {
             gazeX = mapped.x;
