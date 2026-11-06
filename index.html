@@ -1099,7 +1099,7 @@
         // 2. EDGE-COMPRESSION BIAS CORRECTION: Gently stretch outer-edge coordinates outward from center
         const centerX = window.innerWidth / 2;
         const centerY = window.innerHeight / 2;
-        const edgeFactor = 1.05; // 5% outward stretch
+        const edgeFactor = 1; // 5% outward stretch
         mapped.x = centerX + (mapped.x - centerX) * edgeFactor;
         mapped.y = centerY + (mapped.y - centerY) * edgeFactor;
 
