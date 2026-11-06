@@ -1048,45 +1048,45 @@
     }
 
     function startGazeLoop() {
-        if (gazeLoopStarted || !window.webgazer) return;
-        gazeLoopStarted = true;
+    if (gazeLoopStarted || !window.webgazer) return;
+    gazeLoopStarted = true;
 
-        const state = {
-            lastProcessedAt: 0,
-            lastMapRefreshAt: 0,
-            activeTarget: null,
-            dwellStartedAt: 0,
-            samples: 0,
-            pendingTarget: null,
-            pendingAt: 0,
-            missingSince: 0,
-            joystickArmed: true,
-            selected: false
-        };
+    const state = {
+        lastProcessedAt: 0,
+        lastMapRefreshAt: 0,
+        activeTarget: null,
+        dwellStartedAt: 0,
+        samples: 0,
+        pendingTarget: null,
+        pendingAt: 0,
+        missingSince: 0,
+        joystickArmed: true,
+        selected: false
+    };
 
-        updateSpatialMap();
+    updateSpatialMap();
 
-       const observer = new MutationObserver(scheduleSpatialMapUpdate);
+    const observer = new MutationObserver(() => {
+        scheduleSpatialMapUpdate();
 
-            if (state.activeTarget && !state.activeTarget.isConnected) {
-                state.activeTarget = null;
-                state.dwellStartedAt = 0;
-                state.samples = 0;
-                state.selected = false;
-            }
-        });
+        if (state.activeTarget && !state.activeTarget.isConnected) {
+            state.activeTarget = null;
+            state.dwellStartedAt = 0;
+            state.samples = 0;
+            state.selected = false;
+        }
+    });
 
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
 
-        window.addEventListener('resize', scheduleSpatialMapUpdate);
-        window.addEventListener('scroll', scheduleSpatialMapUpdate, true);
+    window.addEventListener('resize', scheduleSpatialMapUpdate);
+    window.addEventListener('scroll', scheduleSpatialMapUpdate, true);
 
-        window.webgazer.setGazeListener(data => processGaze(data, state));
-    }
-
+    window.webgazer.setGazeListener(data => processGaze(data, state));
+}
     async function start() {
         loadSettings();
         loadRange();
