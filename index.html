@@ -259,8 +259,8 @@
     smoothing: 0.65,
     switchHysteresisMs: 100,
     minStableSamples: 4,
-    processingIntervalMs: 33,
-    mapRefreshIntervalMs: 200,
+    processingIntervalMs: 50,
+    mapRefreshIntervalMs: 1000,
     joystickThreshold: 0.38
 };
     const TUNING = { ...DEFAULTS };
@@ -360,7 +360,17 @@
                 };
             });
     }
+    
+    let spatialMapFrame = 0;
 
+    function scheduleSpatialMapUpdate() {
+        if (spatialMapFrame) return;
+    
+        spatialMapFrame = requestAnimationFrame(() => {
+            spatialMapFrame = 0;
+            updateSpatialMap();
+        });
+    }
     function getGridBounds() {
         if (!activeCells.length) return null;
 
@@ -461,14 +471,14 @@
         const mappedDot = document.getElementById('gaze-cursor-sim');
 
         if (rawDot) {
-            rawDot.style.left = `${rawX}px`;
-            rawDot.style.top = `${rawY}px`;
+            rawDot.style.transform =
+            `translate3d(${rawX}px, ${rawY}px, 0) translate(-50%, -50%)`;            
             rawDot.style.display = 'block';
         }
 
-        if (mappedDot) {
-            mappedDot.style.left = `${mappedX}px`;
-            mappedDot.style.top = `${mappedY}px`;
+        if (mappedDot) {       
+            mappedDot.style.transform =
+            `translate3d(${mappedX}px, ${mappedY}px, 0) translate(-50%, -50%)`;
             mappedDot.style.display = 'block';
         }
     }
@@ -1056,8 +1066,7 @@
 
         updateSpatialMap();
 
-        const observer = new MutationObserver(() => {
-            updateSpatialMap();
+       const observer = new MutationObserver(scheduleSpatialMapUpdate);
 
             if (state.activeTarget && !state.activeTarget.isConnected) {
                 state.activeTarget = null;
@@ -1072,8 +1081,8 @@
             subtree: true
         });
 
-        window.addEventListener('resize', updateSpatialMap);
-        window.addEventListener('scroll', updateSpatialMap, true);
+        window.addEventListener('resize', scheduleSpatialMapUpdate);
+        window.addEventListener('scroll', scheduleSpatialMapUpdate, true);
 
         window.webgazer.setGazeListener(data => processGaze(data, state));
     }
@@ -1103,7 +1112,7 @@
             await window.webgazer.begin();
             window.webgazer.showVideoPreview(true);
             window.webgazer.showPredictionPoints(false);
-            window.webgazer.applyKalmanFilter(true);
+            window.webgazer.applyKalmanFilter(false);
 
             startGazeLoop();
 
