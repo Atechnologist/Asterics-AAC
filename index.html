@@ -1130,62 +1130,79 @@ function triggerSelection(element) {
         }
     }
 
-    function startGazeLoop() {
+function startGazeLoop() {
+
     if (gazeLoopStarted || !window.webgazer) return;
+
     gazeLoopStarted = true;
+
+    // Initialize gaze-processing state.
+    const state = {
+
+        lastProcessedAt: 0,
+        lastMapRefreshAt: 0,
+
+        activeTarget: null,
+
+        dwellStartedAt: 0,
+        samples: 0,
+
+        pendingTarget: null,
+        pendingAt: 0,
+
+        missingSince: 0,
+
+        joystickArmed: true,
+        selected: false
+    };
+
+    // Make state accessible to the keyboard handler.
     gazeState = state;
-    
 
-window.addEventListener('keydown', (event) => {
-    if (event.code !== 'Space' && event.code !== 'Enter') return;
+    // Initialize spatial mapping.
+    updateSpatialMap();
 
-    // Do not hijack normal keyboard operation.
-    if (
-        event.repeat ||
-        event.altKey ||
-        event.ctrlKey ||
-        event.metaKey
-    ) {
-        return;
-    }
+    // Observe DOM changes and refresh spatial mapping.
+    const observer = new MutationObserver(() => {
 
-    const focused = document.activeElement;
+        scheduleSpatialMapUpdate();
 
-    if (
-        focused &&
-        focused !== document.body &&
-        focused !== document.documentElement &&
-        focused.matches(
-            'input, textarea, select, button, a[href], ' +
-            '[role="button"], [contenteditable="true"]'
-        )
-    ) {
-        return;
-    }
+        // Reset active target if removed from the DOM.
+        if (state.activeTarget && !state.activeTarget.isConnected) {
 
-    const activeTarget = document.querySelector('.gaze-active-target');
+            state.activeTarget = null;
+            state.pendingTarget = null;
 
-    if (!activeTarget || !calibrationDone) return;
+            state.dwellStartedAt = 0;
+            state.pendingAt = 0;
 
-    event.preventDefault();
-
-    if (triggerSelection(activeTarget)) {
-        clearHighlight(activeTarget);
-
-        // Reset dwell state to prevent immediate reselection.
-        if (gazeState) {
-            gazeState.activeTarget = null;
-            gazeState.pendingTarget = null;
-            gazeState.pendingAt = 0;
-            gazeState.dwellStartedAt = 0;
-            gazeState.samples = 0;
-            gazeState.missingSince = 0;
-            gazeState.selected = false;
-            gazeState.joystickArmed = true;
+            state.samples = 0;
+            state.selected = false;
+            state.missingSince = 0;
         }
-    }
-});
+    });
 
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
+    // Refresh spatial mapping when the viewport changes.
+    window.addEventListener('resize', scheduleSpatialMapUpdate);
+
+    window.addEventListener(
+        'scroll',
+        scheduleSpatialMapUpdate,
+        true
+    );
+
+    // Start receiving eye-gaze coordinates.
+    window.webgazer.setGazeListener(data => {
+
+        processGaze(data, state);
+
+    });
+}
 
 
     const state = {
