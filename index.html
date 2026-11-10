@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en" class="notranslate" translate="no">
+<head>
+    <script>
+        window.responsiveVoice = window.responsiveVoice || {
+            speak: function(text) { console.log("Mock Speech:", text); },
+            stop: function() {},
+            cancel: function() {},
+            isPlaying: function() { return false; },
+            deviceSupportsSpeech: function() { return true; },
+            init: function() {}
+        };
+    </script>
+
+    <title>Asterics AAC</title>
+    <meta id="viewPortMeta" name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="google-site-verification" content="UWnxfeRniUm-l7GAbNdqfZQmCCaAU3HB6jGOuEHZ26k" />
+
+    <link rel="icon" href="app/img/favicon-no-circle.svg" type="image/svg+xml">
+    <link rel="icon" href="app/img/favicon-no-circle.png" type="image/png">
+    <link rel="manifest" href="app/manifest.webmanifest">
+
+    <link rel="stylesheet" href="app/css/fontawesome/css/all.css">
+    <link rel="stylesheet" href="app/css/custom.css">
+    <link rel="stylesheet" href="app/css/jquery-ui.min.css">
+    <link rel="stylesheet" href="app/css/skeleton.css">
+    <link rel="stylesheet" href="app/css/bootstrap-grid.css">
+    <link rel="stylesheet" href="app/css/grid-styles.css">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tfjs/3.21.0/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh@0.0.5/dist/facemesh.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
+
+    <style>
+        .gaze-active-target {
+            outline: 3px solid #00ffcc !important;
+            box-shadow: 0 0 20px rgba(0, 255, 204, 0.75) !important;
+        }
+
+        #gaze-raw-dot,
+        #gaze-cursor-sim {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            display: none;
+        }
+
+        #gaze-raw-dot {
+            z-index: 999997;
+            background: rgba(255, 255, 255, 0.75);
+            border: 2px solid #fff;
+        }
+
+        #gaze-cursor-sim {
+            z-index: 999998;
+            background: rgba(0, 255, 204, 0.25);
+            border: 2px solid #00ffcc;
+            box-shadow: 0 0 12px rgba(0, 255, 204, 0.8);
+        }
+
+        #gaze-calibration-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 999999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(10, 10, 10, 0.95);
+            color: #fff;
+            font-family: sans-serif;
+            text-align: center;
+        }
+
+        #gaze-calibration-target {
+            position: fixed;
+            z-index: 1000000;
+            width: 44px;
+            height: 44px;
+            padding: 0;
+            border: 3px solid #fff;
+            border-radius: 50%;
+            background: #00ffcc;
+            box-shadow: 0 0 24px #00ffcc;
+            cursor: pointer;
+            transform: translate(-50%, -50%);
+        }
+    </style>
+</head>
+
+<body onload="window.loaded = true;">
+<div id="gaze-raw-dot" aria-hidden="true"></div>
+<div id="gaze-cursor-sim" aria-hidden="true"></div>
+
+<div style="display: none" aria-hidden="false">
+    {{ $t('accessKey1NavigationAccessKey2Main') }}
+</div>
+
+<div id="app" class="holy-grail">
+    <h1 class="sr-only">Asterics AAC</h1>
+
+    <div id="touchElement" class="grid-container" style="z-index: 2; display: none; -webkit-touch-callout: none; -webkit-user-select: none;"></div>
+    <audio style="display: none" id="audioPlayer" src="" preload="none"></audio>
+    <video style="display: none" id="videoPlayer" src="" preload="none"></video>
+
+    <notification-bar ref="notificationBar"></notification-bar>
+    <progress-bar-modal v-show="showModal === modalTypes.MODAL_PROGRESSBAR" ref="progressBar" @close="showModal = null"></progress-bar-modal>
+    <search-modal v-if="showModal === modalTypes.MODAL_SEARCH" @close="showModal = null;" :route-to-edit="Router.getCurrentView() === Router.VIEWS.GridEditView" :options="modalOptions"></search-modal>
+    <message-box v-show="showModal === modalTypes.MODAL_MESSAGEBOX" ref="messageBox" @close="showModal = null"></message-box>
+
+    <div class="grid-container grid-mask" v-if="false">
+        <i class="fas fa-4x fa-spinner fa-spin" style="top: 40%;"></i>
+        <div style="position: fixed; top: 50%; width: 100%; text-align: center; font-size: 2em;">
+            <span>loading...</span>
+        </div>
+    </div>
+
+    <div class="holy-grail-body" v-cloak>
+        <div class="holy-grail-sidebar-1 hg-sidebar no-print" v-show="showSidebar">
+            <div style="flex: 0 0 auto;">
+                <div class="show-mobile">
+                    <a tabindex="1" href="javascript:void(0)" :aria-label="$t('closeSidebar')" @click="closeSidebar()"><button tabindex="-1"><i class="fas fa-2x fa-bars inline"></i></button></a>
+                </div>
+                <div class="hide-mobile" style="display: inline-flex">
+                    <a tabindex="1" href="javascript:void(0)" :aria-label="$t('closeSidebar')" @click="closeSidebar()" style="margin: 0.2em 0.5em 0 1.2em"><i class="fas fa-2x fa-bars inline"></i></a>
+                    <a tabindex="-1" aria-hidden="true" href="javascript:void(0)" @click="toMain"><h1 class="inline hide-mobile"><img id="astericsIcon" src="app/img/asterics-aac-logo-raw.svg" height="40" alt="Asterics AAC"/></h1></a>
+                </div>
+            </div>
+
+            <nav role="navigation" class="srow content" style="flex: 1 1 auto" accesskey="1">
+                <div v-if="currentUser">
+                    <h2 class="hide-mobile" style="margin-top: 1.5em;">{{ $t('navigation') }}</h2>
+                    <br class="show-mobile" aria-hidden="true"/>
+                    <ul>
+                        <li><a tabindex="2" href="javascript:void(0)" @click="toMain" :aria-label="$t('mainView')"><button tabindex="-1"><i class="fas fa-2x fa-home"></i><span class="hide-mobile">{{ $t('mainView') }}</span></button></a></li>
+                        <li><a tabindex="3" href="#grids" :aria-label="$t('manageGrids')"><button tabindex="-1"><i class="fas fa-2x fa-list-ul"></i><span class="hide-mobile">{{ $t('manageGrids') }}</span></button></a></li>
+                        <li><a tabindex="4" href="#dictionaries" :aria-label="$t('manageDictionaries')"><button tabindex="-1"><i class="fas fa-2x fa-book"></i><span class="hide-mobile">{{ $t('manageDictionaries') }}</span></button></a></li>
+                    </ul>
+                </div>
+
+                <h2 class="hide-mobile">{{ $t('users') }}</h2>
+                <ul>
+                    <li><a tabindex="5" href="#login" :aria-label="$t('changeUser')"><button tabindex="-1"><i class="fas fa-2x fa-users"></i><span v-show="!currentUser" class="hide-mobile">{{ $t('login') }}</span><span v-show="currentUser" class="hide-mobile">{{ $t('changeUser') }}</span></button></a></li>
+                    <li class="hide-mobile"><a tabindex="6" href="#register" :aria-label="$t('addOnlineUser')"><button tabindex="-1"><i class="fas fa-2x fa-user-plus"></i><span class="hide-mobile">{{ $t('addOnlineUser') }}</span></button></a></li>
+                    <li class="hide-mobile"><a tabindex="7" href="#add" :aria-label="$t('addOfflineUser')"><button tabindex="-1"><i class="fas fa-2x fa-user-plus"></i><span>{{ $t('addOfflineUser') }}</span></button></a></li>
+                </ul>
+
+                <br class="hide-mobile" aria-hidden="true"/>
+                <ul style="margin-bottom: 0;">
+                    <li v-show="currentUser"><a tabindex="8" href="#settings" :aria-label="$t('settings')"><button tabindex="-1"><i class="fas fa-2x fa-cog"></i><span class="hide-mobile">{{ $t('settings') }}</span></button></a></li>
+                    <li class="hide-mobile"><a tabindex="9" href="#about" :aria-label="$t('aboutAstericsGrid')"><button tabindex="-1"><i class="fas fa-2x fa-info-circle"></i><span class="hide-mobile">{{ $t('aboutAstericsGrid') }}</span></button></a></li>
+                    <li><a tabindex="10" href="#help" :aria-label="$t('help')"><button tabindex="-1" id="helpButton"><i class="fas fa-2x fa-question-circle"></i><span class="hide-mobile">{{ $t('help') }}</span></button></a></li>
+                    <li class="show-mobile"><a tabindex="11" href="javascript:;" :aria-label="$t('more')" @click="moreNavigation()" id="moreNavigation"><button tabindex="-1"><i class="fas fa-2x fa-ellipsis-v"></i></button></a></li>
+                </ul>
+            </nav>
+
+            <div style="flex: 0 0 auto;" id="syncVisualizationWrapper">
+                <span v-show="currentUser && !isLocalUser" class="hide-mobile"><span>{{ $t('loggedInAs') }}</span> <i>{{currentUser}}</i></span>
+                <span v-show="currentUser && isLocalUser" class="hide-mobile"><span>{{ $t('usingOfflineUser') }}</span> <i>{{currentUser}}</i></span>
+                <span v-show="!currentUser" class="hide-mobile">{{ $t('notLoggedIn') }}</span>
+
+                <span id="syncVisualization" v-if="currentUser && !isLocalUser" class="fa-stack fa-1x right" :title="syncState | translate">
+                    <i class="fas fa-cloud fa-stack-2x" style="color: lightblue"></i>
+                    <i v-show="syncState === constants.DB_SYNC_STATE_SYNCINC" class="fas fa-sync-alt fa-stack-1x fa-spin"></i>
+                    <i v-show="syncState === constants.DB_SYNC_STATE_SYNCED" class="fas fa-check fa-stack-1x"></i>
+                    <i v-show="syncState === constants.DB_SYNC_STATE_STOPPED" class="fas fa-pause fa-stack-1x"></i>
+                    <i v-show="syncState === constants.DB_SYNC_STATE_ONLINEONLY" class="fas fa-globe fa-stack-1x"></i>
+                    <i v-show="!syncState || syncState === constants.DB_SYNC_STATE_FAIL" class="fas fa-times fa-stack-1x"></i>
+                </span>
+
+                <span id="syncVisualization2" v-if="currentUser && isLocalUser && syncState === constants.DB_SYNC_STATE_SYNCINC" class="fa-stack fa-1x right" :title="$t('cachingImages')">
+                    <i class="fas fa-sync-alt fa-stack-1x fa-spin"></i>
+                </span>
+            </div>
+        </div>
+
+        <main role="main" class="holy-grail-content" accesskey="2">
+            <div class="srow content text-content" v-if="!component">
+                <div class="grid-container grid-mask">
+                    <i class="fas fa-4x fa-spinner fa-spin"></i>
+                </div>
+            </div>
+            <component v-if="component" v-bind:is="component" v-bind="properties" :key="componentKey"></component>
+        </main>
+    </div>
+</div>
+
+<script type="text/javascript" src="app/lib/modernizr-custom.js"></script>
+<script type="text/javascript">
+    if (!String.prototype.replaceAll) {
+        Object.defineProperty(String.prototype, 'replaceAll', {
+            configurable: true,
+            writable: true,
+            enumerable: false,
+            value: function(search, replace) {
+                return this.replace(
+                    Object.prototype.toString.call(search) === '[object RegExp]'
+                        ? (search.global ? search : RegExp(search.source, /\/([a-z]*)$/.exec(search.toString())[1] + 'g'))
+                        : RegExp(String(search).replace(/[.^$*+?()[{|\\]/g, "\\$&"), "g"),
+                    replace
+                );
+            }
+        });
+    }
+
+    testEval("function x(a = 1){}", "default parameters");
+
+    if (![].fill) {
+        logAndRedirect("Browser doesn't support Array.fill");
+    }
+
+    checkModernizr('promises');
+    checkModernizr('indexeddb');
+
+    function checkModernizr(modernizrFeature) {
+        Modernizr.on(modernizrFeature, function(result) {
+            if (!result) logAndRedirect(modernizrFeature);
+        });
+    }
+
+    function logAndRedirect(missingFeature) {
+        console.warn("Browser doesn't support " + missingFeature + ".");
+        window.location.replace("unsupported.html");
+    }
+
+    function testEval(evalString, msg) {
+        try {
+            eval(evalString);
+        } catch (e) {
+            console.log(e);
+            logAndRedirect(msg);
+        }
+    }
+</script>
+
+<script src="app/lib/jquery.min.js"></script>
+<script src="app/lib/jquery-ui.min.js"></script>
+<script type="text/javascript" src="app/lib/jquery.contextMenu.min.js"></script>
+<script type="text/javascript" src="app/lib/object-model.min.js"></script>
+<script type="text/javascript" src="app/lib/pouchdb-8.0.1.min.js"></script>
+<script type="text/javascript" src="app/lib/loglevel.min.js"></script>
+<script type="text/javascript" src="app/lib/sjcl.min.js"></script>
+
+<script>
+(function () {
+    'use strict';
+
+    const SETTINGS_KEY = 'asterics-gaze-settings-v3';
+    const RANGE_KEY = 'asterics-gaze-range-v2';
+    const MODE_KEY = 'asterics-gaze-mode-v1';
+
+    const DEFAULTS = {
+    dwellMs: 900,
+    smoothing: 0.65,
+    switchHysteresisMs: 100,
+    minStableSamples: 4,
+    processingIntervalMs: 50,
+    mapRefreshIntervalMs: 1000,
+    joystickThreshold: 0.38
+};
+    const TUNING = { ...DEFAULTS };
+
+    let activeCells = [];
+    let gazeRange = null;
+    let interactionMode = 'direct';
+    let calibrationDone = false;
+    let gazeLoopStarted = false;
+    let gazeX = null;
+    let gazeY = null;
+    let recentGaze = [];
+
+    function loadSettings() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+
+            Object.keys(DEFAULTS).forEach(key => {
+                const value = Number(saved[key]);
+                if (Number.isFinite(value)) TUNING[key] = value;
+            });
+        } catch (error) {
+            console.warn('Could not load gaze settings:', error);
+        }
+    }
+
+    function saveSettings() {
+        try {
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(TUNING));
+        } catch (error) {
+            console.warn('Could not save gaze settings:', error);
+        }
+    }
+
+    function loadRange() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(RANGE_KEY) || 'null');
+
+            if (
+                saved &&
+                Number.isFinite(saved.minX) &&
+                Number.isFinite(saved.maxX) &&
+                Number.isFinite(saved.minY) &&
+                Number.isFinite(saved.maxY) &&
+                Number.isFinite(saved.centerX) &&
+                Number.isFinite(saved.centerY) &&
+                saved.maxX - saved.minX >= 40 &&
+                saved.maxY - saved.minY >= 40
+            ) {
+                gazeRange = saved;
+            }
+        } catch (error) {
+            console.warn('Could not load comfort range:', error);
+            gazeRange = null;
+        }
+    }
+
+    function saveRange() {
+        try {
+            if (gazeRange) {
+                localStorage.setItem(RANGE_KEY, JSON.stringify(gazeRange));
+            } else {
+                localStorage.removeItem(RANGE_KEY);
+            }
+        } catch (error) {
+            console.warn('Could not save comfort range:', error);
+        }
+    }
+
+    function updateSpatialMap() {
+        activeCells = Array.from(
+            document.querySelectorAll('.element-container:not([data-empty="true"])')
+        )
+            .filter(element => {
+                if (!element.isConnected) return false;
+
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+
+                return rect.width > 0 &&
+                    rect.height > 0 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden';
+            })
+            .map(element => {
+                const rect = element.getBoundingClientRect();
+
+                return {
+                    element,
+                    left: rect.left,
+                    top: rect.top,
+                    right: rect.right,
+                    bottom: rect.bottom,
+                    area: rect.width * rect.height,
+                    centerX: (rect.left + rect.right) / 2,
+                    centerY: (rect.top + rect.bottom) / 2
+                };
+            });
+    }
+    
+    let spatialMapFrame = 0;
+
+    function scheduleSpatialMapUpdate() {
+        if (spatialMapFrame) return;
+    
+        spatialMapFrame = requestAnimationFrame(() => {
+            spatialMapFrame = 0;
+            updateSpatialMap();
+        });
+    }
+    function getGridBounds() {
+        if (!activeCells.length) return null;
+
+        return activeCells.reduce((bounds, cell) => ({
+            left: Math.min(bounds.left, cell.left),
+            top: Math.min(bounds.top, cell.top),
+            right: Math.max(bounds.right, cell.right),
+            bottom: Math.max(bounds.bottom, cell.bottom)
+        }), {
+            left: Infinity,
+            top: Infinity,
+            right: -Infinity,
+            bottom: -Infinity
+        });
+    }
+
+    function applyComfortRange(x, y) {
+        if (!gazeRange) return { x, y };
+
+        const bounds = getGridBounds();
+        if (!bounds) return { x, y };
+
+        const sourceWidth = gazeRange.maxX - gazeRange.minX;
+        const sourceHeight = gazeRange.maxY - gazeRange.minY;
+        const gridWidth = bounds.right - bounds.left;
+        const gridHeight = bounds.bottom - bounds.top;
+
+        if (
+            sourceWidth < 40 ||
+            sourceHeight < 40 ||
+            gridWidth <= 0 ||
+            gridHeight <= 0
+        ) {
+            return { x, y };
+        }
+
+        const mappedX =
+            bounds.left + ((x - gazeRange.minX) / sourceWidth) * gridWidth;
+        const mappedY =
+            bounds.top + ((y - gazeRange.minY) / sourceHeight) * gridHeight;
+
+        return {
+            x: Math.max(bounds.left, Math.min(bounds.right, mappedX)),
+            y: Math.max(bounds.top, Math.min(bounds.bottom, mappedY))
+        };
+    }
+
+  function findCell(x, y) {
+        // 1. Try mathematical activeCells boundary matching first (fast & structured)
+        const matches = activeCells
+            .filter(cell =>
+                x >= cell.left &&
+                x <= cell.right &&
+                y >= cell.top &&
+                y <= cell.bottom
+            )
+            .sort((a, b) => a.area - b.area);
+
+        if (matches[0]) return matches[0];
+
+        // 2. Fallback: If strict bounds miss due to padding/gaps, use point-under-gaze hit testing
+        const elementUnderGaze = document.elementFromPoint(x, y);
+        const targetEl = elementUnderGaze ? elementUnderGaze.closest('.element-container, button, [role="button"], .q-btn') : null;
+        
+        if (targetEl) {
+            return activeCells.find(cell => cell.element === targetEl) || null;
+        }
+
+        return null;
+    }
+
+    function findNeighbor(element, direction) {
+        const current = activeCells.find(cell => cell.element === element);
+        if (!current) return null;
+
+        const horizontal = direction === 'left' || direction === 'right';
+        const sign = direction === 'left' || direction === 'up' ? -1 : 1;
+
+        let best = null;
+        let bestScore = Infinity;
+
+        for (const cell of activeCells) {
+            if (cell.element === element) continue;
+
+            const primary = horizontal
+                ? (cell.centerX - current.centerX) * sign
+                : (cell.centerY - current.centerY) * sign;
+
+            if (primary <= 0) continue;
+
+            const perpendicular = horizontal
+                ? Math.abs(cell.centerY - current.centerY)
+                : Math.abs(cell.centerX - current.centerX);
+
+            const score = perpendicular * 2 + primary * 0.15;
+
+            if (score < bestScore) {
+                best = cell;
+                bestScore = score;
+            }
+        }
+
+        return best ? best.element : null;
+    }
+
+    function setGazeDots(rawX, rawY, mappedX, mappedY) {
+        const rawDot = document.getElementById('gaze-raw-dot');
+        const mappedDot = document.getElementById('gaze-cursor-sim');
+
+        if (rawDot) {
+            rawDot.style.transform =
+            `translate3d(${rawX}px, ${rawY}px, 0) translate(-50%, -50%)`;            
+            rawDot.style.display = 'block';
+        }
+
+        if (mappedDot) {       
+            mappedDot.style.transform =
+            `translate3d(${mappedX}px, ${mappedY}px, 0) translate(-50%, -50%)`;
+            mappedDot.style.display = 'block';
+        }
+    }
+
+    function clearHighlight(element) {
+        if (element && element.classList) {
+            element.classList.remove('gaze-active-target');
+        }
+    }
+
+    function highlight(element) {
+        if (element && element.isConnected) {
+            element.classList.add('gaze-active-target');
+        }
+    }
+
+    function triggerSelection(element) {
+        if (!element || !element.isConnected || element.matches(':disabled')) return;
+
+        const rect = element.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
+
+        // Dispatch full sequence of pointer and mouse events for framework compatibility
+        const events = [
+            new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX, clientY }),
+            new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX, clientY }),
+            new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX, clientY }),
+            new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX, clientY }),
+            new MouseEvent('click', { bubbles: true, cancelable: true, clientX, clientY })
+        ];
+
+        events.forEach(evt => element.dispatchEvent(evt));
+
+        // Fallback to native click if framework events are ignored
+        if (typeof element.click === 'function') {
+            element.click();
+        }
+    }
+
+    // --- INSTANT SELECTION SWITCH OVERRIDE ---
+    window.addEventListener('keydown', (event) => {
+        // Trigger selection instantly when Spacebar or Enter is pressed
+        if (event.code === 'Space' || event.code === 'Enter') {
+            event.preventDefault();
+            
+            // Find whatever element your gaze is currently highlighting
+            const activeTarget = document.querySelector('.gaze-active-target');
+            if (activeTarget && typeof triggerSelection === 'function') {
+                triggerSelection(activeTarget);
+                clearHighlight(activeTarget);
+            }
+        }
+    });
+    function createCalibrationOverlay(onComplete) {
+        const previous = document.getElementById('gaze-calibration-overlay');
+        if (previous) previous.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'gaze-calibration-overlay';
+        overlay.style.cssText = [
+            'position:fixed',
+            'inset:0',
+            'z-index:999999',
+            'display:flex',
+            'flex-direction:column',
+            'align-items:center',
+            'justify-content:center',
+            'background:rgba(10,10,10,.95)',
+            'color:white',
+            'font-family:sans-serif',
+            'text-align:center'
+        ].join(';');
+
+        overlay.innerHTML = `
+            <h2 style="margin:0 16px 10px">Eye-Tracker Calibration</h2>
+            <p style="max-width:540px;margin:0 16px 20px;color:#ccc;line-height:1.5">
+                Keep your head still. Look at each target and click it five times.
+                Pause briefly between clicks.
+            </p>
+            <button id="gaze-calibration-target" type="button" aria-label="Calibration target"
+                style="position:fixed;width:44px;height:44px;padding:0;border:3px solid white;
+                border-radius:50%;background:#00ffcc;box-shadow:0 0 24px #00ffcc;
+                cursor:pointer;transform:translate(-50%,-50%);z-index:1000000"></button>
+            <p id="gaze-calibration-status" style="margin-top:30px;color:#00ffcc"></p>
+        `;
+
+        document.body.appendChild(overlay);
+
+        const target = document.getElementById('gaze-calibration-target');
+        const status = document.getElementById('gaze-calibration-status');
+
+        const points = [
+            { x: 0.08, y: 0.10 }, { x: 0.50, y: 0.10 }, { x: 0.92, y: 0.10 },
+            { x: 0.08, y: 0.50 }, { x: 0.50, y: 0.50 }, { x: 0.92, y: 0.50 },
+            { x: 0.08, y: 0.90 }, { x: 0.50, y: 0.90 }, { x: 0.92, y: 0.90 }
+        ];
+
+        let pointIndex = 0;
+        let clicksAtPoint = 0;
+
+        function showPoint() {
+            if (pointIndex >= points.length) {
+                overlay.remove();
+                if (typeof onComplete === 'function') onComplete();
+                return;
+            }
+
+            const point = points[pointIndex];
+            target.style.left = `${window.innerWidth * point.x}px`;
+            target.style.top = `${window.innerHeight * point.y}px`;
+            clicksAtPoint = 0;
+            status.textContent = `Point ${pointIndex + 1} of 9 — clicks 0 of 5`;
+        }
+
+        target.addEventListener('click', event => {
+            if (
+                window.webgazer &&
+                typeof window.webgazer.recordScreenPosition === 'function'
+            ) {
+                window.webgazer.recordScreenPosition(
+                    event.clientX,
+                    event.clientY,
+                    'click'
+                );
+            }
+
+            clicksAtPoint++;
+            status.textContent =
+                `Point ${pointIndex + 1} of 9 — clicks ${clicksAtPoint} of 5`;
+
+            if (clicksAtPoint >= 5) {
+                pointIndex++;
+                showPoint();
+            }
+        });
+
+        showPoint();
+    }
+
+    function median(values) {
+        const sorted = values.slice().sort((a, b) => a - b);
+        return sorted[Math.floor(sorted.length / 2)];
+    }
+
+    function createComfortRangeOverlay(onComplete) {
+        const previous = document.getElementById('gaze-range-overlay');
+        if (previous) previous.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'gaze-range-overlay';
+        overlay.style.cssText = [
+            'position:fixed',
+            'inset:0',
+            'z-index:999999',
+            'display:flex',
+            'flex-direction:column',
+            'align-items:center',
+            'justify-content:center',
+            'background:rgba(10,10,10,.95)',
+            'color:white',
+            'font:16px sans-serif',
+            'text-align:center'
+        ].join(';');
+
+        overlay.innerHTML = `
+            <p style="max-width:560px;margin:0 16px 20px;color:#ccc;line-height:1.5">
+                Look toward each target only as far as is comfortable. Hold your gaze
+                briefly, then click the target. Keep your head in your usual position.
+            </p>
+            <button id="gaze-range-target" type="button" aria-label="Comfort range target"
+                style="position:fixed;width:44px;height:44px;border:3px solid white;
+                border-radius:50%;background:#ff0055;box-shadow:0 0 24px #ff0055;
+                transform:translate(-50%,-50%);cursor:pointer"></button>
+            <p id="gaze-range-status" style="color:white"></p>
+        `;
+
+        document.body.appendChild(overlay);
+
+        const target = document.getElementById('gaze-range-target');
+        const status = document.getElementById('gaze-range-status');
+
+        const points = [
+            { label: 'Top-left comfortable limit', x: 0.12, y: 0.18 },
+            { label: 'Top-right comfortable limit', x: 0.88, y: 0.18 },
+            { label: 'Bottom-right comfortable limit', x: 0.88, y: 0.82 },
+            { label: 'Bottom-left comfortable limit', x: 0.12, y: 0.82 }
+        ];
+
+        const readings = [];
+        let pointIndex = 0;
+
+        function showPoint() {
+            if (pointIndex >= points.length) {
+                const minX = Math.min(...readings.map(point => point.x));
+                const maxX = Math.max(...readings.map(point => point.x));
+                const minY = Math.min(...readings.map(point => point.y));
+                const maxY = Math.max(...readings.map(point => point.y));
+
+                if (
+                    readings.length !== points.length ||
+                    maxX - minX < 40 ||
+                    maxY - minY < 40
+                ) {
+                    pointIndex = 0;
+                    readings.length = 0;
+                    status.textContent =
+                        'Could not measure a usable range. Please try the four points again.';
+                    setTimeout(showPoint, 1600);
+                    return;
+                }
+
+                gazeRange = {
+                    minX,
+                    maxX,
+                    minY,
+                    maxY,
+                    centerX: (minX + maxX) / 2,
+                    centerY: (minY + maxY) / 2
+                };
+
+                saveRange();
+                gazeX = null;
+                gazeY = null;
+                overlay.remove();
+
+                if (typeof onComplete === 'function') onComplete();
+                return;
+            }
+
+            const point = points[pointIndex];
+            target.style.left = `${window.innerWidth * point.x}px`;
+            target.style.top = `${window.innerHeight * point.y}px`;
+            status.textContent =
+                `${point.label} — point ${pointIndex + 1} of 4. Look, hold, then click.`;
+
+            // Samples gathered before this point must not be used for it.
+            recentGaze = [];
+        }
+
+       target.addEventListener('click', () => {
+    const cutoff = performance.now() - 2000;
+    const samples = recentGaze.filter(sample => sample.time >= cutoff);
+
+    if (samples.length < 3) {
+        status.textContent =
+            `Only ${samples.length} gaze readings collected. Keep looking at the target for 2 seconds, then click again.`;
+        return;
+    }
+
+    readings.push({
+        x: median(samples.map(sample => sample.x)),
+        y: median(samples.map(sample => sample.y))
+    });
+
+    pointIndex++;
+    showPoint();
+});
+
+        showPoint();
+    }
+
+    function addSettingsMenu() {
+        const style = document.createElement('style');
+        style.textContent = `
+            #gaze-settings-toggle {
+                position:fixed;top:12px;right:12px;z-index:99990;
+                padding:9px 12px;border:1px solid #00c9a7;border-radius:6px;
+                background:#172321;color:#fff;font:14px sans-serif;cursor:pointer
+            }
+            #gaze-settings-panel {
+                position:fixed;top:58px;right:12px;z-index:99990;
+                width:min(340px,calc(100vw - 24px));max-height:calc(100vh - 75px);
+                overflow:auto;padding:14px;border:1px solid #00c9a7;border-radius:8px;
+                background:rgba(15,20,20,.97);color:#fff;font:14px sans-serif;
+                box-shadow:0 4px 18px rgba(0,0,0,.45)
+            }
+            #gaze-settings-panel[hidden]{display:none}
+            .gaze-setting{margin:12px 0}
+            .gaze-setting-heading{display:flex;justify-content:space-between;gap:12px;margin-bottom:5px}
+            .gaze-setting input{width:100%;accent-color:#00ffcc}
+            #gaze-settings-panel button,#gaze-settings-panel select {
+                margin:4px;padding:7px 9px;border:1px solid #00c9a7;
+                border-radius:5px;background:#172321;color:#fff
+            }
+        `;
+        document.head.appendChild(style);
+
+        const toggle = document.createElement('button');
+        toggle.id = 'gaze-settings-toggle';
+        toggle.type = 'button';
+        toggle.textContent = 'Gaze settings';
+        toggle.setAttribute('aria-expanded', 'false');
+
+        const panel = document.createElement('section');
+        panel.id = 'gaze-settings-panel';
+        panel.hidden = true;
+
+        const heading = document.createElement('h2');
+        heading.textContent = 'Gaze settings';
+        panel.appendChild(heading);
+
+        const help = document.createElement('p');
+        help.textContent = 'Changes apply immediately and are saved in this browser.';
+        panel.appendChild(help);
+
+        const modeLabel = document.createElement('label');
+        modeLabel.htmlFor = 'gaze-interaction-mode';
+        modeLabel.textContent = 'Selection mode: ';
+
+        const modeSelect = document.createElement('select');
+        modeSelect.id = 'gaze-interaction-mode';
+        modeSelect.innerHTML = `
+            <option value="direct">Direct gaze</option>
+            <option value="joystick">Directional gaze</option>
+        `;
+        modeSelect.value = interactionMode;
+
+        modeSelect.addEventListener('change', () => {
+            if (modeSelect.value === 'joystick' && !gazeRange) {
+                modeSelect.value = 'direct';
+                alert('Calibrate the comfort range first to use directional gaze.');
+                return;
+            }
+
+            interactionMode = modeSelect.value;
+            localStorage.setItem(MODE_KEY, interactionMode);
+        });
+
+        panel.append(modeLabel, modeSelect);
+
+        const settings = [
+            {
+                key: 'dwellMs',
+                label: 'Dwell time',
+                min: 500,
+                max: 2500,
+                step: 100,
+                format: value => `${(value / 1000).toFixed(1)} s`
+            },
+            {
+                key: 'smoothing',
+                label: 'Gaze responsiveness',
+                min: 0.2,
+                max: 0.9,
+                step: 0.05,
+                format: value => Number(value).toFixed(2)
+            },
+            {
+                key: 'switchHysteresisMs',
+                label: 'Direct target switch delay',
+                min: 50,
+                max: 400,
+                step: 25,
+                format: value => `${value} ms`
+            },
+            {
+                key: 'joystickThreshold',
+                label: 'Directional movement threshold',
+                min: 0.20,
+                max: 0.70,
+                step: 0.05,
+                format: value => Number(value).toFixed(2)
+            }
+        ];
+
+        settings.forEach(setting => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'gaze-setting';
+
+            const row = document.createElement('div');
+            row.className = 'gaze-setting-heading';
+
+            const label = document.createElement('label');
+            const id = `gaze-setting-${setting.key}`;
+            label.htmlFor = id;
+            label.textContent = setting.label;
+
+            const output = document.createElement('output');
+            output.id = `${id}-value`;
+
+            const input = document.createElement('input');
+            input.id = id;
+            input.type = 'range';
+            input.min = String(setting.min);
+            input.max = String(setting.max);
+            input.step = String(setting.step);
+            input.value = String(TUNING[setting.key]);
+            output.textContent = setting.format(Number(input.value));
+
+            input.addEventListener('input', () => {
+                TUNING[setting.key] = Number(input.value);
+                output.textContent = setting.format(TUNING[setting.key]);
+                saveSettings();
+            });
+
+            row.append(label, output);
+            wrapper.append(row, input);
+            panel.appendChild(wrapper);
+        });
+
+        const recalibrate = document.createElement('button');
+        recalibrate.type = 'button';
+        recalibrate.textContent = 'Recalibrate (9 points)';
+        recalibrate.addEventListener('click', () => {
+            panel.hidden = true;
+            createCalibrationOverlay(() => {
+                panel.hidden = false;
+            });
+        });
+
+        const rangeButton = document.createElement('button');
+        rangeButton.type = 'button';
+        rangeButton.textContent = 'Calibrate comfort range';
+        rangeButton.addEventListener('click', () => {
+            panel.hidden = true;
+            createComfortRangeOverlay(() => {
+                panel.hidden = false;
+            });
+        });
+
+        const clearRange = document.createElement('button');
+        clearRange.type = 'button';
+        clearRange.textContent = 'Clear comfort range';
+        clearRange.addEventListener('click', () => {
+            gazeRange = null;
+            saveRange();
+            interactionMode = 'direct';
+            modeSelect.value = 'direct';
+            localStorage.setItem(MODE_KEY, 'direct');
+            gazeX = null;
+            gazeY = null;
+        });
+
+        toggle.addEventListener('click', () => {
+            panel.hidden = !panel.hidden;
+            toggle.setAttribute('aria-expanded', String(!panel.hidden));
+        });
+
+        panel.append(recalibrate, rangeButton, clearRange);
+        document.body.append(toggle, panel);
+    }
+
+    function processDirectGaze(state, now) {
+        const cell = findCell(gazeX, gazeY);
+        const candidate = cell ? cell.element : null;
+
+        if (!candidate) {
+            state.pendingTarget = null;
+            state.pendingAt = 0;
+
+            if (!state.missingSince) state.missingSince = now;
+
+            if (state.activeTarget && now - state.missingSince >= 400) { // Increased from 200 to 400ms
+              clearHighlight(state.activeTarget);
+              state.activeTarget = null;
+              state.dwellStartedAt = 0;
+              state.samples = 0;
+}
+            return;
+        }
+
+        state.missingSince = 0;
+
+        if (candidate === state.activeTarget) {
+            state.samples++;
+
+            if (
+                now - state.dwellStartedAt >= TUNING.dwellMs &&
+                state.samples >= TUNING.minStableSamples
+            ) {
+                triggerSelection(candidate);
+                clearHighlight(candidate);
+                state.activeTarget = null;
+                state.dwellStartedAt = 0;
+                state.samples = 0;
+            }
+            return;
+        }
+
+        if (state.pendingTarget !== candidate) {
+            state.pendingTarget = candidate;
+            state.pendingAt = now;
+            return;
+        }
+
+        if (now - state.pendingAt < TUNING.switchHysteresisMs) return;
+
+        clearHighlight(state.activeTarget);
+        state.activeTarget = candidate;
+        state.dwellStartedAt = now;
+        state.samples = 1;
+        state.pendingTarget = null;
+        state.pendingAt = 0;
+        highlight(candidate);
+    }
+
+    function processJoystickGaze(data, state, now) {
+        if (!gazeRange) return;
+
+        if (!state.activeTarget || !state.activeTarget.isConnected) {
+            const startingCell = findCell(gazeX, gazeY);
+
+            if (startingCell) {
+                state.activeTarget = startingCell.element;
+                state.dwellStartedAt = now;
+                state.samples = 0;
+                state.selected = false;
+                highlight(state.activeTarget);
+            }
+        }
+
+        const halfWidth = Math.max(1, (gazeRange.maxX - gazeRange.minX) / 2);
+        const halfHeight = Math.max(1, (gazeRange.maxY - gazeRange.minY) / 2);
+        const dx = (data.x - gazeRange.centerX) / halfWidth;
+        const dy = (data.y - gazeRange.centerY) / halfHeight;
+        const distance = Math.hypot(dx, dy);
+
+        // Return gaze near center to arm one more directional step.
+        if (distance < 0.20) {
+            state.joystickArmed = true;
+        } else if (
+            state.joystickArmed &&
+            distance >= TUNING.joystickThreshold &&
+            state.activeTarget
+        ) {
+            const direction = Math.abs(dx) >= Math.abs(dy)
+                ? (dx < 0 ? 'left' : 'right')
+                : (dy < 0 ? 'up' : 'down');
+
+            const next = findNeighbor(state.activeTarget, direction);
+
+            if (next) {
+                clearHighlight(state.activeTarget);
+                state.activeTarget = next;
+                state.dwellStartedAt = now;
+                state.samples = 0;
+                state.selected = false;
+                highlight(next);
+            }
+
+            state.joystickArmed = false;
+        }
+
+        if (!state.activeTarget || state.selected) return;
+
+        state.samples++;
+
+        if (
+            now - state.dwellStartedAt >= TUNING.dwellMs &&
+            state.samples >= TUNING.minStableSamples
+        ) {
+            const selected = state.activeTarget;
+            triggerSelection(selected);
+            clearHighlight(selected);
+
+            state.activeTarget = null;
+            state.dwellStartedAt = 0;
+            state.samples = 0;
+            state.selected = true;
+        }
+    }
+
+   // --- ADVANCED STATE VARIABLES FOR GATING ---
+    let lastGazeX = null;
+    let lastGazeY = null;
+    let lastGazeTime = 0;
+
+    function processGaze(data, state) {
+        if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
+
+        const now = performance.now();
+
+        // 1. SACCADE VELOCITY GATING: Skip frames where eyes are darting rapidly across the screen
+        if (lastGazeX !== null && lastGazeY !== null) {
+            const dt = now - lastGazeTime;
+            if (dt > 0) {
+                const distance = Math.hypot(data.x - lastGazeX, data.y - lastGazeY);
+                const velocity = distance / dt; // pixels per millisecond
+                
+                // If velocity exceeds 1.5 px/ms (in-flight saccade), pause processing briefly
+                if (velocity > 1.5) {
+                    lastGazeX = data.x;
+                    lastGazeY = data.y;
+                    lastGazeTime = now;
+                    return; 
+                }
+            }
+        }
+        lastGazeX = data.x;
+        lastGazeY = data.y;
+        lastGazeTime = now;
+
+        // Keep recent raw gaze readings for comfort-range calibration.
+        recentGaze.push({ x: data.x, y: data.y, time: now });
+        recentGaze = recentGaze.filter(sample => now - sample.time <= 1500);
+
+        if (now - state.lastProcessedAt < TUNING.processingIntervalMs) return;
+        state.lastProcessedAt = now;
+
+        if (now - state.lastMapRefreshAt >= TUNING.mapRefreshIntervalMs) {
+            updateSpatialMap();
+            state.lastMapRefreshAt = now;
+        }
+
+        let mapped = applyComfortRange(data.x, data.y);
+
+        // 2. EDGE-COMPRESSION BIAS CORRECTION: Gently stretch outer-edge coordinates outward from center
+        const centerX = window.innerWidth / 2;
+        const centerY = window.innerHeight / 2;
+        const edgeFactor = 1; // 5% outward stretch
+        mapped.x = centerX + (mapped.x - centerX) * edgeFactor;
+        mapped.y = centerY + (mapped.y - centerY) * edgeFactor;
+
+        if (gazeX === null || gazeY === null) {
+            gazeX = mapped.x;
+            gazeY = mapped.y;
+        } else {
+            gazeX += (mapped.x - gazeX) * TUNING.smoothing;
+            gazeY += (mapped.y - gazeY) * TUNING.smoothing;
+        }
+
+        setGazeDots(data.x, data.y, gazeX, gazeY);
+
+        if (!calibrationDone) return;
+
+        if (interactionMode === 'joystick') {
+            processJoystickGaze(data, state, now);
+        } else {
+            processDirectGaze(state, now);
+        }
+    }
+
+    function startGazeLoop() {
+    if (gazeLoopStarted || !window.webgazer) return;
+    gazeLoopStarted = true;
+
+    const state = {
+        lastProcessedAt: 0,
+        lastMapRefreshAt: 0,
+        activeTarget: null,
+        dwellStartedAt: 0,
+        samples: 0,
+        pendingTarget: null,
+        pendingAt: 0,
+        missingSince: 0,
+        joystickArmed: true,
+        selected: false
+    };
+
+    updateSpatialMap();
+
+    const observer = new MutationObserver(() => {
+        scheduleSpatialMapUpdate();
+
+        if (state.activeTarget && !state.activeTarget.isConnected) {
+            state.activeTarget = null;
+            state.dwellStartedAt = 0;
+            state.samples = 0;
+            state.selected = false;
+        }
+    });
+
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
+    window.addEventListener('resize', scheduleSpatialMapUpdate);
+    window.addEventListener('scroll', scheduleSpatialMapUpdate, true);
+
+    window.webgazer.setGazeListener(data => processGaze(data, state));
+}
+    async function start() {
+        loadSettings();
+        loadRange();
+
+        try {
+            interactionMode = localStorage.getItem(MODE_KEY) || 'direct';
+        } catch (error) {
+            interactionMode = 'direct';
+        }
+
+        if (interactionMode === 'joystick' && !gazeRange) {
+            interactionMode = 'direct';
+        }
+
+        addSettingsMenu();
+
+        if (!window.webgazer) {
+            console.error('WebGazer did not load. Check the browser console and network access.');
+            return;
+        }
+
+        try {
+            await window.webgazer.begin();
+            window.webgazer.showVideoPreview(true);
+            window.webgazer.showPredictionPoints(false);
+            window.webgazer.applyKalmanFilter(true);
+
+            startGazeLoop();
+
+            createCalibrationOverlay(() => {
+                calibrationDone = true;
+            });
+        } catch (error) {
+            console.error('WebGazer initialization failed:', error);
+        }
+    }
+
+    window.addEventListener('load', () => {
+        setTimeout(start, 500);
+    });
+})();
+</script>
+
+<script type="module" src="app/build/asterics-aac.bundle.js"></script>
+</body>
+</html>
