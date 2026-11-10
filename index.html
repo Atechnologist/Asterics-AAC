@@ -273,6 +273,7 @@
     let gazeX = null;
     let gazeY = null;
     let recentGaze = [];
+    let gazeState = null;
 
     function loadSettings() {
         try {
@@ -505,29 +506,34 @@
         }
     }
 
-    function triggerSelection(element) {
-        if (!element || !element.isConnected || element.matches(':disabled')) return;
+   
+function triggerSelection(element) {
+    if (!element || !element.isConnected) return false;
 
-        const rect = element.getBoundingClientRect();
-        const clientX = rect.left + rect.width / 2;
-        const clientY = rect.top + rect.height / 2;
-
-        // Dispatch full sequence of pointer and mouse events for framework compatibility
-        const events = [
-            new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX, clientY }),
-            new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX, clientY }),
-            new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX, clientY }),
-            new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX, clientY }),
-            new MouseEvent('click', { bubbles: true, cancelable: true, clientX, clientY })
-        ];
-
-        events.forEach(evt => element.dispatchEvent(evt));
-
-        // Fallback to native click if framework events are ignored
-        if (typeof element.click === 'function') {
-            element.click();
-        }
+    // Do not activate disabled or invisible targets.
+    if (
+        element.matches(':disabled, [aria-disabled="true"]') ||
+        element.closest('[inert]')
+    ) {
+        return false;
     }
+
+    const rect = element.getBoundingClientRect();
+
+    if (rect.width <= 0 || rect.height <= 0) {
+        return false;
+    }
+
+    // One click event is sufficient for Vue/Quasar click listeners.
+    // Avoid dispatching a second synthetic click.
+    if (typeof element.click === 'function') {
+        element.click();
+        return true;
+    }
+
+    return false;
+}
+
 
     // --- INSTANT SELECTION SWITCH OVERRIDE ---
     window.addEventListener('keydown', (event) => {
@@ -1065,16 +1071,18 @@
         // 1. SACCADE VELOCITY GATING: Skip frames where eyes are darting rapidly across the screen
         if (lastGazeX !== null && lastGazeY !== null) {
             const dt = now - lastGazeTime;
-            if (dt > 0) {
-                const distance = Math.hypot(data.x - lastGazeX, data.y - lastGazeY);
-                const velocity = distance / dt; // pixels per millisecond
-                
-                // If velocity exceeds 1.5 px/ms (in-flight saccade), pause processing briefly
-                if (velocity > 1.5) {
+                           if (velocity > 1.5) {
                     lastGazeX = data.x;
                     lastGazeY = data.y;
                     lastGazeTime = now;
-                    return; 
+                
+                    // Cancel pending dwell accumulation during rapid eye movement.
+                    state.pendingTarget = null;
+                    state.pendingAt = 0;
+                    state.dwellStartedAt = now;
+                    state.samples = 0;
+                
+                    return;
                 }
             }
         }
@@ -1125,6 +1133,60 @@
     function startGazeLoop() {
     if (gazeLoopStarted || !window.webgazer) return;
     gazeLoopStarted = true;
+    gazeState = state;
+    
+
+window.addEventListener('keydown', (event) => {
+    if (event.code !== 'Space' && event.code !== 'Enter') return;
+
+    // Do not hijack normal keyboard operation.
+    if (
+        event.repeat ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey
+    ) {
+        return;
+    }
+
+    const focused = document.activeElement;
+
+    if (
+        focused &&
+        focused !== document.body &&
+        focused !== document.documentElement &&
+        focused.matches(
+            'input, textarea, select, button, a[href], ' +
+            '[role="button"], [contenteditable="true"]'
+        )
+    ) {
+        return;
+    }
+
+    const activeTarget = document.querySelector('.gaze-active-target');
+
+    if (!activeTarget || !calibrationDone) return;
+
+    event.preventDefault();
+
+    if (triggerSelection(activeTarget)) {
+        clearHighlight(activeTarget);
+
+        // Reset dwell state to prevent immediate reselection.
+        if (gazeState) {
+            gazeState.activeTarget = null;
+            gazeState.pendingTarget = null;
+            gazeState.pendingAt = 0;
+            gazeState.dwellStartedAt = 0;
+            gazeState.samples = 0;
+            gazeState.missingSince = 0;
+            gazeState.selected = false;
+            gazeState.joystickArmed = true;
+        }
+    }
+});
+
+
 
     const state = {
         lastProcessedAt: 0,
