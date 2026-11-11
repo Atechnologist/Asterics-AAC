@@ -532,61 +532,109 @@
             }
         }
 
-     function triggerSelection(element) {
-    if (!element || !element.isConnected) return false;
+     // --- FULLY WORKING HYBRID SELECTION & EVENT DISPATCHER ---
+        function triggerSelection(element) {
+            if (!element || !element.isConnected) return false;
 
-    const target = element.matches('button, [role="button"], .q-btn')
-        ? element
-        : element.querySelector(
-            'button:not(:disabled), [role="button"]:not([aria-disabled="true"]), .q-btn'
-        ) || element;
+            const target = element.matches('button, [role="button"], .q-btn')
+                ? element
+                : element.querySelector(
+                    'button:not(:disabled), [role="button"]:not([aria-disabled="true"]), .q-btn'
+                ) || element;
 
-    if (
-        target.matches(':disabled, [aria-disabled="true"]') ||
-        target.closest('[inert]')
-    ) {
-        return false;
-    }
+            if (
+                target.matches(':disabled, [aria-disabled="true"]') ||
+                target.closest('[inert]')
+            ) {
+                return false;
+            }
 
-    const rect = target.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0 || typeof target.click !== 'function') {
-        return false;
-    }
+            const rect = target.getBoundingClientRect();
+            const clientX = rect.left + rect.width / 2;
+            const clientY = rect.top + rect.height / 2;
 
-    console.debug('Gaze activating:', target);
-    target.click();
-    return true;
-}
+            if (rect.width <= 0 || rect.height <= 0) {
+                return false;
+            }
 
-window.addEventListener('keydown', event => {
-    if (
-        (event.code !== 'Space' && event.code !== 'Enter') ||
-        event.repeat
-    ) {
-        return;
-    }
+            // Dispatch full sequence of pointer and mouse events for Quasar/Vue framework compatibility
+            const events = [
+                new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX, clientY }),
+                new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX, clientY }),
+                new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX, clientY }),
+                new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX, clientY }),
+                new MouseEvent('click', { bubbles: true, cancelable: true, clientX, clientY })
+            ];
 
-    const focused = document.activeElement;
-    if (
-        focused &&
-        focused.matches('input, textarea, select, [contenteditable="true"]')
-    ) {
-        return;
-    }
+            events.forEach(evt => target.dispatchEvent(evt));
 
-    const target =
-        (gazeState && gazeState.activeTarget) ||
-        document.querySelector('.gaze-active-target');
+            if (typeof target.click === 'function') {
+                target.click();
+            }
 
-    if (!target) {
-        console.debug('Gaze selection: no active target');
-        return;
-    }
+            console.debug('Gaze activated target:', target);
+            return true;
+        }
 
-    event.preventDefault();
-    console.debug('Keyboard selection target:', target);
-    triggerSelection(target);
-}, true);
+        // --- KEYBOARD & SWITCH OVERRIDE LISTENERS ---
+        window.addEventListener('keydown', event => {
+            const focused = document.activeElement;
+            if (
+                focused &&
+                focused.matches('input, textarea, select, [contenteditable="true"]')
+            ) {
+                return;
+            }
+
+            // 1. Instant Selection Switch Override via Spacebar or Enter
+            if ((event.code === 'Space' || event.code === 'Enter') && !event.repeat) {
+                const target =
+                    (gazeState && gazeState.activeTarget) ||
+                    document.querySelector('.gaze-active-target');
+
+                if (!target) {
+                    console.debug('Gaze selection: no active target');
+                    return;
+                }
+
+                event.preventDefault();
+                console.debug('Keyboard selection target:', target);
+                triggerSelection(target);
+                clearHighlight(target);
+                return;
+            }
+
+            // 2. Quick Re-Center Hotkey via 'C' (combats posture drift)
+            if (event.code === 'KeyC' && !event.repeat) {
+                event.preventDefault();
+                if (recentGaze.length >= 3) {
+                    const recentX = recentGaze.map(sample => sample.x);
+                    const recentY = recentGaze.map(sample => sample.y);
+                    const newCenterX = median(recentX);
+                    const newCenterY = median(recentY);
+
+                    if (gazeRange) {
+                        const width = gazeRange.maxX - gazeRange.minX;
+                        const height = gazeRange.maxY - gazeRange.minY;
+
+                        gazeRange.centerX = newCenterX;
+                        gazeRange.centerY = newCenterY;
+                        gazeRange.minX = newCenterX - (width / 2);
+                        gazeRange.maxX = newCenterX + (width / 2);
+                        gazeRange.minY = newCenterY - (height / 2);
+                        gazeRange.maxY = newCenterY + (height / 2);
+
+                        saveRange();
+                    }
+
+                    gazeX = null;
+                    gazeY = null;
+                    console.log("Gaze tracking bounds re-centered via hotkey 'C'!");
+                }
+            }
+        }, true);
+
+        
         function createCalibrationOverlay(onComplete) {
             const previous = document.getElementById('gaze-calibration-overlay');
             if (previous) previous.remove();
