@@ -544,27 +544,22 @@
 
     const rect = element.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return false;
-
     if (typeof element.click !== 'function') return false;
 
-    element.click(); // Fires one click; no extra synthetic pointer/mouse events.
+    element.click(); // One click only; do not dispatch extra mouse events.
     return true;
 }
 
-            return false;
-        }
+window.addEventListener('keydown', (event) => {
+    if (event.code !== 'Space' && event.code !== 'Enter') return;
 
-        window.addEventListener('keydown', (event) => {
-            if (event.code === 'Space' || event.code === 'Enter') {
-                event.preventDefault();
+    const activeTarget = document.querySelector('.gaze-active-target');
+    if (!activeTarget) return;
 
-                const activeTarget = document.querySelector('.gaze-active-target');
-                if (activeTarget && typeof triggerSelection === 'function') {
-                    triggerSelection(activeTarget);
-                    clearHighlight(activeTarget);
-                }
-            }
-        });
+    event.preventDefault();
+    triggerSelection(activeTarget);
+    clearHighlight(activeTarget);
+});
 
         function createCalibrationOverlay(onComplete) {
             const previous = document.getElementById('gaze-calibration-overlay');
