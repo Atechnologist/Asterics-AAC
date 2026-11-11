@@ -584,7 +584,7 @@
             return true;
         }
 
-        // --- KEYBOARD & SWITCH OVERRIDE LISTENERS ---
+       // --- UPDATED SINGLE-PRESS OVERRIDE ---
         window.addEventListener('keydown', event => {
             const focused = document.activeElement;
             if (
@@ -594,23 +594,29 @@
                 return;
             }
 
-            // 1. Instant Selection Switch Override via Spacebar or Enter
+            // Trigger instantly on the first press of Spacebar or Enter
             if ((event.code === 'Space' || event.code === 'Enter') && !event.repeat) {
                 const target =
-                    (gazeState && gazeState.activeTarget) ||
-                    document.querySelector('.gaze-active-target');
+                    document.querySelector('.gaze-active-target') ||
+                    (gazeState && gazeState.activeTarget);
 
                 if (!target) {
-                    console.debug('Gaze selection: no active target');
+                    console.debug('Gaze selection: no active target found');
                     return;
                 }
 
                 event.preventDefault();
-                console.debug('Keyboard selection target:', target);
-                triggerSelection(target);
+                
+                // Directly trigger selection on the first press
+                if (typeof triggerSelection === 'function') {
+                    triggerSelection(target);
+                } else {
+                    target.click();
+                }
+                
                 clearHighlight(target);
-                return;
             }
+        }, true);
 
             // 2. Quick Re-Center Hotkey via 'C' (combats posture drift)
             if (event.code === 'KeyC' && !event.repeat) {
