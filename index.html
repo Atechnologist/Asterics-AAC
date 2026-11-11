@@ -1064,32 +1064,38 @@ function triggerSelection(element) {
     let lastGazeTime = 0;
 
     function processGaze(data, state) {
-        if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
+    if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
 
-        const now = performance.now();
+    const now = performance.now();
 
-        // 1. SACCADE VELOCITY GATING: Skip frames where eyes are darting rapidly across the screen
-        if (lastGazeX !== null && lastGazeY !== null) {
-            const dt = now - lastGazeTime;
-                           if (velocity > 1.5) {
-                    lastGazeX = data.x;
-                    lastGazeY = data.y;
-                    lastGazeTime = now;
-                
-                    // Cancel pending dwell accumulation during rapid eye movement.
-                    state.pendingTarget = null;
-                    state.pendingAt = 0;
-                    state.dwellStartedAt = now;
-                    state.samples = 0;
-                
-                    return;
-                }
-            }
+    // Skip frames where the eyes are moving rapidly across the screen.
+    if (lastGazeX !== null && lastGazeY !== null) {
+        const dt = now - lastGazeTime;
+        const dx = data.x - lastGazeX;
+        const dy = data.y - lastGazeY;
+        const velocity = dt > 0 ? Math.hypot(dx, dy) / dt : 0;
+
+        if (velocity > 1.5) {
+            lastGazeX = data.x;
+            lastGazeY = data.y;
+            lastGazeTime = now;
+
+            // Cancel pending dwell accumulation during rapid eye movement.
+            state.pendingTarget = null;
+            state.pendingAt = 0;
+            state.dwellStartedAt = now;
+            state.samples = 0;
+
+            return;
         }
-        lastGazeX = data.x;
-        lastGazeY = data.y;
-        lastGazeTime = now;
+    }
 
+    lastGazeX = data.x;
+    lastGazeY = data.y;
+    lastGazeTime = now;
+
+    // Keep the rest of your existing processGaze body here,
+    // starting with the recentGaze.push(...) call.
         // Keep recent raw gaze readings for comfort-range calibration.
         recentGaze.push({ x: data.x, y: data.y, time: now });
         recentGaze = recentGaze.filter(sample => now - sample.time <= 1500);
