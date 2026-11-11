@@ -536,10 +536,11 @@
         function triggerSelection(element) {
             if (!element || !element.isConnected) return false;
 
-            const target = element.matches('button, [role="button"], .q-btn')
+            // Find the deepest clickable button or interactive element inside the container
+            const target = element.matches('button, [role="button"], .q-btn, a')
                 ? element
                 : element.querySelector(
-                    'button:not(:disabled), [role="button"]:not([aria-disabled="true"]), .q-btn'
+                    'button:not(:disabled), [role="button"]:not([aria-disabled="true"]), .q-btn, a'
                 ) || element;
 
             if (
@@ -550,29 +551,36 @@
             }
 
             const rect = target.getBoundingClientRect();
-            const clientX = rect.left + rect.width / 2;
-            const clientY = rect.top + rect.height / 2;
-
             if (rect.width <= 0 || rect.height <= 0) {
                 return false;
             }
 
-            // Dispatch full sequence of pointer and mouse events for Quasar/Vue framework compatibility
+            const clientX = rect.left + rect.width / 2;
+            const clientY = rect.top + rect.height / 2;
+
+            console.debug('Triggering selection on target:', target);
+
+            // 1. Focus the target first (helps Quasar/Vue components recognize focus states)
+            if (typeof target.focus === 'function') {
+                target.focus();
+            }
+
+            // 2. Dispatch full framework-compatible event sequence
             const events = [
-                new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX, clientY }),
-                new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX, clientY }),
-                new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX, clientY }),
-                new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX, clientY }),
-                new MouseEvent('click', { bubbles: true, cancelable: true, clientX, clientY })
+                new PointerEvent('pointerdown', { bubbles: true, cancelable: true, view: window, clientX, clientY }),
+                new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, clientX, clientY }),
+                new PointerEvent('pointerup', { bubbles: true, cancelable: true, view: window, clientX, clientY }),
+                new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, clientX, clientY }),
+                new MouseEvent('click', { bubbles: true, cancelable: true, view: window, clientX, clientY })
             ];
 
             events.forEach(evt => target.dispatchEvent(evt));
 
+            // 3. Fallback to native click method
             if (typeof target.click === 'function') {
                 target.click();
             }
 
-            console.debug('Gaze activated target:', target);
             return true;
         }
 
