@@ -532,35 +532,61 @@
             }
         }
 
-        function triggerSelection(element) {
+     function triggerSelection(element) {
     if (!element || !element.isConnected) return false;
 
+    const target = element.matches('button, [role="button"], .q-btn')
+        ? element
+        : element.querySelector(
+            'button:not(:disabled), [role="button"]:not([aria-disabled="true"]), .q-btn'
+        ) || element;
+
     if (
-        element.matches(':disabled, [aria-disabled="true"]') ||
-        element.closest('[inert]')
+        target.matches(':disabled, [aria-disabled="true"]') ||
+        target.closest('[inert]')
     ) {
         return false;
     }
 
-    const rect = element.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return false;
-    if (typeof element.click !== 'function') return false;
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0 || typeof target.click !== 'function') {
+        return false;
+    }
 
-    element.click(); // One click only; do not dispatch extra mouse events.
+    console.debug('Gaze activating:', target);
+    target.click();
     return true;
 }
 
-window.addEventListener('keydown', (event) => {
-    if (event.code !== 'Space' && event.code !== 'Enter') return;
+window.addEventListener('keydown', event => {
+    if (
+        (event.code !== 'Space' && event.code !== 'Enter') ||
+        event.repeat
+    ) {
+        return;
+    }
 
-    const activeTarget = document.querySelector('.gaze-active-target');
-    if (!activeTarget) return;
+    const focused = document.activeElement;
+    if (
+        focused &&
+        focused.matches('input, textarea, select, [contenteditable="true"]')
+    ) {
+        return;
+    }
+
+    const target =
+        (gazeState && gazeState.activeTarget) ||
+        document.querySelector('.gaze-active-target');
+
+    if (!target) {
+        console.debug('Gaze selection: no active target');
+        return;
+    }
 
     event.preventDefault();
-    triggerSelection(activeTarget);
-    clearHighlight(activeTarget);
-});
-
+    console.debug('Keyboard selection target:', target);
+    triggerSelection(target);
+}, true);
         function createCalibrationOverlay(onComplete) {
             const previous = document.getElementById('gaze-calibration-overlay');
             if (previous) previous.remove();
@@ -940,30 +966,32 @@ window.addEventListener('keydown', (event) => {
     const cell = findCell(gazeX, gazeY);
     const candidate = cell ? cell.element : null;
 
-    // Require the gaze to leave a target briefly before it can be selected again.
     if (!candidate) {
         state.pendingTarget = null;
         state.pendingAt = 0;
 
-        if (state.activeTarget) {
-            if (!state.missingSince) state.missingSince = now;
-
-            if (now - state.missingSince >= 250) {
-                clearHighlight(state.activeTarget);
-                state.activeTarget = null;
-                state.dwellStartedAt = 0;
-                state.samples = 0;
-                state.selected = false;
-                state.missingSince = 0;
-            }
+        if (state.activeTarget && !state.missingSince) {
+            state.missingSince = now;
         }
 
+        // Ignore short tracking gaps instead of restarting dwell immediately.
+        if (
+            state.activeTarget &&
+            state.missingSince &&
+            now - state.missingSince >= 350
+        ) {
+            clearHighlight(state.activeTarget);
+            state.activeTarget = null;
+            state.selectedTarget = null;
+            state.dwellStartedAt = 0;
+            state.samples = 0;
+            state.missingSince = 0;
+        }
         return;
     }
 
     state.missingSince = 0;
 
-    // Stabilize a new target before highlighting it.
     if (candidate !== state.activeTarget) {
         if (state.pendingTarget !== candidate) {
             state.pendingTarget = candidate;
@@ -975,9 +1003,9 @@ window.addEventListener('keydown', (event) => {
 
         clearHighlight(state.activeTarget);
         state.activeTarget = candidate;
+        state.selectedTarget = null;
         state.dwellStartedAt = now;
         state.samples = 1;
-        state.selected = false;
         state.pendingTarget = null;
         state.pendingAt = 0;
         highlight(candidate);
@@ -986,14 +1014,14 @@ window.addEventListener('keydown', (event) => {
 
     state.samples++;
 
-    // Select once after a stable dwell; do not repeatedly click while still
-    // looking at the same target.
     if (
-        !state.selected &&
+        state.selectedTarget !== candidate &&
         now - state.dwellStartedAt >= TUNING.dwellMs &&
         state.samples >= TUNING.minStableSamples
     ) {
-        state.selected = triggerSelection(candidate);
+        if (triggerSelection(candidate)) {
+            state.selectedTarget = candidate;
+        }
     }
 }
 
