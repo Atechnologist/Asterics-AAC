@@ -584,7 +584,7 @@
             return true;
         }
 
-       // --- UPDATED SINGLE-PRESS OVERRIDE ---
+      // --- UPDATED SINGLE-PRESS OVERRIDE & RE-CENTER HOTKEY ---
         window.addEventListener('keydown', event => {
             const focused = document.activeElement;
             if (
@@ -594,7 +594,7 @@
                 return;
             }
 
-            // Trigger instantly on the first press of Spacebar or Enter
+            // 1. Instant Selection Switch Override via Spacebar or Enter
             if ((event.code === 'Space' || event.code === 'Enter') && !event.repeat) {
                 const target =
                     document.querySelector('.gaze-active-target') ||
@@ -615,6 +615,36 @@
                 }
                 
                 clearHighlight(target);
+                return;
+            }
+
+            // 2. Quick Re-Center Hotkey via 'C' (combats posture drift)
+            if (event.code === 'KeyC' && !event.repeat) {
+                event.preventDefault();
+                if (recentGaze.length >= 3) {
+                    const recentX = recentGaze.map(sample => sample.x);
+                    const recentY = recentGaze.map(sample => sample.y);
+                    const newCenterX = median(recentX);
+                    const newCenterY = median(recentY);
+
+                    if (gazeRange) {
+                        const width = gazeRange.maxX - gazeRange.minX;
+                        const height = gazeRange.maxY - gazeRange.minY;
+
+                        gazeRange.centerX = newCenterX;
+                        gazeRange.centerY = newCenterY;
+                        gazeRange.minX = newCenterX - (width / 2);
+                        gazeRange.maxX = newCenterX + (width / 2);
+                        gazeRange.minY = newCenterY - (height / 2);
+                        gazeRange.maxY = newCenterY + (height / 2);
+
+                        saveRange();
+                    }
+
+                    gazeX = null;
+                    gazeY = null;
+                    console.log("Gaze tracking bounds re-centered via hotkey 'C'!");
+                }
             }
         }, true);
 
