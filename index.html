@@ -1020,9 +1020,10 @@ window.addEventListener('keydown', event => {
         state.samples >= TUNING.minStableSamples
     ) {
         if (triggerSelection(candidate)) {
-            state.selectedTarget = candidate;
+            state.selectedTarget = candidate;      
         }
     }
+  console.debug('gaze candidate:', candidate, 'active:', state.activeTarget);         
 }
 
         function processJoystickGaze(data, state, now) {
