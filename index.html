@@ -1069,30 +1069,28 @@ function triggerSelection(element) {
     const now = performance.now();
 
     // Skip frames where the eyes are moving rapidly across the screen.
-    if (lastGazeX !== null && lastGazeY !== null) {
-        const dt = now - lastGazeTime;
-        const dx = data.x - lastGazeX;
-        const dy = data.y - lastGazeY;
-        const velocity = dt > 0 ? Math.hypot(dx, dy) / dt : 0;
+   if (lastGazeX !== null && lastGazeY !== null) {
+    const dt = now - lastGazeTime;
+    const dx = data.x - lastGazeX;
+    const dy = data.y - lastGazeY;
+    const velocity = dt > 0 ? Math.hypot(dx, dy) / dt : 0;
 
-        if (velocity > 1.5) {
-            lastGazeX = data.x;
-            lastGazeY = data.y;
-            lastGazeTime = now;
+    if (velocity > 1.5) {
+        lastGazeX = data.x;
+        lastGazeY = data.y;
+        lastGazeTime = now;
 
-            // Cancel pending dwell accumulation during rapid eye movement.
-            state.pendingTarget = null;
-            state.pendingAt = 0;
-            state.dwellStartedAt = now;
-            state.samples = 0;
-
-            return;
-        }
+        state.pendingTarget = null;
+        state.pendingAt = 0;
+        state.dwellStartedAt = now;
+        state.samples = 0;
+        return;
     }
+}
 
-    lastGazeX = data.x;
-    lastGazeY = data.y;
-    lastGazeTime = now;
+lastGazeX = data.x;
+lastGazeY = data.y;
+lastGazeTime = now;
 
     // Keep the rest of your existing processGaze body here,
     // starting with the recentGaze.push(...) call.
