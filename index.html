@@ -939,56 +939,66 @@
             document.body.append(toggle, panel);
         }
 
-        function processDirectGaze(state, now) {
-            const cell = findCell(gazeX, gazeY);
-            const candidate = cell ? cell.element : null;
+       function processDirectGaze(state, now) {
+    const cell = findCell(gazeX, gazeY);
+    const candidate = cell ? cell.element : null;
 
-            if (!candidate) {
-                state.pendingTarget = null;
-                state.pendingAt = 0;
+    // Require the gaze to leave a target briefly before it can be selected again.
+    if (!candidate) {
+        state.pendingTarget = null;
+        state.pendingAt = 0;
 
-                if (!state.missingSince) state.missingSince = now;
+        if (state.activeTarget) {
+            if (!state.missingSince) state.missingSince = now;
 
-                if (state.activeTarget && now - state.missingSince >= 400) {
-                    clearHighlight(state.activeTarget);
-                    state.activeTarget = null;
-                    state.dwellStartedAt = 0;
-                    state.samples = 0;
-                }
-                return;
+            if (now - state.missingSince >= 250) {
+                clearHighlight(state.activeTarget);
+                state.activeTarget = null;
+                state.dwellStartedAt = 0;
+                state.samples = 0;
+                state.selected = false;
+                state.missingSince = 0;
             }
-
-            state.missingSince = 0;
-
-            if (candidate === state.activeTarget) {
-                state.samples++;
-
-                if (now - state.dwellStartedAt >= TUNING.dwellMs && state.samples >= TUNING.minStableSamples) {
-                    triggerSelection(candidate);
-                    clearHighlight(candidate);
-                    state.activeTarget = null;
-                    state.dwellStartedAt = 0;
-                    state.samples = 0;
-                }
-                return;
-            }
-
-            if (state.pendingTarget !== candidate) {
-                state.pendingTarget = candidate;
-                state.pendingAt = now;
-                return;
-            }
-
-            if (now - state.pendingAt < TUNING.switchHysteresisMs) return;
-
-            clearHighlight(state.activeTarget);
-            state.activeTarget = candidate;
-            state.dwellStartedAt = now;
-            state.samples = 1;
-            state.pendingTarget = null;
-            state.pendingAt = 0;
-            highlight(candidate);
         }
+
+        return;
+    }
+
+    state.missingSince = 0;
+
+    // Stabilize a new target before highlighting it.
+    if (candidate !== state.activeTarget) {
+        if (state.pendingTarget !== candidate) {
+            state.pendingTarget = candidate;
+            state.pendingAt = now;
+            return;
+        }
+
+        if (now - state.pendingAt < TUNING.switchHysteresisMs) return;
+
+        clearHighlight(state.activeTarget);
+        state.activeTarget = candidate;
+        state.dwellStartedAt = now;
+        state.samples = 1;
+        state.selected = false;
+        state.pendingTarget = null;
+        state.pendingAt = 0;
+        highlight(candidate);
+        return;
+    }
+
+    state.samples++;
+
+    // Select once after a stable dwell; do not repeatedly click while still
+    // looking at the same target.
+    if (
+        !state.selected &&
+        now - state.dwellStartedAt >= TUNING.dwellMs &&
+        state.samples >= TUNING.minStableSamples
+    ) {
+        state.selected = triggerSelection(candidate);
+    }
+}
 
         function processJoystickGaze(data, state, now) {
             if (!gazeRange) return;
@@ -1056,11 +1066,12 @@
                     if (!gazeState) {
                         gazeState = {
                             activeTarget: null,
+                            dwellStartedAt: 0,
+                            samples: 0,
                             pendingTarget: null,
                             pendingAt: 0,
-                            dwellStartedAt: 0,
                             missingSince: 0,
-                            samples: 0
+                            selected: false
                         };
                     }
 
