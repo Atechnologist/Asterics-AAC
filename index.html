@@ -296,7 +296,7 @@
     <script type="text/javascript" src="app/lib/sjcl.min.js"></script>
 
     <script>
-    (function () {
+    function initializeAstericsGaze() {
         'use strict';
 
         const SETTINGS_KEY = 'asterics-gaze-settings-v3';
@@ -532,11 +532,9 @@
             }
         }
 
-     // --- FULLY WORKING HYBRID SELECTION & EVENT DISPATCHER ---
         function triggerSelection(element) {
             if (!element || !element.isConnected) return false;
 
-            // Find the deepest clickable button or interactive element inside the container
             const target = element.matches('button, [role="button"], .q-btn, a')
                 ? element
                 : element.querySelector(
@@ -555,36 +553,18 @@
                 return false;
             }
 
-            const clientX = rect.left + rect.width / 2;
-            const clientY = rect.top + rect.height / 2;
-
-            console.debug('Triggering selection on target:', target);
-
-            // 1. Focus the target first (helps Quasar/Vue components recognize focus states)
             if (typeof target.focus === 'function') {
                 target.focus();
             }
 
-            // 2. Dispatch full framework-compatible event sequence
-            const events = [
-                new PointerEvent('pointerdown', { bubbles: true, cancelable: true, view: window, clientX, clientY }),
-                new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, clientX, clientY }),
-                new PointerEvent('pointerup', { bubbles: true, cancelable: true, view: window, clientX, clientY }),
-                new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, clientX, clientY }),
-                new MouseEvent('click', { bubbles: true, cancelable: true, view: window, clientX, clientY })
-            ];
-
-            events.forEach(evt => target.dispatchEvent(evt));
-
-            // 3. Fallback to native click method
             if (typeof target.click === 'function') {
                 target.click();
+                return true;
             }
 
-            return true;
+            return false;
         }
 
-      // --- UPDATED SINGLE-PRESS OVERRIDE & RE-CENTER HOTKEY ---
         window.addEventListener('keydown', event => {
             const focused = document.activeElement;
             if (
@@ -648,37 +628,6 @@
             }
         }, true);
 
-            // 2. Quick Re-Center Hotkey via 'C' (combats posture drift)
-            if (event.code === 'KeyC' && !event.repeat) {
-                event.preventDefault();
-                if (recentGaze.length >= 3) {
-                    const recentX = recentGaze.map(sample => sample.x);
-                    const recentY = recentGaze.map(sample => sample.y);
-                    const newCenterX = median(recentX);
-                    const newCenterY = median(recentY);
-
-                    if (gazeRange) {
-                        const width = gazeRange.maxX - gazeRange.minX;
-                        const height = gazeRange.maxY - gazeRange.minY;
-
-                        gazeRange.centerX = newCenterX;
-                        gazeRange.centerY = newCenterY;
-                        gazeRange.minX = newCenterX - (width / 2);
-                        gazeRange.maxX = newCenterX + (width / 2);
-                        gazeRange.minY = newCenterY - (height / 2);
-                        gazeRange.maxY = newCenterY + (height / 2);
-
-                        saveRange();
-                    }
-
-                    gazeX = null;
-                    gazeY = null;
-                    console.log("Gaze tracking bounds re-centered via hotkey 'C'!");
-                }
-            }
-        }, true);
-
-        
         function createCalibrationOverlay(onComplete) {
             const previous = document.getElementById('gaze-calibration-overlay');
             if (previous) previous.remove();
@@ -1169,6 +1118,8 @@
 
             loadSettings();
             loadRange();
+            updateSpatialMap();
+            window.setInterval(updateSpatialMap, TUNING.mapRefreshIntervalMs);
 
             if (typeof window.webgazer.setGazeListener === 'function') {
                 window.webgazer.setGazeListener((data, elapsedTime) => {
@@ -1251,7 +1202,9 @@
             findCell,
             applyComfortRange
         };
-    })();
+    }
+
+    initializeAstericsGaze();
     </script>
 
     <script type="module" src="app/build/asterics-aac.bundle.js"></script>
