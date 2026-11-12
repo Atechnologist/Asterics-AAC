@@ -315,21 +315,6 @@
             offsetY: 0  // Manual vertical pixel adjustment
         };
 
-        const offsetXInput = document.getElementById('offset-x-input');
-        const offsetYInput = document.getElementById('offset-y-input');
-
-                offsetXInput.addEventListener('input', e => {
-                    gazeConfig.offsetX = parseInt(e.target.value, 10);
-                    document.getElementById('val-offset-x').textContent = gazeConfig.offsetX;
-                    saveConfig();
-                });
-
-                offsetYInput.addEventListener('input', e => {
-                    gazeConfig.offsetY = parseInt(e.target.value, 10);
-                    document.getElementById('val-offset-y').textContent = gazeConfig.offsetY;
-                    saveConfig();
-        });
-
         const TUNING = { ...DEFAULTS };
 
         let activeCells = [];
@@ -456,15 +441,9 @@
                 return { x, y };
             }
 
-            const mappedX = bounds.left + ((x - gazeRange.minX) / sourceWidth) * gridWidth;
-            const mappedY = bounds.top + ((y - gazeRange.minY) / sourceHeight) * gridHeight;
-            // Apply manual pixel offsets to fine-tune alignment
-            const finalMappedX = mappedX + (gazeConfig.offsetX || 0);
-            const finalMappedY = mappedY + (gazeConfig.offsetY || 0);
+            const mappedX = bounds.left + ((x - gazeRange.minX) / sourceWidth) * gridWidth + (TUNING.offsetX || 0);
+            const mappedY = bounds.top + ((y - gazeRange.minY) / sourceHeight) * gridHeight + (TUNING.offsetY || 0);
 
-            // Use finalMappedX and finalMappedY for cursor positioning and hit testing
-            setGazeDots(rawX, rawY, finalMappedX, finalMappedY);
-            checkGazeTargets(finalMappedX, finalMappedY);
             return {
                 x: Math.max(bounds.left, Math.min(bounds.right, mappedX)),
                 y: Math.max(bounds.top, Math.min(bounds.bottom, mappedY))
@@ -947,6 +926,22 @@
                     max: 0.70,
                     step: 0.05,
                     format: value => Number(value).toFixed(2)
+                },
+                {
+                    key: 'offsetX',
+                    label: 'Horizontal Offset (X)',
+                    min: -150,
+                    max: 150,
+                    step: 1,
+                    format: value => `${value} px`
+                },
+                {
+                    key: 'offsetY',
+                    label: 'Vertical Offset (Y)',
+                    min: -150,
+                    max: 150,
+                    step: 1,
+                    format: value => `${value} px`
                 }
             ];
 
