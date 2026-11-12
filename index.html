@@ -380,8 +380,7 @@
         }
 
        function updateSpatialMap() {
-            // Scan only active, visible interactive buttons inside the grid container
-            activeCells = Array.from(document.querySelectorAll('.grid-container button:not(:disabled), .grid-container [role="button"], .grid-container .q-btn'))
+            activeCells = Array.from(document.querySelectorAll('.element-container:not([data-empty="true"])'))
                 .filter(element => {
                     if (!element.isConnected) return false;
 
@@ -409,7 +408,6 @@
                     };
                 });
         }
-
         function getGridBounds() {
             if (!activeCells.length) return null;
 
