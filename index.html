@@ -2,31 +2,17 @@
 <html lang="en" class="notranslate" translate="no">
 <head>
     <script>
-    // Safe global mock for ResponsiveVoice to prevent AAC speech crashes
-    window.responsiveVoice = window.responsiveVoice || {
-        speak: function(text) { console.log("Mock Speech:", text); },
-        stop: function() {},
-        cancel: function() {},
-        isPlaying: function() { return false; },
-        deviceSupportsSpeech: function() { return true; },
-        init: function() {}
-    };
+        window.responsiveVoice = window.responsiveVoice || {
+            speak: function(text) { console.log("Mock Speech:", text); },
+            stop: function() {},
+            cancel: function() {},
+            isPlaying: function() { return false; },
+            deviceSupportsSpeech: function() { return true; },
+            init: function() {}
+        };
     </script>
 
-    <script>
-    // Robust jQuery contextMenu mock to satisfy AsTeRICS bundle initialization
-    window.addEventListener('beforeunload', () => {}, {once: true});
-    if (typeof jQuery !== 'undefined') {
-        if (!jQuery.contextMenu) {
-            jQuery.contextMenu = function() {};
-        }
-        if (!jQuery.fn.contextMenu) {
-            jQuery.fn.contextMenu = function() { return this; };
-        }
-    }
-</script>
-    
-    <title>Asterics AAC - Vector Gaze Tracking</title>
+    <title>Asterics AAC</title>
     <meta id="viewPortMeta" name="viewport" content="width=device-width, initial-scale=1">
     <meta name="google-site-verification" content="UWnxfeRniUm-l7GAbNdqfZQmCCaAU3HB6jGOuEHZ26k" />
 
@@ -41,283 +27,1323 @@
     <link rel="stylesheet" href="app/css/bootstrap-grid.css">
     <link rel="stylesheet" href="app/css/grid-styles.css">
 
-    <!-- Resilient CDN Stack for Eye-Tracking Engine -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tfjs/3.21.0/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh@0.0.5/dist/facemesh.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/webgazer@3.3.0/dist/webgazer.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
-    <script src="https://code.responsivevoice.org/responsivevoice.js?key=YOUR_KEY_OR_FREE"></script>
 
     <style>
-        /* Visual styling for vector-snapped targets */
-        .gaze-focused {
-            transform: scale(1.03) !important;
-            box-shadow: 0 0 25px rgba(46, 204, 113, 0.8) !important;
-            border: 3px solid #2ecc71 !important;
-            background-color: rgba(46, 204, 113, 0.15) !important;
-            transition: transform 0.08s ease-in-out;
+        .gaze-active-target {
+            outline: 3px solid #00ffcc !important;
+            box-shadow: 0 0 20px rgba(0, 255, 204, 0.75) !important;
+        }
+
+        #gaze-raw-dot,
+        #gaze-cursor-sim {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            display: none;
+        }
+
+        #gaze-raw-dot {
+            z-index: 999997;
+            background: rgba(255, 255, 255, 0.75);
+            border: 2px solid #fff;
+        }
+
+        #gaze-cursor-sim {
+            z-index: 999998;
+            background: rgba(0, 255, 204, 0.25);
+            border: 2px solid #00ffcc;
+            box-shadow: 0 0 12px rgba(0, 255, 204, 0.8);
+        }
+
+        #gaze-calibration-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 999999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(10, 10, 10, 0.95);
+            color: #fff;
+            font-family: sans-serif;
+            text-align: center;
+        }
+
+        #gaze-calibration-target {
+            position: fixed;
+            z-index: 1000000;
+            width: 44px;
+            height: 44px;
+            padding: 0;
+            border: 3px solid #fff;
+            border-radius: 50%;
+            background: #00ffcc;
+            box-shadow: 0 0 24px #00ffcc;
+            cursor: pointer;
+            transform: translate(-50%, -50%);
         }
     </style>
 </head>
+
 <body onload="window.loaded = true;">
-<div style="display: none" aria-hidden="false">
-    {{ $t('accessKey1NavigationAccessKey2Main') }}
-</div>
-<div id="app" class="holy-grail">
-    <h1 class="sr-only">Asterics AAC</h1>
-    <div id="touchElement" class="grid-container" style="z-index: 2; display: none; -webkit-touch-callout: none; -webkit-user-select: none;">
+    <div id="gaze-raw-dot" aria-hidden="true"></div>
+    <div id="gaze-cursor-sim" aria-hidden="true"></div>
+
+    <div style="display: none" aria-hidden="false">
+        {{ $t('accessKey1NavigationAccessKey2Main') }}
     </div>
-    <audio style="display: none" id="audioPlayer" src="" preload="none"></audio>
-    <video style="display: none" id="videoPlayer" src="" preload="none"></video>
-    <notification-bar ref="notificationBar"></notification-bar>
-    <progress-bar-modal v-show="showModal === modalTypes.MODAL_PROGRESSBAR" ref="progressBar" @close="showModal = null"></progress-bar-modal>
-    <search-modal v-if="showModal === modalTypes.MODAL_SEARCH" @close="showModal = null;" :route-to-edit="Router.getCurrentView() === Router.VIEWS.GridEditView" :options="modalOptions"></search-modal>
-    <message-box v-show="showModal === modalTypes.MODAL_MESSAGEBOX" ref="messageBox" @close="showModal = null"></message-box>
-    <div class="holy-grail-body" v-cloak>
-        <div class="holy-grail-sidebar-1 hg-sidebar no-print" v-show="showSidebar">
-            <!-- Sidebar elements -->
+
+    <div id="app" class="holy-grail">
+        <h1 class="sr-only">Asterics AAC</h1>
+
+        <div id="touchElement" class="grid-container" style="z-index: 2; display: none; -webkit-touch-callout: none; -webkit-user-select: none;"></div>
+        <audio style="display: none" id="audioPlayer" src="" preload="none"></audio>
+        <video style="display: none" id="videoPlayer" src="" preload="none"></video>
+
+        <notification-bar ref="notificationBar"></notification-bar>
+        <progress-bar-modal v-show="showModal === modalTypes.MODAL_PROGRESSBAR" ref="progressBar" @close="showModal = null"></progress-bar-modal>
+        <search-modal v-if="showModal === modalTypes.MODAL_SEARCH" @close="showModal = null;" :route-to-edit="Router.getCurrentView() === Router.VIEWS.GridEditView" :options="modalOptions"></search-modal>
+        <message-box v-show="showModal === modalTypes.MODAL_MESSAGEBOX" ref="messageBox" @close="showModal = null"></message-box>
+
+        <div class="grid-container grid-mask" v-if="false">
+            <i class="fas fa-4x fa-spinner fa-spin" style="top: 40%;"></i>
+            <div style="position: fixed; top: 50%; width: 100%; text-align: center; font-size: 2em;">
+                <span>loading...</span>
+            </div>
         </div>
-        <main role="main" class="holy-grail-content" accesskey="2">
-            <component v-if="component" v-bind:is="component" v-bind="properties" :key="componentKey"></component>
-        </main>
+
+        <div class="holy-grail-body" v-cloak>
+            <div class="holy-grail-sidebar-1 hg-sidebar no-print" v-show="showSidebar">
+                <div style="flex: 0 0 auto;">
+                    <div class="show-mobile">
+                        <a tabindex="1" href="javascript:void(0)" :aria-label="$t('closeSidebar')" @click="closeSidebar()">
+                            <button tabindex="-1"><i class="fas fa-2x fa-bars inline"></i></button>
+                        </a>
+                    </div>
+                    <div class="hide-mobile" style="display: inline-flex">
+                        <a tabindex="1" href="javascript:void(0)" :aria-label="$t('closeSidebar')" @click="closeSidebar()" style="margin: 0.2em 0.5em 0 1.2em">
+                            <i class="fas fa-2x fa-bars inline"></i>
+                        </a>
+                        <a tabindex="-1" aria-hidden="true" href="javascript:void(0)" @click="toMain">
+                            <h1 class="inline hide-mobile">
+                                <img id="astericsIcon" src="app/img/asterics-aac-logo-raw.svg" height="40" alt="Asterics AAC" />
+                            </h1>
+                        </a>
+                    </div>
+                </div>
+
+                <nav role="navigation" class="srow content" style="flex: 1 1 auto" accesskey="1">
+                    <div v-if="currentUser">
+                        <h2 class="hide-mobile" style="margin-top: 1.5em;">{{ $t('navigation') }}</h2>
+                        <br class="show-mobile" aria-hidden="true"/>
+                        <ul>
+                            <li>
+                                <a tabindex="2" href="javascript:void(0)" @click="toMain" :aria-label="$t('mainView')">
+                                    <button tabindex="-1"><i class="fas fa-2x fa-home"></i><span class="hide-mobile">{{ $t('mainView') }}</span></button>
+                                </a>
+                            </li>
+                            <li>
+                                <a tabindex="3" href="#grids" :aria-label="$t('manageGrids')">
+                                    <button tabindex="-1"><i class="fas fa-2x fa-list-ul"></i><span class="hide-mobile">{{ $t('manageGrids') }}</span></button>
+                                </a>
+                            </li>
+                            <li>
+                                <a tabindex="4" href="#dictionaries" :aria-label="$t('manageDictionaries')">
+                                    <button tabindex="-1"><i class="fas fa-2x fa-book"></i><span class="hide-mobile">{{ $t('manageDictionaries') }}</span></button>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <h2 class="hide-mobile">{{ $t('users') }}</h2>
+                    <ul>
+                        <li>
+                            <a tabindex="5" href="#login" :aria-label="$t('changeUser')">
+                                <button tabindex="-1"><i class="fas fa-2x fa-users"></i><span v-show="!currentUser" class="hide-mobile">{{ $t('login') }}</span><span v-show="currentUser" class="hide-mobile">{{ $t('changeUser') }}</span></button>
+                            </a>
+                        </li>
+                        <li class="hide-mobile">
+                            <a tabindex="6" href="#register" :aria-label="$t('addOnlineUser')">
+                                <button tabindex="-1"><i class="fas fa-2x fa-user-plus"></i><span class="hide-mobile">{{ $t('addOnlineUser') }}</span></button>
+                            </a>
+                        </li>
+                        <li class="hide-mobile">
+                            <a tabindex="7" href="#add" :aria-label="$t('addOfflineUser')">
+                                <button tabindex="-1"><i class="fas fa-2x fa-user-plus"></i><span>{{ $t('addOfflineUser') }}</span></button>
+                            </a>
+                        </li>
+                    </ul>
+
+                    <br class="hide-mobile" aria-hidden="true"/>
+                    <ul style="margin-bottom: 0;">
+                        <li v-show="currentUser">
+                            <a tabindex="8" href="#settings" :aria-label="$t('settings')">
+                                <button tabindex="-1"><i class="fas fa-2x fa-cog"></i><span class="hide-mobile">{{ $t('settings') }}</span></button>
+                            </a>
+                        </li>
+                        <li class="hide-mobile">
+                            <a tabindex="9" href="#about" :aria-label="$t('aboutAstericsGrid')">
+                                <button tabindex="-1"><i class="fas fa-2x fa-info-circle"></i><span class="hide-mobile">{{ $t('aboutAstericsGrid') }}</span></button>
+                            </a>
+                        </li>
+                        <li>
+                            <a tabindex="10" href="#help" :aria-label="$t('help')">
+                                <button tabindex="-1" id="helpButton"><i class="fas fa-2x fa-question-circle"></i><span class="hide-mobile">{{ $t('help') }}</span></button>
+                            </a>
+                        </li>
+                        <li class="show-mobile">
+                            <a tabindex="11" href="javascript:;" :aria-label="$t('more')" @click="moreNavigation()" id="moreNavigation">
+                                <button tabindex="-1"><i class="fas fa-2x fa-ellipsis-v"></i></button>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+
+                <div style="flex: 0 0 auto;" id="syncVisualizationWrapper">
+                    <span v-show="currentUser && !isLocalUser" class="hide-mobile"><span>{{ $t('loggedInAs') }}</span> <i>{{currentUser}}</i></span>
+                    <span v-show="currentUser && isLocalUser" class="hide-mobile"><span>{{ $t('usingOfflineUser') }}</span> <i>{{currentUser}}</i></span>
+                    <span v-show="!currentUser" class="hide-mobile">{{ $t('notLoggedIn') }}</span>
+
+                    <span id="syncVisualization" v-if="currentUser && !isLocalUser" class="fa-stack fa-1x right" :title="syncState | translate">
+                        <i class="fas fa-cloud fa-stack-2x" style="color: lightblue"></i>
+                        <i v-show="syncState === constants.DB_SYNC_STATE_SYNCINC" class="fas fa-sync-alt fa-stack-1x fa-spin"></i>
+                        <i v-show="syncState === constants.DB_SYNC_STATE_SYNCED" class="fas fa-check fa-stack-1x"></i>
+                        <i v-show="syncState === constants.DB_SYNC_STATE_STOPPED" class="fas fa-pause fa-stack-1x"></i>
+                        <i v-show="syncState === constants.DB_SYNC_STATE_ONLINEONLY" class="fas fa-globe fa-stack-1x"></i>
+                        <i v-show="!syncState || syncState === constants.DB_SYNC_STATE_FAIL" class="fas fa-times fa-stack-1x"></i>
+                    </span>
+
+                    <span id="syncVisualization2" v-if="currentUser && isLocalUser && syncState === constants.DB_SYNC_STATE_SYNCINC" class="fa-stack fa-1x right" :title="$t('cachingImages')">
+                        <i class="fas fa-sync-alt fa-stack-1x fa-spin"></i>
+                    </span>
+                </div>
+            </div>
+
+            <main role="main" class="holy-grail-content" accesskey="2">
+                <div class="srow content text-content" v-if="!component">
+                    <div class="grid-container grid-mask">
+                        <i class="fas fa-4x fa-spinner fa-spin"></i>
+                    </div>
+                </div>
+                <component v-if="component" v-bind:is="component" v-bind="properties" :key="componentKey"></component>
+            </main>
+        </div>
     </div>
-</div>
 
-<!-- Scripts & Polyfills -->
-<script type="text/javascript" src='app/lib/modernizr-custom.js'></script>
-<!-- jQuery ContextMenu Safety Polyfill -->
-<script>
-    window.addEventListener('DOMContentLoaded', () => {
-        if (typeof jQuery !== 'undefined' && !jQuery.contextMenu) {
-            jQuery.contextMenu = function() {};
-            jQuery.fn.contextMenu = function() { return this; };
-        }
-    });
-</script>    
-<script src="app/lib/jquery.min.js"></script>
-<script src="app/lib/jquery-ui.min.js"></script>
-<script type="text/javascript" src='app/lib/object-model.min.js'></script>
-<script type="text/javascript" src='app/lib/pouchdb-8.0.1.min.js'></script>
-<script type="text/javascript" src='app/lib/loglevel.min.js'></script>
-<script type="text/javascript" src='app/lib/sjcl.min.js'></script>
-
-<script>
-    let smoothedGazeX = null;
-    let smoothedGazeY = null;
-    const smoothingFactor = 0.5; // Balanced smoothing for low latency
-
-    document.addEventListener("DOMContentLoaded", () => {
-        ...
-    });
-
-    // ==========================================
-    // 1. GEOMETRIC ELEMENT SNAPPING UTILITY
-    // ==========================================
-    function getSnappedGazeTarget(gazeX, gazeY) {
-        const targetElements = document.querySelectorAll('.grid-item, button, [role="button"], .q-btn');
-        const SNAP_BUFFER = 75; 
-
-        for (let element of targetElements) {
-            const bounds = element.getBoundingClientRect();
-            if (bounds.width === 0 || bounds.height === 0) continue;
-
-            const minX = bounds.left - SNAP_BUFFER;
-            const maxX = bounds.right + SNAP_BUFFER;
-            const minY = bounds.top - SNAP_BUFFER;
-            const maxY = bounds.bottom + SNAP_BUFFER;
-
-            if (gazeX >= minX && gazeX <= maxX && gazeY >= minY && gazeY <= maxY) {
-                element.classList.add('gaze-focused');
-                return {
-                    element: element,
-                    x: bounds.left + bounds.width / 2,
-                    y: bounds.top + bounds.height / 2,
-                    isSnapped: true
-                };
-            } else {
-                element.classList.remove('gaze-focused');
-            }
-        }
-        return { element: null, x: gazeX, y: gazeY, isSnapped: false };
-    }
-
-    // ==========================================
-    // 2. OPTIMIZED COLLISION EYE VECTOR DRAWER
-    // ==========================================
-    function startVectorGazeTracking() {
-        let lastTarget = null;
-        let cachedPositions = null;
-        let frameCounter = 0;
-
-        webgazer.setGazeListener(async (data, elapsedTime) => {
-            if (!data) return;
-
-            // Linear interpolation for smoothing
-            if (smoothedGazeX === null || smoothedGazeY === null) {
-                smoothedGazeX = data.x;
-                smoothedGazeY = data.y;
-            } else {
-                smoothedGazeX += (data.x - smoothedGazeX) * smoothingFactor;
-                smoothedGazeY += (data.y - smoothedGazeY) * smoothingFactor;
-            }
-
-            const target = getSnappedGazeTarget(smoothedGazeX, smoothedGazeY);
-
-            let overlayCanvas = document.getElementById('vector-overlay-canvas');
-            if (!overlayCanvas) {
-                overlayCanvas = document.createElement('canvas');
-                overlayCanvas.id = 'vector-overlay-canvas';
-                overlayCanvas.style.position = 'fixed';
-                overlayCanvas.style.top = '0';
-                overlayCanvas.style.left = '0';
-                overlayCanvas.style.width = '100vw';
-                overlayCanvas.style.height = '100vh';
-                overlayCanvas.style.pointerEvents = 'none';
-                overlayCanvas.style.zIndex = '999997';
-                document.body.appendChild(overlayCanvas);
-            }
-
-            overlayCanvas.width = window.innerWidth;
-            overlayCanvas.height = window.innerHeight;
-            const ctx = overlayCanvas.getContext('2d');
-            ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-
-            // Throttle heavy tracker position lookups every 3 frames to prevent CPU lagging
-            frameCounter++;
-            const tracker = webgazer.getTracker();
-            if (frameCounter % 3 === 0 && tracker && typeof tracker.getPositions === 'function') {
-                cachedPositions = await tracker.getPositions();
-            }
-
-            const previewWidth = webgazer.params.videoViewerWidth || 320;
-            const whr = webgazer.getVideoPreviewToCameraResolutionRatio() || [1, 1];
-
-            let leftEyeX = window.innerWidth * 0.15;
-            let leftEyeY = window.innerHeight * 0.20;
-            let rightEyeX = window.innerWidth * 0.22;
-            let rightEyeY = window.innerHeight * 0.20;
-
-            if (cachedPositions && cachedPositions[145] && cachedPositions[374]) {
-                leftEyeX = previewWidth - cachedPositions[145][0] * whr[0];
-                leftEyeY = cachedPositions[145][1] * whr[1];
-                rightEyeX = previewWidth - cachedPositions[374][0] * whr[0];
-                rightEyeY = cachedPositions[374][1] * whr[1];
-            }
-
-            // Draw Vector Lines
-            ctx.strokeStyle = target.isSnapped ? "rgba(46, 204, 113, 0.95)" : "rgba(231, 76, 60, 0.85)";
-            ctx.lineWidth = target.isSnapped ? 4.0 : 2.5;
-
-            ctx.beginPath();
-            ctx.moveTo(leftEyeX, leftEyeY);
-            ctx.lineTo(target.x, target.y);
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.moveTo(rightEyeX, rightEyeY);
-            ctx.lineTo(target.x, target.y);
-            ctx.stroke();
-
-            // Handle Dwell / Hover Events
-            if (target.isSnapped && target.element) {
-                const bestTarget = target.element;
-                const targetX = target.x;
-                const targetY = target.y;
-
-                if (bestTarget !== lastTarget) {
-                    if (lastTarget) {
-                        lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, clientX: targetX, clientY: targetY }));
-                        lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    }
-                    bestTarget.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    bestTarget.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: targetX, clientY: targetY }));
-                    lastTarget = bestTarget;
+    <script type="text/javascript" src="app/lib/modernizr-custom.js"></script>
+    <script type="text/javascript">
+        if (!String.prototype.replaceAll) {
+            Object.defineProperty(String.prototype, 'replaceAll', {
+                configurable: true,
+                writable: true,
+                enumerable: false,
+                value: function(search, replace) {
+                    return this.replace(
+                        Object.prototype.toString.call(search) === '[object RegExp]'
+                            ? (search.global ? search : RegExp(search.source, /\/([a-z]*)$/.exec(search.toString())[1] + 'g'))
+                            : RegExp(String(search).replace(/[.^$*+?()[{|\\\\]/g, "\\$&"), "g"),
+                        replace
+                    );
                 }
-                bestTarget.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: targetX, clientY: targetY }));
-                bestTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: targetX, clientY: targetY }));
-            } else if (lastTarget) {
-                lastTarget.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }));
-                lastTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
-                lastTarget = null;
+            });
+        }
+
+        function testEval(evalString, msg) {
+            try {
+                eval(evalString);
+            } catch (e) {
+                console.log(e);
+                logAndRedirect(msg);
             }
-        });
+        }
 
-        // Restore Collision Demo Click-to-Calibrate Behavior Anywhere on Screen
-        document.addEventListener('click', (e) => {
-            if (typeof webgazer !== 'undefined' && webgazer.recordScreenPosition) {
-                webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
+        function checkModernizr(modernizrFeature) {
+            if (window.Modernizr && typeof Modernizr.on === 'function') {
+                Modernizr.on(modernizrFeature, function(result) {
+                    if (!result) logAndRedirect(modernizrFeature);
+                });
             }
-        });
-    }
+        }
 
-    // 5-Point Startup Calibration Overlay
-    function createCalibrationOverlay(onComplete) {
-        if (document.getElementById('gaze-calibration-overlay')) return;
+        function logAndRedirect(missingFeature) {
+            console.warn("Browser doesn't support " + missingFeature + ".");
+            window.location.replace("unsupported.html");
+        }
 
-        const overlay = document.createElement('div');
-        overlay.id = 'gaze-calibration-overlay';
-        overlay.style.position = 'fixed';
-        overlay.style.top = '0';
-        overlay.style.left = '0';
-        overlay.style.width = '100vw';
-        overlay.style.height = '100vh';
-        overlay.style.backgroundColor = 'rgba(10, 10, 10, 0.95)';
-        overlay.style.zIndex = '999999';
-        overlay.style.display = 'flex';
-        overlay.style.flexDirection = 'column';
-        overlay.style.alignItems = 'center';
-        overlay.style.justifyContent = 'center';
-        overlay.style.color = '#fff';
-        overlay.style.fontFamily = 'sans-serif';
+        if (![].fill) {
+            logAndRedirect("Browser doesn't support Array.fill");
+        }
 
-        overlay.innerHTML = `
-            <h2 style="margin-bottom: 10px; font-size: 24px;">Eye-Tracker Setup Calibration</h2>
-            <p style="max-width: 450px; text-align: center; color: #bbb; margin-bottom: 30px; line-height: 1.5;">
-                Stare directly at the glowing green dot and click it <strong>3 times</strong> with your mouse. Repeat for all positions to map your grid accurately.
-            </p>
-            <div id="calibration-target" style="width: 40px; height: 40px; background: #00ffcc; border-radius: 50%; cursor: pointer; box-shadow: 0 0 25px #00ffcc; transition: all 0.15s;"></div>
-            <p id="calib-status" style="margin-top: 25px; font-weight: bold; color: #00ffcc; font-size: 16px;">Target 1 of 5: Click 3 times</p>
-        `;
-        document.body.appendChild(overlay);
+        testEval("function x(a = 1){}", "default parameters");
+        checkModernizr('promises');
+        checkModernizr('indexeddb');
+    </script>
 
-        const target = document.getElementById('calibration-target');
-        const statusText = document.getElementById('calib-status');
-        
-        const points = [
-            {x: '15vw', y: '15vh'}, {x: '85vw', y: '15vh'},
-            {x: '50vw', y: '50vh'},
-            {x: '15vw', y: '85vh'}, {x: '85vw', y: '85vh'}
-        ];
-        let currentPoint = 0;
-        let clickCount = 0;
+    <script src="app/lib/jquery.min.js"></script>
+    <script src="app/lib/jquery-ui.min.js"></script>
+    <script type="text/javascript" src="app/lib/jquery.contextMenu.min.js"></script>
+    <script type="text/javascript" src="app/lib/object-model.min.js"></script>
+    <script type="text/javascript" src="app/lib/pouchdb-8.0.1.min.js"></script>
+    <script type="text/javascript" src="app/lib/loglevel.min.js"></script>
+    <script type="text/javascript" src="app/lib/sjcl.min.js"></script>
 
-        function updateTargetPosition() {
-            if (currentPoint >= points.length) {
-                overlay.remove();
-                if (typeof onComplete === 'function') onComplete();
+    <script>
+    function initializeAstericsGaze() {
+        'use strict';
+
+        const SETTINGS_KEY = 'asterics-gaze-settings-v3';
+        const RANGE_KEY = 'asterics-gaze-range-v2';
+        const MODE_KEY = 'asterics-gaze-mode-v1';
+
+        const DEFAULTS = {
+            dwellMs: 900,
+            smoothing: 0.65,
+            switchHysteresisMs: 100,
+            minStableSamples: 4,
+            processingIntervalMs: 50,
+            mapRefreshIntervalMs: 2500,
+            joystickThreshold: 0.38,
+            offsetX: 0,         // Manual horizontal pixel adjustment
+            offsetY: 0,         // Manual vertical pixel adjustment
+            headCompGain: 1.0,  // Face-box shift compensation multiplier (0 = off)
+            headDeadzonePx: 8   // Ignore micro head movements under 8px
+        };
+
+        const TUNING = { ...DEFAULTS };
+
+        let activeCells = [];
+        let gazeRange = null;
+        let interactionMode = 'direct';
+        let calibrationDone = false;
+        let gazeLoopStarted = false;
+        let gazeX = null;
+        let gazeY = null;
+        let recentGaze = [];
+        let gazeState = null;
+
+        // Option 1: Face-bounding-box shift compensation state
+        let baselineFaceCenter = null;
+        let smoothedHeadOffset = { x: 0, y: 0 };
+
+        function loadSettings() {
+            try {
+                const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+                Object.keys(DEFAULTS).forEach(key => {
+                    const value = Number(saved[key]);
+                    if (Number.isFinite(value)) TUNING[key] = value;
+                });
+            } catch (error) {
+                console.warn('Could not load gaze settings:', error);
+            }
+        }
+
+        function saveSettings() {
+            try {
+                localStorage.setItem(SETTINGS_KEY, JSON.stringify(TUNING));
+            } catch (error) {
+                console.warn('Could not save gaze settings:', error);
+            }
+        }
+
+        function loadRange() {
+            try {
+                const saved = JSON.parse(localStorage.getItem(RANGE_KEY) || 'null');
+                if (
+                    saved &&
+                    Number.isFinite(saved.minX) &&
+                    Number.isFinite(saved.maxX) &&
+                    Number.isFinite(saved.minY) &&
+                    Number.isFinite(saved.maxY) &&
+                    Number.isFinite(saved.centerX) &&
+                    Number.isFinite(saved.centerY) &&
+                    saved.maxX - saved.minX >= 40 &&
+                    saved.maxY - saved.minY >= 40
+                ) {
+                    gazeRange = saved;
+                }
+            } catch (error) {
+                console.warn('Could not load comfort range:', error);
+                gazeRange = null;
+            }
+        }
+
+        function saveRange() {
+            try {
+                if (gazeRange) {
+                    localStorage.setItem(RANGE_KEY, JSON.stringify(gazeRange));
+                } else {
+                    localStorage.removeItem(RANGE_KEY);
+                }
+            } catch (error) {
+                console.warn('Could not save comfort range:', error);
+            }
+        }
+
+        /**
+         * Reads the active face bounding box center from WebGazer's tracker or overlay.
+         * Returns { x, y } in video/overlay coordinates or null if unavailable.
+         */
+        function getCurrentFaceCenter() {
+            try {
+                if (window.webgazer && typeof window.webgazer.getTracker === 'function') {
+                    const tracker = window.webgazer.getTracker();
+                    if (tracker && typeof tracker.getPositions === 'function') {
+                        const positions = tracker.getPositions();
+                        if (Array.isArray(positions) && positions.length > 0) {
+                            // Landmark 62 / 41 / 33 or bounding box centroid across detected points
+                            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                            for (let i = 0; i < positions.length; i++) {
+                                const pt = positions[i];
+                                if (pt && pt.length >= 2) {
+                                    if (pt[0] < minX) minX = pt[0];
+                                    if (pt[0] > maxX) maxX = pt[0];
+                                    if (pt[1] < minY) minY = pt[1];
+                                    if (pt[1] > maxY) maxY = pt[1];
+                                }
+                            }
+                            if (Number.isFinite(minX) && maxX > minX) {
+                                return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                // Ignore transient tracker read errors
+            }
+            return null;
+        }
+
+        function resetFaceBaseline() {
+            const current = getCurrentFaceCenter();
+            if (current) {
+                baselineFaceCenter = { x: current.x, y: current.y };
+            }
+            smoothedHeadOffset = { x: 0, y: 0 };
+        }
+
+        function computeHeadCompensation() {
+            if (!TUNING.headCompGain || TUNING.headCompGain <= 0) {
+                return { x: 0, y: 0 };
+            }
+
+            const current = getCurrentFaceCenter();
+            if (!current) return smoothedHeadOffset;
+
+            if (!baselineFaceCenter) {
+                baselineFaceCenter = { x: current.x, y: current.y };
+                return { x: 0, y: 0 };
+            }
+
+            const rawDeltaX = current.x - baselineFaceCenter.x;
+            const rawDeltaY = current.y - baselineFaceCenter.y;
+            const dz = TUNING.headDeadzonePx || 8;
+
+            // Apply deadzone so micro head wobbles don't trigger compensation
+            const effectiveX = Math.abs(rawDeltaX) > dz
+                ? rawDeltaX - Math.sign(rawDeltaX) * dz
+                : 0;
+            const effectiveY = Math.abs(rawDeltaY) > dz
+                ? rawDeltaY - Math.sign(rawDeltaY) * dz
+                : 0;
+
+            // Note: Webcam feed is horizontally mirrored relative to screen movement
+            const targetOffsetX = effectiveX * TUNING.headCompGain;
+            const targetOffsetY = -effectiveY * TUNING.headCompGain;
+
+            // Smooth the head offset to avoid sudden jumps
+            smoothedHeadOffset.x = smoothedHeadOffset.x * 0.8 + targetOffsetX * 0.2;
+            smoothedHeadOffset.y = smoothedHeadOffset.y * 0.8 + targetOffsetY * 0.2;
+
+            return smoothedHeadOffset;
+        }
+
+        function updateSpatialMap() {
+            activeCells = Array.from(document.querySelectorAll('.element-container:not([data-empty="true"])'))
+                .filter(element => {
+                    if (!element.isConnected) return false;
+
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+
+                    return rect.width > 0 &&
+                        rect.height > 0 &&
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        !element.closest('[inert]');
+                })
+                .map(element => {
+                    const rect = element.getBoundingClientRect();
+
+                    return {
+                        element,
+                        left: rect.left,
+                        top: rect.top,
+                        right: rect.right,
+                        bottom: rect.bottom,
+                        area: rect.width * rect.height,
+                        centerX: (rect.left + rect.right) / 2,
+                        centerY: (rect.top + rect.bottom) / 2
+                    };
+                });
+        }
+
+        function getGridBounds() {
+            if (!activeCells.length) return null;
+
+            return activeCells.reduce((bounds, cell) => ({
+                left: Math.min(bounds.left, cell.left),
+                top: Math.min(bounds.top, cell.top),
+                right: Math.max(bounds.right, cell.right),
+                bottom: Math.max(bounds.bottom, cell.bottom)
+            }), {
+                left: Infinity,
+                top: Infinity,
+                right: -Infinity,
+                bottom: -Infinity
+            });
+        }
+
+        function applyComfortRange(x, y) {
+            const headOffset = computeHeadCompensation();
+            const totalOffsetX = (TUNING.offsetX || 0) + headOffset.x;
+            const totalOffsetY = (TUNING.offsetY || 0) + headOffset.y;
+
+            if (!gazeRange) {
+                return {
+                    x: x + totalOffsetX,
+                    y: y + totalOffsetY
+                };
+            }
+
+            const bounds = getGridBounds();
+            if (!bounds) {
+                return {
+                    x: x + totalOffsetX,
+                    y: y + totalOffsetY
+                };
+            }
+
+            const sourceWidth = gazeRange.maxX - gazeRange.minX;
+            const sourceHeight = gazeRange.maxY - gazeRange.minY;
+            const gridWidth = bounds.right - bounds.left;
+            const gridHeight = bounds.bottom - bounds.top;
+
+            if (sourceWidth < 40 || sourceHeight < 40 || gridWidth <= 0 || gridHeight <= 0) {
+                return {
+                    x: x + totalOffsetX,
+                    y: y + totalOffsetY
+                };
+            }
+
+            const mappedX = bounds.left + ((x - gazeRange.minX) / sourceWidth) * gridWidth + totalOffsetX;
+            const mappedY = bounds.top + ((y - gazeRange.minY) / sourceHeight) * gridHeight + totalOffsetY;
+
+            return {
+                x: Math.max(bounds.left, Math.min(bounds.right, mappedX)),
+                y: Math.max(bounds.top, Math.min(bounds.bottom, mappedY))
+            };
+        }
+
+        function findCell(x, y) {
+            if (typeof x !== 'number' || typeof y !== 'number') return null;
+
+            const matches = activeCells
+                .filter(cell =>
+                    x >= cell.left &&
+                    x <= cell.right &&
+                    y >= cell.top &&
+                    y <= cell.bottom
+                )
+                .sort((a, b) => a.area - b.area);
+
+            if (matches[0]) return matches[0];
+
+            const elementUnderGaze = document.elementFromPoint(x, y);
+            const targetEl = elementUnderGaze ? elementUnderGaze.closest('.element-container, button, [role="button"], .q-btn') : null;
+            if (targetEl) {
+                return activeCells.find(cell => cell.element === targetEl) || null;
+            }
+
+            return null;
+        }
+
+        function findNeighbor(element, direction) {
+            const current = activeCells.find(cell => cell.element === element);
+            if (!current) return null;
+
+            const horizontal = direction === 'left' || direction === 'right';
+            const sign = direction === 'left' || direction === 'up' ? -1 : 1;
+
+            let best = null;
+            let bestScore = Infinity;
+
+            for (const cell of activeCells) {
+                if (cell.element === element) continue;
+
+                const primary = horizontal
+                    ? (cell.centerX - current.centerX) * sign
+                    : (cell.centerY - current.centerY) * sign;
+
+                if (primary <= 0) continue;
+
+                const perpendicular = horizontal
+                    ? Math.abs(cell.centerY - current.centerY)
+                    : Math.abs(cell.centerX - current.centerX);
+
+                const score = perpendicular * 2 + primary * 0.15;
+
+                if (score < bestScore) {
+                    best = cell;
+                    bestScore = score;
+                }
+            }
+
+            return best ? best.element : null;
+        }
+
+        function setGazeDots(rawX, rawY, mappedX, mappedY) {
+            const rawDot = document.getElementById('gaze-raw-dot');
+            const mappedDot = document.getElementById('gaze-cursor-sim');
+
+            if (rawDot) {
+                rawDot.style.transform = `translate3d(${rawX}px, ${rawY}px, 0) translate(-50%, -50%)`;
+                rawDot.style.display = 'block';
+            }
+
+            if (mappedDot) {
+                mappedDot.style.transform = `translate3d(${mappedX}px, ${mappedY}px, 0) translate(-50%, -50%)`;
+                mappedDot.style.display = 'block';
+            }
+        }
+
+        function clearHighlight(element) {
+            if (element && element.classList) {
+                element.classList.remove('gaze-active-target');
+            }
+        }
+
+        function highlight(element) {
+            if (element && element.isConnected) {
+                element.classList.add('gaze-active-target');
+            }
+        }
+
+        function triggerSelection(element) {
+            if (!element || !element.isConnected) return false;
+
+            const target = element.matches('button, [role="button"], .q-btn, a')
+                ? element
+                : element.querySelector(
+                    'button:not(:disabled), [role="button"]:not([aria-disabled="true"]), .q-btn, a'
+                ) || element;
+
+            if (
+                target.matches(':disabled, [aria-disabled="true"]') ||
+                target.closest('[inert]')
+            ) {
+                return false;
+            }
+
+            const rect = target.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) {
+                return false;
+            }
+
+            if (typeof target.focus === 'function') {
+                target.focus();
+            }
+
+            if (typeof target.click === 'function') {
+                target.click();
+                return true;
+            }
+
+            return false;
+        }
+
+        window.addEventListener('keydown', event => {
+            const focused = document.activeElement;
+            if (
+                focused &&
+                focused.matches('input, textarea, select, [contenteditable="true"]')
+            ) {
                 return;
             }
-            target.style.position = 'absolute';
-            target.style.left = points[currentPoint].x;
-            target.style.top = points[currentPoint].y;
-            clickCount = 0;
-            statusText.innerText = `Target ${currentPoint + 1} of ${points.length}: Click 3 times while staring at the dot.`;
+
+            // 1. Instant Selection Switch Override via Spacebar or Enter
+            if ((event.code === 'Space' || event.code === 'Enter') && !event.repeat) {
+                const target =
+                    document.querySelector('.gaze-active-target') ||
+                    (gazeState && gazeState.activeTarget);
+
+                if (!target) {
+                    console.debug('Gaze selection: no active target found');
+                    return;
+                }
+
+                event.preventDefault();
+
+                if (typeof triggerSelection === 'function') {
+                    triggerSelection(target);
+                } else {
+                    target.click();
+                }
+
+                clearHighlight(target);
+                return;
+            }
+
+            // 2. Quick Re-Center Hotkey via 'C' (combats posture drift & resets face baseline)
+            if (event.code === 'KeyC' && !event.repeat) {
+                event.preventDefault();
+                resetFaceBaseline();
+
+                if (recentGaze.length >= 3) {
+                    const recentX = recentGaze.map(sample => sample.x);
+                    const recentY = recentGaze.map(sample => sample.y);
+                    const newCenterX = median(recentX);
+                    const newCenterY = median(recentY);
+
+                    if (gazeRange) {
+                        const width = gazeRange.maxX - gazeRange.minX;
+                        const height = gazeRange.maxY - gazeRange.minY;
+
+                        gazeRange.centerX = newCenterX;
+                        gazeRange.centerY = newCenterY;
+                        gazeRange.minX = newCenterX - (width / 2);
+                        gazeRange.maxX = newCenterX + (width / 2);
+                        gazeRange.minY = newCenterY - (height / 2);
+                        gazeRange.maxY = newCenterY + (height / 2);
+
+                        saveRange();
+                    }
+
+                    gazeX = null;
+                    gazeY = null;
+                    console.log("Gaze tracking bounds and face baseline re-centered via hotkey 'C'!");
+                }
+            }
+        }, true);
+
+        function createCalibrationOverlay(onComplete) {
+            const previous = document.getElementById('gaze-calibration-overlay');
+            if (previous) previous.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'gaze-calibration-overlay';
+            overlay.style.cssText = [
+                'position:fixed',
+                'inset:0',
+                'z-index:999999',
+                'display:flex',
+                'flex-direction:column',
+                'align-items:center',
+                'justify-content:center',
+                'background:rgba(10,10,10,.95)',
+                'color:white',
+                'font-family:sans-serif',
+                'text-align:center'
+            ].join(';');
+
+            overlay.innerHTML = `
+                <h2 style="margin:0 16px 10px">Eye-Tracker Calibration</h2>
+                <p style="max-width:540px;margin:0 16px 20px;color:#ccc;line-height:1.5">
+                    Keep your head still. Look at each target and click it five times.
+                    Pause briefly between clicks.
+                </p>
+                <button id="gaze-calibration-target" type="button" aria-label="Calibration target"
+                    style="position:fixed;width:44px;height:44px;padding:0;border:3px solid white;
+                    border-radius:50%;background:#00ffcc;box-shadow:0 0 24px #00ffcc;
+                    cursor:pointer;transform:translate(-50%,-50%);z-index:1000000"></button>
+                <p id="gaze-calibration-status" style="margin-top:30px;color:#00ffcc"></p>
+            `;
+
+            document.body.appendChild(overlay);
+
+            const target = document.getElementById('gaze-calibration-target');
+            const status = document.getElementById('gaze-calibration-status');
+
+            const points = [
+                { x: 0.50, y: 0.50 }, // Start dead center for primary baseline
+                { x: 0.08, y: 0.10 }, { x: 0.50, y: 0.10 }, { x: 0.92, y: 0.10 },
+                { x: 0.08, y: 0.50 },                  { x: 0.92, y: 0.50 },
+                { x: 0.08, y: 0.90 }, { x: 0.50, y: 0.90 }, { x: 0.92, y: 0.90 }
+            ];
+
+            let pointIndex = 0;
+            let clicksAtPoint = 0;
+
+            function showPoint() {
+                if (pointIndex >= points.length) {
+                    resetFaceBaseline();
+                    overlay.remove();
+                    calibrationDone = true;
+                    if (typeof onComplete === 'function') onComplete();
+                    return;
+                }
+
+                const point = points[pointIndex];
+                target.style.left = `${window.innerWidth * point.x}px`;
+                target.style.top = `${window.innerHeight * point.y}px`;
+                clicksAtPoint = 0;
+                status.textContent = `Point ${pointIndex + 1} of 9 — clicks 0 of 5`;
+            }
+
+            target.addEventListener('click', event => {
+                if (window.webgazer && typeof window.webgazer.recordScreenPosition === 'function') {
+                    window.webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
+                }
+
+                // Capture baseline face box during center point clicks
+                if (pointIndex === 0) {
+                    resetFaceBaseline();
+                }
+
+                clicksAtPoint++;
+                status.textContent = `Point ${pointIndex + 1} of 9 — clicks ${clicksAtPoint} of 5`;
+
+                if (clicksAtPoint >= 5) {
+                    pointIndex++;
+                    showPoint();
+                }
+            });
+
+            showPoint();
         }
 
-        target.addEventListener('click', (e) => {
-            webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
-            clickCount++;
-            statusText.innerText = `Point ${currentPoint + 1} of 5: Click count ${clickCount}/3`;
+        function median(values) {
+            const sorted = values.slice().sort((a, b) => a - b);
+            return sorted[Math.floor(sorted.length / 2)];
+        }
 
-            if (clickCount >= 3) {
-                currentPoint++;
-                updateTargetPosition();
+        function createComfortRangeOverlay(onComplete) {
+            const previous = document.getElementById('gaze-range-overlay');
+            if (previous) previous.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'gaze-range-overlay';
+            overlay.style.cssText = [
+                'position:fixed',
+                'inset:0',
+                'z-index:999999',
+                'display:flex',
+                'flex-direction:column',
+                'align-items:center',
+                'justify-content:center',
+                'background:rgba(10,10,10,.95)',
+                'color:white',
+                'font:16px sans-serif',
+                'text-align:center'
+            ].join(';');
+
+            overlay.innerHTML = `
+                <p style="max-width:560px;margin:0 16px 20px;color:#ccc;line-height:1.5">
+                    Look toward each target only as far as is comfortable. Hold your gaze
+                    briefly, then click the target. Keep your head in your usual position.
+                </p>
+                <button id="gaze-range-target" type="button" aria-label="Comfort range target"
+                    style="position:fixed;width:44px;height:44px;border:3px solid white;
+                    border-radius:50%;background:#ff0055;box-shadow:0 0 24px #ff0055;
+                    transform:translate(-50%,-50%);cursor:pointer"></button>
+                <p id="gaze-range-status" style="color:white"></p>
+            `;
+
+            document.body.appendChild(overlay);
+
+            const target = document.getElementById('gaze-range-target');
+            const status = document.getElementById('gaze-range-status');
+
+            const points = [
+                { label: 'Top-left comfortable limit', x: 0.12, y: 0.18 },
+                { label: 'Top-right comfortable limit', x: 0.88, y: 0.18 },
+                { label: 'Bottom-right comfortable limit', x: 0.88, y: 0.82 },
+                { label: 'Bottom-left comfortable limit', x: 0.12, y: 0.82 }
+            ];
+
+            const readings = [];
+            let pointIndex = 0;
+
+            function showPoint() {
+                if (pointIndex >= points.length) {
+                    const minX = Math.min(...readings.map(point => point.x));
+                    const maxX = Math.max(...readings.map(point => point.x));
+                    const minY = Math.min(...readings.map(point => point.y));
+                    const maxY = Math.max(...readings.map(point => point.y));
+
+                    if (readings.length !== points.length || maxX - minX < 40 || maxY - minY < 40) {
+                        pointIndex = 0;
+                        readings.length = 0;
+                        status.textContent = 'Could not measure a usable range. Please try the four points again.';
+                        setTimeout(showPoint, 1600);
+                        return;
+                    }
+
+                    gazeRange = {
+                        minX,
+                        maxX,
+                        minY,
+                        maxY,
+                        centerX: (minX + maxX) / 2,
+                        centerY: (minY + maxY) / 2
+                    };
+
+                    saveRange();
+                    resetFaceBaseline();
+                    gazeX = null;
+                    gazeY = null;
+                    overlay.remove();
+
+                    if (typeof onComplete === 'function') onComplete();
+                    return;
+                }
+
+                const point = points[pointIndex];
+                target.style.left = `${window.innerWidth * point.x}px`;
+                target.style.top = `${window.innerHeight * point.y}px`;
+                status.textContent = `${point.label} — point ${pointIndex + 1} of 4. Look, hold, then click.`;
+
+                recentGaze = [];
+            }
+
+            target.addEventListener('click', () => {
+                const cutoff = performance.now() - 2000;
+                const samples = recentGaze.filter(sample => sample.time >= cutoff);
+
+                if (samples.length < 3) {
+                    status.textContent = `Only ${samples.length} gaze readings collected. Keep looking at the target for 2 seconds, then click again.`;
+                    return;
+                }
+
+                readings.push({
+                    x: median(samples.map(sample => sample.x)),
+                    y: median(samples.map(sample => sample.y))
+                });
+
+                pointIndex++;
+                showPoint();
+            });
+
+            showPoint();
+        }
+
+        function addSettingsMenu() {
+            const style = document.createElement('style');
+            style.textContent = `
+                #gaze-settings-toggle {
+                    position:fixed;top:12px;right:12px;z-index:99990;
+                    padding:9px 12px;border:1px solid #00c9a7;border-radius:6px;
+                    background:#172321;color:#fff;font:14px sans-serif;cursor:pointer
+                }
+                #gaze-settings-panel {
+                    position:fixed;top:58px;right:12px;z-index:99990;
+                    width:min(340px,calc(100vw - 24px));max-height:calc(100vh - 75px);
+                    overflow:auto;padding:14px;border:1px solid #00c9a7;border-radius:8px;
+                    background:rgba(15,20,20,.97);color:#fff;font:14px sans-serif;
+                    box-shadow:0 4px 18px rgba(0,0,0,.45)
+                }
+                #gaze-settings-panel[hidden]{display:none}
+                .gaze-setting{margin:12px 0}
+                .gaze-setting-heading{display:flex;justify-content:space-between;gap:12px;margin-bottom:5px}
+                .gaze-setting input{width:100%;accent-color:#00ffcc}
+                #gaze-settings-panel button,#gaze-settings-panel select {
+                    margin:4px;padding:7px 9px;border:1px solid #00c9a7;
+                    border-radius:5px;background:#172321;color:#fff
+                }
+            `;
+
+            document.head.appendChild(style);
+
+            const toggle = document.createElement('button');
+            toggle.id = 'gaze-settings-toggle';
+            toggle.type = 'button';
+            toggle.textContent = 'Gaze settings';
+            toggle.setAttribute('aria-expanded', 'false');
+
+            const panel = document.createElement('section');
+            panel.id = 'gaze-settings-panel';
+            panel.hidden = true;
+
+            const heading = document.createElement('h2');
+            heading.textContent = 'Gaze settings';
+            panel.appendChild(heading);
+
+            const help = document.createElement('p');
+            help.textContent = 'Changes apply immediately and are saved in this browser.';
+            panel.appendChild(help);
+
+            const modeLabel = document.createElement('label');
+            modeLabel.htmlFor = 'gaze-interaction-mode';
+            modeLabel.textContent = 'Selection mode: ';
+
+            const modeSelect = document.createElement('select');
+            modeSelect.id = 'gaze-interaction-mode';
+            modeSelect.innerHTML = `
+                <option value="direct">Direct gaze</option>
+                <option value="joystick">Directional gaze</option>
+            `;
+            modeSelect.value = interactionMode;
+
+            modeSelect.addEventListener('change', () => {
+                if (modeSelect.value === 'joystick' && !gazeRange) {
+                    modeSelect.value = 'direct';
+                    alert('Calibrate the comfort range first to use directional gaze.');
+                    return;
+                }
+
+                interactionMode = modeSelect.value;
+                localStorage.setItem(MODE_KEY, interactionMode);
+            });
+
+            panel.append(modeLabel, modeSelect);
+
+            const settings = [
+                {
+                    key: 'dwellMs',
+                    label: 'Dwell time',
+                    min: 500,
+                    max: 2500,
+                    step: 100,
+                    format: value => `${(value / 1000).toFixed(1)} s`
+                },
+                {
+                    key: 'smoothing',
+                    label: 'Gaze responsiveness',
+                    min: 0.2,
+                    max: 0.9,
+                    step: 0.05,
+                    format: value => Number(value).toFixed(2)
+                },
+                {
+                    key: 'switchHysteresisMs',
+                    label: 'Direct target switch delay',
+                    min: 50,
+                    max: 400,
+                    step: 25,
+                    format: value => `${value} ms`
+                },
+                {
+                    key: 'joystickThreshold',
+                    label: 'Directional movement threshold',
+                    min: 0.20,
+                    max: 0.70,
+                    step: 0.05,
+                    format: value => Number(value).toFixed(2)
+                },
+                {
+                    key: 'headCompGain',
+                    label: 'Head shift compensation',
+                    min: 0.0,
+                    max: 3.0,
+                    step: 0.1,
+                    format: value => Number(value).toFixed(1)
+                },
+                {
+                    key: 'offsetX',
+                    label: 'Horizontal Offset (X)',
+                    min: -150,
+                    max: 150,
+                    step: 1,
+                    format: value => `${value} px`
+                },
+                {
+                    key: 'offsetY',
+                    label: 'Vertical Offset (Y)',
+                    min: -150,
+                    max: 150,
+                    step: 1,
+                    format: value => `${value} px`
+                }
+            ];
+
+            settings.forEach(setting => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'gaze-setting';
+
+                const row = document.createElement('div');
+                row.className = 'gaze-setting-heading';
+
+                const label = document.createElement('label');
+                const id = `gaze-setting-${setting.key}`;
+                label.htmlFor = id;
+                label.textContent = setting.label;
+
+                const output = document.createElement('output');
+                output.id = `${id}-value`;
+
+                const input = document.createElement('input');
+                input.id = id;
+                input.type = 'range';
+                input.min = String(setting.min);
+                input.max = String(setting.max);
+                input.step = String(setting.step);
+                input.value = String(TUNING[setting.key]);
+                output.textContent = setting.format(Number(input.value));
+
+                input.addEventListener('input', () => {
+                    TUNING[setting.key] = Number(input.value);
+                    output.textContent = setting.format(TUNING[setting.key]);
+                    saveSettings();
+                });
+
+                row.append(label, output);
+                wrapper.append(row, input);
+                panel.appendChild(wrapper);
+            });
+
+            const recalibrate = document.createElement('button');
+            recalibrate.type = 'button';
+            recalibrate.textContent = 'Recalibrate (9 points)';
+            recalibrate.addEventListener('click', () => {
+                panel.hidden = true;
+                createCalibrationOverlay(() => {
+                    panel.hidden = false;
+                });
+            });
+
+            const rangeButton = document.createElement('button');
+            rangeButton.type = 'button';
+            rangeButton.textContent = 'Calibrate comfort range';
+            rangeButton.addEventListener('click', () => {
+                panel.hidden = true;
+                createComfortRangeOverlay(() => {
+                    panel.hidden = false;
+                });
+            });
+
+            const clearRange = document.createElement('button');
+            clearRange.type = 'button';
+            clearRange.textContent = 'Clear comfort range';
+            clearRange.addEventListener('click', () => {
+                gazeRange = null;
+                saveRange();
+                interactionMode = 'direct';
+                modeSelect.value = 'direct';
+                localStorage.setItem(MODE_KEY, 'direct');
+                gazeX = null;
+                gazeY = null;
+            });
+
+            toggle.addEventListener('click', () => {
+                panel.hidden = !panel.hidden;
+                toggle.setAttribute('aria-expanded', String(!panel.hidden));
+            });
+
+            panel.append(recalibrate, rangeButton, clearRange);
+            document.body.append(toggle, panel);
+        }
+
+        function processDirectGaze(state, now) {
+            const cell = findCell(gazeX, gazeY);
+            const candidate = cell ? cell.element : null;
+
+            if (!candidate) {
+                state.pendingTarget = null;
+                state.pendingAt = 0;
+
+                if (state.activeTarget && !state.missingSince) {
+                    state.missingSince = now;
+                }
+
+                // Ignore short tracking gaps instead of restarting dwell immediately.
+                if (
+                    state.activeTarget &&
+                    state.missingSince &&
+                    now - state.missingSince >= 350
+                ) {
+                    clearHighlight(state.activeTarget);
+                    state.activeTarget = null;
+                    state.selectedTarget = null;
+                    state.dwellStartedAt = 0;
+                    state.samples = 0;
+                    state.missingSince = 0;
+                }
+                return;
+            }
+
+            state.missingSince = 0;
+
+            if (candidate !== state.activeTarget) {
+                if (state.pendingTarget !== candidate) {
+                    state.pendingTarget = candidate;
+                    state.pendingAt = now;
+                    return;
+                }
+
+                if (now - state.pendingAt < TUNING.switchHysteresisMs) return;
+
+                clearHighlight(state.activeTarget);
+                state.activeTarget = candidate;
+                state.selectedTarget = null;
+                state.dwellStartedAt = now;
+                state.samples = 1;
+                state.pendingTarget = null;
+                state.pendingAt = 0;
+                highlight(candidate);
+                return;
+            }
+
+            state.samples++;
+
+            if (
+                state.selectedTarget !== candidate &&
+                now - state.dwellStartedAt >= TUNING.dwellMs &&
+                state.samples >= TUNING.minStableSamples
+            ) {
+                if (triggerSelection(candidate)) {
+                    state.selectedTarget = candidate;
+                }
+            }
+        }
+
+        function processJoystickGaze(data, state, now) {
+            if (!gazeRange) return;
+
+            if (!state.activeTarget || !state.activeTarget.isConnected) {
+                const startingCell = findCell(gazeX, gazeY);
+                if (!startingCell) return;
+
+                state.activeTarget = startingCell.element;
+                state.pendingTarget = null;
+                state.dwellStartedAt = now;
+                state.samples = 1;
+                highlight(state.activeTarget);
+                return;
+            }
+
+            const offsetX = data.x - gazeRange.centerX;
+            const offsetY = data.y - gazeRange.centerY;
+            const threshold = TUNING.joystickThreshold;
+            const absX = Math.abs(offsetX / Math.max(1, gazeRange.maxX - gazeRange.minX));
+            const absY = Math.abs(offsetY / Math.max(1, gazeRange.maxY - gazeRange.minY));
+
+            if (absX > threshold || absY > threshold) {
+                const nextDirection = absX > absY
+                    ? (offsetX > 0 ? 'right' : 'left')
+                    : (offsetY > 0 ? 'down' : 'up');
+
+                const element = findNeighbor(state.activeTarget, nextDirection);
+                if (element) {
+                    clearHighlight(state.activeTarget);
+                    state.activeTarget = element;
+                    state.dwellStartedAt = now;
+                    state.samples = 1;
+                    highlight(state.activeTarget);
+                }
+            }
+
+            if (state.activeTarget && now - state.dwellStartedAt >= TUNING.dwellMs) {
+                triggerSelection(state.activeTarget);
+                clearHighlight(state.activeTarget);
+                state.activeTarget = null;
+                state.dwellStartedAt = 0;
+                state.samples = 0;
+            }
+        }
+
+        function startGazeSystem() {
+            if (!window.webgazer || gazeLoopStarted) return;
+            gazeLoopStarted = true;
+
+            loadSettings();
+            loadRange();
+            updateSpatialMap();
+            window.setInterval(updateSpatialMap, TUNING.mapRefreshIntervalMs);
+
+            if (typeof window.webgazer.setGazeListener === 'function') {
+                window.webgazer.setGazeListener((data, elapsedTime) => {
+                    if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
+
+                    const rawX = data.x;
+                    const rawY = data.y;
+
+                    const mapped = applyComfortRange(rawX, rawY);
+                    gazeX = mapped.x;
+                    gazeY = mapped.y;
+
+                    if (!gazeState) {
+                        gazeState = {
+                            activeTarget: null,
+                            dwellStartedAt: 0,
+                            samples: 0,
+                            pendingTarget: null,
+                            pendingAt: 0,
+                            missingSince: 0,
+                            selected: false
+                        };
+                    }
+
+                    if (interactionMode === 'joystick') {
+                        processJoystickGaze(data, gazeState, performance.now());
+                    } else {
+                        processDirectGaze(gazeState, performance.now());
+                    }
+
+                    if (gazeX !== null && gazeY !== null) {
+                        setGazeDots(rawX, rawY, gazeX, gazeY);
+                    }
+
+                    recentGaze.push({ x: rawX, y: rawY, time: performance.now() });
+                    if (recentGaze.length > 200) recentGaze.shift();
+                });
+            }
+
+            if (typeof window.webgazer.begin === 'function') {
+                window.webgazer.begin().catch(error => {
+                    console.warn('WebGazer failed to initialize:', error);
+                });
+            }
+
+            if (typeof window.webgazer.showVideoPreview === 'function') {
+                window.webgazer.showVideoPreview(false);
+            }
+
+            if (typeof window.webgazer.showPredictionPoints === 'function') {
+                window.webgazer.showPredictionPoints(false);
+            }
+
+            addSettingsMenu();
+            createCalibrationOverlay(() => {
+                if (typeof window.webgazer.saveDataAcrossSessions === 'function') {
+                    window.webgazer.saveDataAcrossSessions();
+                }
+            });
+        }
+
+        window.addEventListener('load', function () {
+            if (window.webgazer) {
+                startGazeSystem();
+            } else {
+                console.warn('WebGazer did not load; gaze interaction disabled.');
             }
         });
 
-        updateTargetPosition();
+        window.__astericsGaze = {
+            TUNING,
+            loadSettings,
+            saveSettings,
+            loadRange,
+            saveRange,
+            resetFaceBaseline,
+            addSettingsMenu,
+            createCalibrationOverlay,
+            createComfortRangeOverlay,
+            triggerSelection,
+            findCell,
+            applyComfortRange
+        };
     }
-</script>
-<script type="module" src="app/build/asterics-aac.bundle.js"></script>
+
+    initializeAstericsGaze();
+    </script>
+
+    <script type="module" src="app/build/asterics-aac.bundle.js"></script>
 </body>
 </html>
