@@ -630,7 +630,7 @@
             }
         }, true);
 
-        function createCalibrationOverlay(onComplete) {
+       function createCalibrationOverlay(onComplete) {
             const previous = document.getElementById('gaze-calibration-overlay');
             if (previous) previous.remove();
 
@@ -651,35 +651,40 @@
             ].join(';');
 
             overlay.innerHTML = `
-                <h2 style="margin:0 16px 10px">Eye-Tracker Calibration</h2>
+                <h2 style="margin:0 16px 10px">Auto-Dwell Eye-Tracker Calibration</h2>
                 <p style="max-width:540px;margin:0 16px 20px;color:#ccc;line-height:1.5">
-                    Keep your head still. Look at each target and click it five times.
-                    Pause briefly between clicks.
+                    Keep your head still and look directly at the center of the green dot. 
+                    Hold your gaze for 1.5 seconds to auto-capture each point (or click it manually).
                 </p>
-                <button id="gaze-calibration-target" type="button" aria-label="Calibration target"
-                    style="position:fixed;width:44px;height:44px;padding:0;border:3px solid white;
-                    border-radius:50%;background:#00ffcc;box-shadow:0 0 24px #00ffcc;
-                    cursor:pointer;transform:translate(-50%,-50%);z-index:1000000"></button>
-                <p id="gaze-calibration-status" style="margin-top:30px;color:#00ffcc"></p>
+                <div id="gaze-calibration-target" style="position:fixed;width:50px;height:50px;padding:0;border:3px solid white;
+                    border-radius:50%;background:#00ffcc;box-shadow:0 0 28px #00ffcc;
+                    cursor:pointer;transform:translate(-50%,-50%);z-index:1000000;display:flex;align-items:center;justify-content:center;">
+                    <div id="calibration-progress" style="width:0%;height:0%;background:rgba(0,0,0,0.3);border-radius:50%;transition:width 0.1s, height 0.1s;"></div>
+                </div>
+                <p id="gaze-calibration-status" style="margin-top:40px;color:#00ffcc;font-weight:bold;"></p>
             `;
 
             document.body.appendChild(overlay);
 
             const target = document.getElementById('gaze-calibration-target');
+            const progressBar = document.getElementById('calibration-progress');
             const status = document.getElementById('gaze-calibration-status');
 
             const points = [
-                { x: 0.50, y: 0.50 }, // Start dead center for primary baseline
-                { x: 0.08, y: 0.10 }, { x: 0.50, y: 0.10 }, { x: 0.92, y: 0.10 },
-                { x: 0.08, y: 0.50 },                  { x: 0.92, y: 0.50 },
-                { x: 0.08, y: 0.90 }, { x: 0.50, y: 0.90 }, { x: 0.92, y: 0.90 }
+                { x: 0.50, y: 0.50 }, // Center
+                { x: 0.10, y: 0.15 }, { x: 0.50, y: 0.15 }, { x: 0.90, y: 0.15 },
+                { x: 0.10, y: 0.50 },                  { x: 0.90, y: 0.50 },
+                { x: 0.10, y: 0.85 }, { x: 0.50, y: 0.85 }, { x: 0.90, y: 0.85 }
             ];
 
             let pointIndex = 0;
-            let clicksAtPoint = 0;
+            let dwellStartTime = null;
+            const dwellRequiredMs = 1500; // 1.5 seconds dwell
+            let isCompleted = false;
 
             function showPoint() {
                 if (pointIndex >= points.length) {
+                    isCompleted = true;
                     overlay.remove();
                     calibrationDone = true;
                     if (typeof onComplete === 'function') onComplete();
@@ -689,27 +694,67 @@
                 const point = points[pointIndex];
                 target.style.left = `${window.innerWidth * point.x}px`;
                 target.style.top = `${window.innerHeight * point.y}px`;
-                clicksAtPoint = 0;
-                status.textContent = `Point ${pointIndex + 1} of 9 — clicks 0 of 5`;
+                dwellStartTime = null;
+                progressBar.style.width = '0%';
+                progressBar.style.height = '0%';
+                status.textContent = `Point ${pointIndex + 1} of 9 — Look & hold dot for 1.5s`;
             }
 
-            target.addEventListener('click', event => {
+            function recordPoint(x, y) {
                 if (window.webgazer && typeof window.webgazer.recordScreenPosition === 'function') {
-                    window.webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
+                    for (let i = 0; i < 5; i++) {
+                        window.webgazer.recordScreenPosition(x, y, 'click');
+                    }
                 }
+                pointIndex++;
+                showPoint();
+            }
 
-                clicksAtPoint++;
-                status.textContent = `Point ${pointIndex + 1} of 9 — clicks ${clicksAtPoint} of 5`;
-
-                if (clicksAtPoint >= 5) {
-                    pointIndex++;
-                    showPoint();
-                }
+            // Manual click fallback
+            target.addEventListener('click', () => {
+                const rect = target.getBoundingClientRect();
+                recordPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
             });
 
-            showPoint();
-        }
+            // Dwell check loop using requestAnimationFrame
+            function checkDwell() {
+                if (isCompleted || !document.getElementById('gaze-calibration-overlay')) return;
 
+                const rect = target.getBoundingClientRect();
+                const targetCenterX = rect.left + rect.width / 2;
+                const targetCenterY = rect.top + rect.height / 2;
+
+                // Check if current global gazeX, gazeY are within tolerance (55px radius)
+                if (typeof gazeX === 'number' && typeof gazeY === 'number') {
+                    const distance = Math.hypot(gazeX - targetCenterX, gazeY - targetCenterY);
+                    const toleranceRadius = 55;
+
+                    if (distance <= toleranceRadius) {
+                        if (!dwellStartTime) {
+                            dwellStartTime = performance.now();
+                        }
+                        const elapsed = performance.now() - dwellStartTime;
+                        const progress = Math.min(100, (elapsed / dwellRequiredMs) * 100);
+                        progressBar.style.width = `${progress}%`;
+                        progressBar.style.height = `${progress}%`;
+
+                        if (elapsed >= dwellRequiredMs) {
+                            recordPoint(targetCenterX, targetCenterY);
+                            return;
+                        }
+                    } else {
+                        dwellStartTime = null;
+                        progressBar.style.width = '0%';
+                        progressBar.style.height = '0%';
+                    }
+                }
+
+                requestAnimationFrame(checkDwell);
+            }
+
+            showPoint();
+            requestAnimationFrame(checkDwell);
+        }
         function median(values) {
             const sorted = values.slice().sort((a, b) => a - b);
             return sorted[Math.floor(sorted.length / 2)];
