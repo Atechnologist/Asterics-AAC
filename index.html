@@ -1194,43 +1194,55 @@
             window.setInterval(updateSpatialMap, TUNING.mapRefreshIntervalMs);
 
             if (typeof window.webgazer.setGazeListener === 'function') {
-                window.webgazer.setGazeListener((data, elapsedTime) => {
-                    if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
+    window.webgazer.setGazeListener((data, elapsedTime) => {
+        if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
 
-                    const rawX = data.x;
-                    const rawY = data.y;
+        const rawX = data.x;
+        const rawY = data.y;
 
-                    const mapped = applyComfortRange(rawX, rawY);
-                    gazeX = mapped.x;
-                    gazeY = mapped.y;
+        const mapped = applyComfortRange(rawX, rawY);
+        if (gazeX === null || gazeY === null) {
+            gazeX = mapped.x;
+            gazeY = mapped.y;
+        } else {
+            gazeX += (mapped.x - gazeX) * TUNING.smoothing;
+            gazeY += (mapped.y - gazeY) * TUNING.smoothing;
+        }
 
-                    if (!gazeState) {
-                        gazeState = {
-                            activeTarget: null,
-                            dwellStartedAt: 0,
-                            samples: 0,
-                            pendingTarget: null,
-                            pendingAt: 0,
-                            missingSince: 0,
-                            selected: false
-                        };
-                    }
-
-                    if (interactionMode === 'joystick') {
-                        processJoystickGaze(data, gazeState, performance.now());
-                    } else {
-                        processDirectGaze(gazeState, performance.now());
-                    }
-
-                    if (gazeX !== null && gazeY !== null) {
-                        setGazeDots(rawX, rawY, gazeX, gazeY);
-                    }
-
-                    recentGaze.push({ x: rawX, y: rawY, time: performance.now() });
-                    if (recentGaze.length > 200) recentGaze.shift();
-                });
+        // GUARD: If calibration or range overlay is open, DO NOT process background grid clicks/dwell
+        if (document.getElementById('gaze-calibration-overlay') || document.getElementById('gaze-range-overlay')) {
+            if (gazeX !== null && gazeY !== null) {
+                setGazeDots(rawX, rawY, gazeX, gazeY);
             }
+            return;
+        }
 
+        if (!gazeState) {
+            gazeState = {
+                activeTarget: null,
+                dwellStartedAt: 0,
+                samples: 0,
+                pendingTarget: null,
+                pendingAt: 0,
+                missingSince: 0,
+                selected: false
+            };
+        }
+
+        if (interactionMode === 'joystick') {
+            processJoystickGaze(data, gazeState, performance.now());
+        } else {
+            processDirectGaze(gazeState, performance.now());
+        }
+
+        if (gazeX !== null && gazeY !== null) {
+            setGazeDots(rawX, rawY, gazeX, gazeY);
+        }
+
+        recentGaze.push({ x: rawX, y: rawY, time: performance.now() });
+        if (recentGaze.length > 200) recentGaze.shift();
+    });
+}
             if (typeof window.webgazer.begin === 'function') {
                 window.webgazer.begin().catch(error => {
                     console.warn('WebGazer failed to initialize:', error);
@@ -1253,9 +1265,10 @@
             });
         }
 
-        window.addEventListener('load', function () {
+       window.addEventListener('load', function () {
             if (window.webgazer) {
-                startGazeSystem();
+                // Defer WebGazer initialization to eliminate the load handler violation warning
+                setTimeout(startGazeSystem, 300);
             } else {
                 console.warn('WebGazer did not load; gaze interaction disabled.');
             }
