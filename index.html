@@ -324,8 +324,13 @@
         let gazeLoopStarted = false;
         let gazeX = null;
         let gazeY = null;
+        let smoothedRawGazeX = null;
+        let smoothedRawGazeY = null;
         let recentGaze = [];
         let gazeState = null;
+        let spatialMapObserver = null;
+        let spatialMapResizeObserver = null;
+        let spatialMapUpdateScheduled = false;
 
         function loadSettings() {
             try {
@@ -410,6 +415,38 @@
                     };
                 });
         }
+
+        function scheduleSpatialMapUpdate() {
+            if (spatialMapUpdateScheduled) return;
+
+            spatialMapUpdateScheduled = true;
+            window.requestAnimationFrame(() => {
+                spatialMapUpdateScheduled = false;
+                updateSpatialMap();
+            });
+        }
+
+        function observeSpatialMapChanges() {
+            const grid = document.getElementById('touchElement');
+            if (!grid) return;
+
+            spatialMapObserver = new MutationObserver(scheduleSpatialMapUpdate);
+            spatialMapObserver.observe(grid, {
+                attributes: true,
+                attributeFilter: ['class', 'data-empty', 'style'],
+                childList: true,
+                subtree: true
+            });
+
+            if (typeof ResizeObserver === 'function') {
+                spatialMapResizeObserver = new ResizeObserver(scheduleSpatialMapUpdate);
+                spatialMapResizeObserver.observe(grid);
+            }
+
+            window.addEventListener('resize', scheduleSpatialMapUpdate);
+            window.addEventListener('scroll', scheduleSpatialMapUpdate, true);
+        }
+
         function getGridBounds() {
             if (!activeCells.length) return null;
 
@@ -455,6 +492,7 @@
 
             const matches = activeCells
                 .filter(cell =>
+                    cell.element.isConnected &&
                     x >= cell.left &&
                     x <= cell.right &&
                     y >= cell.top &&
@@ -603,30 +641,7 @@
             // 2. Quick Re-Center Hotkey via 'C' (combats posture drift)
             if (event.code === 'KeyC' && !event.repeat) {
                 event.preventDefault();
-                if (recentGaze.length >= 3) {
-                    const recentX = recentGaze.map(sample => sample.x);
-                    const recentY = recentGaze.map(sample => sample.y);
-                    const newCenterX = median(recentX);
-                    const newCenterY = median(recentY);
-
-                    if (gazeRange) {
-                        const width = gazeRange.maxX - gazeRange.minX;
-                        const height = gazeRange.maxY - gazeRange.minY;
-
-                        gazeRange.centerX = newCenterX;
-                        gazeRange.centerY = newCenterY;
-                        gazeRange.minX = newCenterX - (width / 2);
-                        gazeRange.maxX = newCenterX + (width / 2);
-                        gazeRange.minY = newCenterY - (height / 2);
-                        gazeRange.maxY = newCenterY + (height / 2);
-
-                        saveRange();
-                    }
-
-                    gazeX = null;
-                    gazeY = null;
-                    console.log("Gaze tracking bounds re-centered via hotkey 'C'!");
-                }
+                createCenterRecenterOverlay();
             }
         }, true);
 
@@ -653,8 +668,9 @@
             overlay.innerHTML = `
                 <h2 style="margin:0 16px 10px">Auto-Dwell Eye-Tracker Calibration</h2>
                 <p style="max-width:540px;margin:0 16px 20px;color:#ccc;line-height:1.5">
-                    Keep your head still and look directly at the center of the green dot. 
-                    Hold your gaze for 1.5 seconds to auto-capture each point (or click it manually).
+                    Click the first five targets and keep looking at each until it moves to
+                    give the tracker several samples. Then hold your gaze on each remaining
+                    target for 1.5 seconds to auto-capture it, or click it manually.
                 </p>
                 <div id="gaze-calibration-target" style="position:fixed;width:50px;height:50px;padding:0;border:3px solid white;
                     border-radius:50%;background:#00ffcc;box-shadow:0 0 28px #00ffcc;
@@ -669,16 +685,26 @@
             const target = document.getElementById('gaze-calibration-target');
             const progressBar = document.getElementById('calibration-progress');
             const status = document.getElementById('gaze-calibration-status');
+            smoothedRawGazeX = null;
+            smoothedRawGazeY = null;
 
             const points = [
-                { x: 0.50, y: 0.50 }, // Center
-                { x: 0.10, y: 0.15 }, { x: 0.50, y: 0.15 }, { x: 0.90, y: 0.15 },
-                { x: 0.10, y: 0.50 },                  { x: 0.90, y: 0.50 },
-                { x: 0.10, y: 0.85 }, { x: 0.50, y: 0.85 }, { x: 0.90, y: 0.85 }
+                { x: 0.10, y: 0.15 }, // Seed points cover the corners and center.
+                { x: 0.90, y: 0.15 },
+                { x: 0.10, y: 0.85 },
+                { x: 0.90, y: 0.85 },
+                { x: 0.50, y: 0.50 },
+                { x: 0.50, y: 0.15 },
+                { x: 0.10, y: 0.50 },
+                { x: 0.90, y: 0.50 },
+                { x: 0.50, y: 0.85 }
             ];
 
+            const seedPointCount = 5;
+            const seedSampleCount = 8;
             let pointIndex = 0;
             let dwellStartTime = null;
+            let isRecordingPoint = false;
             const dwellRequiredMs = 1500; // 1.5 seconds dwell
             let isCompleted = false;
 
@@ -697,17 +723,43 @@
                 dwellStartTime = null;
                 progressBar.style.width = '0%';
                 progressBar.style.height = '0%';
-                status.textContent = `Point ${pointIndex + 1} of 9 — Look & hold dot for 1.5s`;
+                status.textContent = pointIndex < seedPointCount
+                    ? `Point ${pointIndex + 1} of 9 — Click to teach the tracker`
+                    : `Point ${pointIndex + 1} of 9 — Look & hold for 1.5s, or click`;
             }
 
             function recordPoint(x, y) {
-                if (window.webgazer && typeof window.webgazer.recordScreenPosition === 'function') {
-                    for (let i = 0; i < 5; i++) {
+                if (isRecordingPoint) return;
+                isRecordingPoint = true;
+
+                const sampleCount = pointIndex < seedPointCount ? seedSampleCount : 1;
+                let samplesRecorded = 0;
+                if (sampleCount > 1) {
+                    status.textContent = `Point ${pointIndex + 1} of 9 — Hold your gaze while samples are recorded`;
+                }
+
+                function recordSample() {
+                    if (isCompleted || !overlay.isConnected) {
+                        isRecordingPoint = false;
+                        return;
+                    }
+
+                    if (window.webgazer && typeof window.webgazer.recordScreenPosition === 'function') {
                         window.webgazer.recordScreenPosition(x, y, 'click');
                     }
+
+                    samplesRecorded++;
+                    if (samplesRecorded < sampleCount) {
+                        setTimeout(recordSample, 100);
+                        return;
+                    }
+
+                    pointIndex++;
+                    isRecordingPoint = false;
+                    showPoint();
                 }
-                pointIndex++;
-                showPoint();
+
+                recordSample();
             }
 
             // Manual click fallback
@@ -724,9 +776,13 @@
                 const targetCenterX = rect.left + rect.width / 2;
                 const targetCenterY = rect.top + rect.height / 2;
 
-                // Check if current global gazeX, gazeY are within tolerance (55px radius)
-                if (typeof gazeX === 'number' && typeof gazeY === 'number') {
-                    const distance = Math.hypot(gazeX - targetCenterX, gazeY - targetCenterY);
+                if (pointIndex < seedPointCount) {
+                    requestAnimationFrame(checkDwell);
+                    return;
+                }
+
+                if (typeof smoothedRawGazeX === 'number' && typeof smoothedRawGazeY === 'number') {
+                    const distance = Math.hypot(smoothedRawGazeX - targetCenterX, smoothedRawGazeY - targetCenterY);
                     const toleranceRadius = 55;
 
                     if (distance <= toleranceRadius) {
@@ -740,6 +796,7 @@
 
                         if (elapsed >= dwellRequiredMs) {
                             recordPoint(targetCenterX, targetCenterY);
+                            requestAnimationFrame(checkDwell);
                             return;
                         }
                     } else {
@@ -757,7 +814,111 @@
         }
         function median(values) {
             const sorted = values.slice().sort((a, b) => a - b);
-            return sorted[Math.floor(sorted.length / 2)];
+            const middle = Math.floor(sorted.length / 2);
+            return sorted.length % 2
+                ? sorted[middle]
+                : (sorted[middle - 1] + sorted[middle]) / 2;
+        }
+
+        function createCenterRecenterOverlay() {
+            const previous = document.getElementById('gaze-recenter-overlay');
+            if (previous) previous.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'gaze-recenter-overlay';
+            overlay.style.cssText = [
+                'position:fixed',
+                'inset:0',
+                'z-index:1000001',
+                'display:flex',
+                'flex-direction:column',
+                'align-items:center',
+                'justify-content:center',
+                'background:rgba(0,0,0,.75)',
+                'color:white',
+                'font:16px sans-serif',
+                'text-align:center'
+            ].join(';');
+            overlay.innerHTML = `
+                <p style="max-width:520px;margin:0 16px 24px;line-height:1.5">
+                    Look at the center dot and hold your gaze steady. Tracking will recenter
+                    automatically when the readings are stable.
+                </p>
+                <div aria-hidden="true" style="position:fixed;left:50%;top:50%;width:28px;height:28px;
+                    transform:translate(-50%,-50%);border:3px solid white;border-radius:50%;
+                    background:#00ffcc;box-shadow:0 0 24px #00ffcc"></div>
+                <p id="gaze-recenter-status" style="margin-top:42px;color:#00ffcc;font-weight:bold">
+                    Collecting steady gaze readings…
+                </p>
+                <button type="button" style="margin-top:12px;padding:8px 16px;cursor:pointer">Cancel</button>
+            `;
+            document.body.appendChild(overlay);
+            recentGaze = [];
+
+            const status = overlay.querySelector('#gaze-recenter-status');
+            overlay.querySelector('button').addEventListener('click', () => overlay.remove());
+
+            function checkStability() {
+                if (!overlay.isConnected) return;
+
+                const cutoff = performance.now() - 2000;
+                const samples = recentGaze.filter(sample => sample.time >= cutoff);
+                if (samples.length < 8) {
+                    status.textContent = `Collecting steady gaze readings… ${samples.length}/8`;
+                    window.setTimeout(checkStability, 200);
+                    return;
+                }
+
+                const centerX = median(samples.map(sample => sample.x));
+                const centerY = median(samples.map(sample => sample.y));
+                const deviations = samples.map(sample =>
+                    Math.hypot(sample.x - centerX, sample.y - centerY)
+                );
+                const typicalDeviation = median(deviations);
+                const inliers = samples.filter((sample, index) =>
+                    deviations[index] <= Math.max(35, typicalDeviation * 2.5)
+                );
+
+                if (typicalDeviation > 80 || inliers.length < Math.max(5, Math.ceil(samples.length * 0.6))) {
+                    status.textContent = 'Readings are still moving. Keep looking at the center dot.';
+                    window.setTimeout(checkStability, 200);
+                    return;
+                }
+
+                const newCenterX = median(inliers.map(sample => sample.x));
+                const newCenterY = median(inliers.map(sample => sample.y));
+                if (gazeRange) {
+                    const width = gazeRange.maxX - gazeRange.minX;
+                    const height = gazeRange.maxY - gazeRange.minY;
+
+                    gazeRange.centerX = newCenterX;
+                    gazeRange.centerY = newCenterY;
+                    gazeRange.minX = newCenterX - (width / 2);
+                    gazeRange.maxX = newCenterX + (width / 2);
+                    gazeRange.minY = newCenterY - (height / 2);
+                    gazeRange.maxY = newCenterY + (height / 2);
+                    saveRange();
+                }
+
+                if (gazeState) {
+                    clearHighlight(gazeState.activeTarget);
+                    clearHighlight(gazeState.pendingTarget);
+                    gazeState.activeTarget = null;
+                    gazeState.pendingTarget = null;
+                    gazeState.selectedTarget = null;
+                    gazeState.dwellStartedAt = 0;
+                    gazeState.pendingAt = 0;
+                    gazeState.missingSince = 0;
+                    gazeState.samples = 0;
+                }
+
+                gazeX = null;
+                gazeY = null;
+                status.textContent = 'Recentered. Continue using gaze.';
+                window.setTimeout(() => overlay.remove(), 700);
+            }
+
+            window.setTimeout(checkStability, 200);
         }
 
         function createComfortRangeOverlay(onComplete) {
@@ -783,7 +944,7 @@
             overlay.innerHTML = `
                 <p style="max-width:560px;margin:0 16px 20px;color:#ccc;line-height:1.5">
                     Look toward each target only as far as is comfortable. Hold your gaze
-                    briefly, then click the target. Keep your head in your usual position.
+                    steadily for 2 seconds, then click the target. Keep your head in your usual position.
                 </p>
                 <button id="gaze-range-target" type="button" aria-label="Comfort range target"
                     style="position:fixed;width:44px;height:44px;border:3px solid white;
@@ -809,15 +970,19 @@
 
             function showPoint() {
                 if (pointIndex >= points.length) {
-                    const minX = Math.min(...readings.map(point => point.x));
-                    const maxX = Math.max(...readings.map(point => point.x));
-                    const minY = Math.min(...readings.map(point => point.y));
-                    const maxY = Math.max(...readings.map(point => point.y));
+                    const leftX = median([readings[0].x, readings[3].x]);
+                    const rightX = median([readings[1].x, readings[2].x]);
+                    const topY = median([readings[0].y, readings[1].y]);
+                    const bottomY = median([readings[2].y, readings[3].y]);
+                    const minX = Math.min(leftX, rightX);
+                    const maxX = Math.max(leftX, rightX);
+                    const minY = Math.min(topY, bottomY);
+                    const maxY = Math.max(topY, bottomY);
 
-                    if (readings.length !== points.length || maxX - minX < 40 || maxY - minY < 40) {
-                        pointIndex = 0;
-                        readings.length = 0;
-                        status.textContent = 'Could not measure a usable range. Please try the four points again.';
+                    if (maxX - minX < 40 || maxY - minY < 40) {
+                        pointIndex = points.length - 1;
+                        readings.length = pointIndex;
+                        status.textContent = 'The measured range was too small. Please hold the bottom-left target steadily and capture it again.';
                         setTimeout(showPoint, 1600);
                         return;
                     }
@@ -843,7 +1008,7 @@
                 const point = points[pointIndex];
                 target.style.left = `${window.innerWidth * point.x}px`;
                 target.style.top = `${window.innerHeight * point.y}px`;
-                status.textContent = `${point.label} — point ${pointIndex + 1} of 4. Look, hold, then click.`;
+                status.textContent = `${point.label} — point ${pointIndex + 1} of 4. Hold steady for 2 seconds, then click.`;
 
                 recentGaze = [];
             }
@@ -852,14 +1017,29 @@
                 const cutoff = performance.now() - 2000;
                 const samples = recentGaze.filter(sample => sample.time >= cutoff);
 
-                if (samples.length < 3) {
-                    status.textContent = `Only ${samples.length} gaze readings collected. Keep looking at the target for 2 seconds, then click again.`;
+                if (samples.length < 8) {
+                    status.textContent = `Only ${samples.length} readings collected. Keep looking at the target for 2 seconds, then click again.`;
+                    return;
+                }
+
+                const centerX = median(samples.map(sample => sample.x));
+                const centerY = median(samples.map(sample => sample.y));
+                const deviations = samples.map(sample =>
+                    Math.hypot(sample.x - centerX, sample.y - centerY)
+                );
+                const typicalDeviation = median(deviations);
+                const inliers = samples.filter((sample, index) =>
+                    deviations[index] <= Math.max(35, typicalDeviation * 2.5)
+                );
+
+                if (typicalDeviation > 80 || inliers.length < Math.max(5, Math.ceil(samples.length * 0.6))) {
+                    status.textContent = 'Gaze readings are moving too much. Hold your gaze steadily for 2 seconds, then click again.';
                     return;
                 }
 
                 readings.push({
-                    x: median(samples.map(sample => sample.x)),
-                    y: median(samples.map(sample => sample.y))
+                    x: median(inliers.map(sample => sample.x)),
+                    y: median(inliers.map(sample => sample.y))
                 });
 
                 pointIndex++;
@@ -1080,6 +1260,8 @@
     const candidate = cell ? cell.element : null;
 
     if (!candidate) {
+        clearHighlight(state.pendingTarget);
+        clearHighlight(state.activeTarget);
         state.pendingTarget = null;
         state.pendingAt = 0;
 
@@ -1107,8 +1289,11 @@
 
     if (candidate !== state.activeTarget) {
         if (state.pendingTarget !== candidate) {
+            clearHighlight(state.pendingTarget);
+            clearHighlight(state.activeTarget);
             state.pendingTarget = candidate;
             state.pendingAt = now;
+            highlight(candidate);
             return;
         }
 
@@ -1124,6 +1309,13 @@
         highlight(candidate);
         return;
     }
+
+    if (state.pendingTarget) {
+        clearHighlight(state.pendingTarget);
+        state.pendingTarget = null;
+        state.pendingAt = 0;
+    }
+    highlight(candidate);
 
     state.samples++;
 
@@ -1191,6 +1383,7 @@
             loadSettings();
             loadRange();
             updateSpatialMap();
+            observeSpatialMapChanges();
             window.setInterval(updateSpatialMap, TUNING.mapRefreshIntervalMs);
 
             if (typeof window.webgazer.setGazeListener === 'function') {
@@ -1199,6 +1392,14 @@
 
         const rawX = data.x;
         const rawY = data.y;
+
+        if (smoothedRawGazeX === null || smoothedRawGazeY === null) {
+            smoothedRawGazeX = rawX;
+            smoothedRawGazeY = rawY;
+        } else {
+            smoothedRawGazeX += (rawX - smoothedRawGazeX) * TUNING.smoothing;
+            smoothedRawGazeY += (rawY - smoothedRawGazeY) * TUNING.smoothing;
+        }
 
         const mapped = applyComfortRange(rawX, rawY);
         if (gazeX === null || gazeY === null) {
@@ -1209,8 +1410,15 @@
             gazeY += (mapped.y - gazeY) * TUNING.smoothing;
         }
 
+        recentGaze.push({ x: rawX, y: rawY, time: performance.now() });
+        if (recentGaze.length > 200) recentGaze.shift();
+
         // GUARD: If calibration or range overlay is open, DO NOT process background grid clicks/dwell
-        if (document.getElementById('gaze-calibration-overlay') || document.getElementById('gaze-range-overlay')) {
+        if (
+            document.getElementById('gaze-calibration-overlay') ||
+            document.getElementById('gaze-range-overlay') ||
+            document.getElementById('gaze-recenter-overlay')
+        ) {
             if (gazeX !== null && gazeY !== null) {
                 setGazeDots(rawX, rawY, gazeX, gazeY);
             }
@@ -1239,8 +1447,6 @@
             setGazeDots(rawX, rawY, gazeX, gazeY);
         }
 
-        recentGaze.push({ x: rawX, y: rawY, time: performance.now() });
-        if (recentGaze.length > 200) recentGaze.shift();
     });
 }
             if (typeof window.webgazer.begin === 'function') {
