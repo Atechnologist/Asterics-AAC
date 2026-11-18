@@ -105,7 +105,8 @@
             text-align: center;
         }
 
-        #gaze-calibration-target {
+        #gaze-calibration-target,
+        #gaze-pursuit-target {
             position: fixed;
             z-index: 1000000;
             width: 44px;
@@ -819,14 +820,100 @@
             }
         }, true);
 
-        // Option 3: Implicit Background Click Self-Calibration
+        // Implicit Background Click Self-Calibration
         window.addEventListener('click', event => {
             if (!window.webgazer || typeof window.webgazer.recordScreenPosition !== 'function') return;
             if (event.target.closest('#gaze-settings-panel, #gaze-calibration-overlay, #gaze-range-overlay, #gaze-recenter-overlay')) return;
             
-            // Feed natural user clicks back into WebGazer to continuously refine regression mapping
             window.webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
         }, true);
+
+        // Smooth Pursuit Zero-Click Calibration
+        function createSmoothPursuitCalibration(onComplete) {
+            const previous = document.getElementById('gaze-calibration-overlay');
+            if (previous) previous.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'gaze-calibration-overlay';
+            overlay.style.cssText = [
+                'position:fixed',
+                'inset:0',
+                'z-index:999999',
+                'display:flex',
+                'flex-direction:column',
+                'align-items:center',
+                'justify-content:center',
+                'background:rgba(10,10,10,.95)',
+                'color:white',
+                'font-family:sans-serif',
+                'text-align:center'
+            ].join(';');
+
+            overlay.innerHTML = `
+                <h2 style="margin:0 16px 10px">Smooth Pursuit Calibration</h2>
+                <p style="max-width:540px;margin:0 16px 20px;color:#ccc;line-height:1.5">
+                    Keep your head still and follow the moving dot smoothly with your eyes. 
+                    No clicks required!
+                </p>
+                <div id="gaze-pursuit-target"></div>
+                <p id="gaze-pursuit-status" style="margin-top:40px;color:#00ffcc;font-weight:bold;"></p>
+            `;
+
+            document.body.appendChild(overlay);
+
+            const target = document.getElementById('gaze-pursuit-target');
+            const status = document.getElementById('gaze-pursuit-status');
+            
+            smoothedRawGazeX = null;
+            smoothedRawGazeY = null;
+
+            const startTime = performance.now();
+            const durationMs = 5000;
+            let animationFrameId;
+
+            function animatePursuit(now) {
+                const elapsed = now - startTime;
+                const progress = Math.min(1, elapsed / durationMs);
+
+                const width = window.innerWidth;
+                const height = window.innerHeight;
+                const padding = 80;
+
+                let x, y;
+                if (progress < 0.4) {
+                    const p = progress / 0.4;
+                    x = padding + (width - 2 * padding) * (p % 1);
+                    y = padding + (height - 2 * padding) * Math.floor(p * 2) / 2;
+                } else if (progress < 0.8) {
+                    const p = (progress - 0.4) / 0.4;
+                    x = padding + (width - 2 * padding) * Math.floor(p * 2) / 2;
+                    y = padding + (height - 2 * padding) * (p % 1);
+                } else {
+                    const p = (progress - 0.8) / 0.2;
+                    const angle = p * Math.PI * 2;
+                    x = width / 2 + Math.sin(angle) * (width * 0.3);
+                    y = height / 2 + Math.sin(angle * 2) * (height * 0.2);
+                }
+
+                target.style.left = `${x}px`;
+                target.style.top = `${y}px`;
+                status.textContent = `Calibrating… ${Math.round(progress * 100)}%`;
+
+                if (window.webgazer && typeof window.webgazer.recordScreenPosition === 'function') {
+                    window.webgazer.recordScreenPosition(x, y, 'click');
+                }
+
+                if (progress < 1) {
+                    animationFrameId = requestAnimationFrame(animatePursuit);
+                } else {
+                    overlay.remove();
+                    calibrationDone = true;
+                    if (typeof onComplete === 'function') onComplete();
+                }
+            }
+
+            animationFrameId = requestAnimationFrame(animatePursuit);
+        }
 
        function createCalibrationOverlay(onComplete) {
             const previous = document.getElementById('gaze-calibration-overlay');
@@ -871,7 +958,7 @@
             smoothedRawGazeY = null;
 
             const points = [
-                { x: 0.10, y: 0.15 }, // Seed points cover corners and center
+                { x: 0.10, y: 0.15 },
                 { x: 0.90, y: 0.15 },
                 { x: 0.10, y: 0.85 },
                 { x: 0.90, y: 0.85 },
@@ -1412,6 +1499,16 @@
                 });
             });
 
+            const smoothRecalibrate = document.createElement('button');
+            smoothRecalibrate.type = 'button';
+            smoothRecalibrate.textContent = 'Smooth Pursuit (Zero-Click)';
+            smoothRecalibrate.addEventListener('click', () => {
+                panel.hidden = true;
+                createSmoothPursuitCalibration(() => {
+                    panel.hidden = false;
+                });
+            });
+
             const rangeButton = document.createElement('button');
             rangeButton.type = 'button';
             rangeButton.textContent = 'Calibrate comfort range';
@@ -1448,7 +1545,7 @@
                 toggle.setAttribute('aria-expanded', String(!panel.hidden));
             });
 
-            panel.append(recalibrate, rangeButton, clearRange);
+            panel.append(recalibrate, smoothRecalibrate, rangeButton, clearRange);
             document.body.append(toggle, panel);
         }
 
@@ -1812,6 +1909,7 @@
             saveRange,
             addSettingsMenu,
             createCalibrationOverlay,
+            createSmoothPursuitCalibration,
             createComfortRangeOverlay,
             triggerSelection,
             findCell,
