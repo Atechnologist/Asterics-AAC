@@ -341,7 +341,7 @@
             processingIntervalMs: 50,
             mapRefreshIntervalMs: 2500,
             joystickThreshold: 0.38,
-            headCompGain: 0.8, // Geometric Head-Pose Hybridization strength
+            headCompGain: 0.8,
             offsetX: 0,
             offsetY: 0
         };
@@ -355,6 +355,7 @@
         let gazeLoopStarted = false;
         let gazeX = null;
         let gazeY = null;
+        let lastGazeAt = 0;
         let smoothedRawGazeX = null;
         let smoothedRawGazeY = null;
         let recentGaze = [];
@@ -362,10 +363,14 @@
         let spatialMapObserver = null;
         let spatialMapResizeObserver = null;
         let spatialMapUpdateScheduled = false;
-
-        // Geometric Head-Pose Hybridization state
+        let recenterOffset = { x: 0, y: 0 };
+        let latestHeadPose = null;
+        let latestGazeSample = null;
+        let activeHeadPoseCapture = null;
+        let headPoseModel = null;
         let baselineHeadPose = null;
         let smoothedHeadOffset = { x: 0, y: 0 };
+        let headPoseReadWarningLogged = false;
 
         function loadSettings() {
             try {
@@ -425,69 +430,124 @@
             }
         }
 
-        // Geometric Head-Pose Hybridization (Virtual Camera Prior)
-        function getCurrentHeadCenter() {
+        function getCurrentHeadPose() {
             try {
                 if (window.webgazer && typeof window.webgazer.getTracker === 'function') {
                     const tracker = window.webgazer.getTracker();
                     if (tracker && typeof tracker.getPositions === 'function') {
                         const positions = tracker.getPositions();
-                        if (Array.isArray(positions) && positions.length > 0) {
-                            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-                            for (let i = 0; i < positions.length; i++) {
-                                const pt = positions[i];
-                                if (pt && pt.length >= 2) {
-                                    if (pt[0] < minX) minX = pt[0];
-                                    if (pt[0] > maxX) maxX = pt[0];
-                                    if (pt[1] < minY) minY = pt[1];
-                                    if (pt[1] > maxY) maxY = pt[1];
-                                }
-                            }
-                            if (Number.isFinite(minX) && maxX > minX) {
-                                return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
-                            }
-                        }
+                        if (!Array.isArray(positions) || positions.length < 455) return null;
+
+                        const leftCheek = positions[234];
+                        const rightCheek = positions[454];
+                        if (
+                            !leftCheek ||
+                            !rightCheek ||
+                            !Number.isFinite(leftCheek[0]) ||
+                            !Number.isFinite(leftCheek[1]) ||
+                            !Number.isFinite(rightCheek[0]) ||
+                            !Number.isFinite(rightCheek[1])
+                        ) return null;
+
+                        const width = Math.hypot(rightCheek[0] - leftCheek[0], rightCheek[1] - leftCheek[1]);
+                        if (width < 20) return null;
+
+                        return {
+                            centerX: (leftCheek[0] + rightCheek[0]) / 2,
+                            centerY: (leftCheek[1] + rightCheek[1]) / 2,
+                            width,
+                            roll: Math.atan2(rightCheek[1] - leftCheek[1], rightCheek[0] - leftCheek[0])
+                        };
                     }
                 }
-            } catch (e) {
-                // Ignore transient tracker errors
+            } catch (error) {
+                if (!headPoseReadWarningLogged) {
+                    console.warn('Could not read FaceMesh landmarks:', error);
+                    headPoseReadWarningLogged = true;
+                }
             }
             return null;
         }
 
         function resetHeadPoseBaseline() {
-            const current = getCurrentHeadCenter();
-            if (current) {
-                baselineHeadPose = { x: current.x, y: current.y };
-            }
+            baselineHeadPose = getCurrentHeadPose();
             smoothedHeadOffset = { x: 0, y: 0 };
         }
 
+        function clearHeadPoseModel() {
+            headPoseModel = null;
+            baselineHeadPose = null;
+            smoothedHeadOffset = { x: 0, y: 0 };
+        }
+
+        function fitHeadPoseAxis(negativeSamples, positiveSamples, deltaKey, residualKey) {
+            const negativeDelta = median(negativeSamples.map(sample => sample[deltaKey]));
+            const positiveDelta = median(positiveSamples.map(sample => sample[deltaKey]));
+            if (
+                negativeDelta * positiveDelta >= 0 ||
+                Math.min(Math.abs(negativeDelta), Math.abs(positiveDelta)) < 0.025
+            ) return null;
+
+            const samples = negativeSamples.concat(positiveSamples);
+            const deltas = samples.map(sample => sample[deltaKey]);
+            const residuals = samples.map(sample => sample[residualKey]);
+            const denominator = deltas.reduce((sum, value) => sum + value * value, 0);
+            if (denominator < 0.0005) return null;
+
+            const gain = deltas.reduce((sum, value, index) => sum + value * residuals[index], 0) / denominator;
+            const beforeError = residuals.reduce((sum, value) => sum + value * value, 0);
+            const afterError = residuals.reduce((sum, value, index) => {
+                const error = value - gain * deltas[index];
+                return sum + error * error;
+            }, 0);
+            const confidence = beforeError > 0
+                ? 1 - (afterError / beforeError)
+                : 0;
+            const maxDelta = Math.max(Math.abs(deltas[0]), Math.abs(deltas[1]));
+
+            if (
+                !Number.isFinite(gain) ||
+                Math.sqrt(beforeError / samples.length) < 8 ||
+                confidence < 0.2
+            ) return null;
+
+            return { gain, maxDelta, confidence };
+        }
+
         function computeHeadPoseCorrection() {
-            if (!TUNING.headCompGain || TUNING.headCompGain <= 0) {
+            if (!headPoseModel || !TUNING.headCompGain || TUNING.headCompGain <= 0) {
+                smoothedHeadOffset = { x: 0, y: 0 };
                 return { x: 0, y: 0 };
             }
 
-            const current = getCurrentHeadCenter();
-            if (!current) return smoothedHeadOffset;
+            const current = latestHeadPose || getCurrentHeadPose();
+            if (!current) {
+                smoothedHeadOffset.x *= 0.5;
+                smoothedHeadOffset.y *= 0.5;
+                return smoothedHeadOffset;
+            }
 
             if (!baselineHeadPose) {
-                baselineHeadPose = { x: current.x, y: current.y };
+                baselineHeadPose = current;
                 return { x: 0, y: 0 };
             }
 
-            const rawDeltaX = current.x - baselineHeadPose.x;
-            const rawDeltaY = current.y - baselineHeadPose.y;
-            const deadzone = 6;
+            const deltaX = (current.centerX - baselineHeadPose.centerX) / baselineHeadPose.width;
+            const deltaY = (current.centerY - baselineHeadPose.centerY) / baselineHeadPose.width;
+            const maxCorrectionPx = 40;
+            const targetX = headPoseModel.gainX !== null &&
+                headPoseModel.confidenceX >= 0.2 &&
+                Math.abs(deltaX) <= headPoseModel.maxDeltaX * 1.25 + 0.01
+                ? Math.max(-maxCorrectionPx, Math.min(maxCorrectionPx, headPoseModel.gainX * deltaX * TUNING.headCompGain))
+                : 0;
+            const targetY = headPoseModel.gainY !== null &&
+                headPoseModel.confidenceY >= 0.2 &&
+                Math.abs(deltaY) <= headPoseModel.maxDeltaY * 1.25 + 0.01
+                ? Math.max(-maxCorrectionPx, Math.min(maxCorrectionPx, headPoseModel.gainY * deltaY * TUNING.headCompGain))
+                : 0;
 
-            const effectiveX = Math.abs(rawDeltaX) > deadzone ? rawDeltaX - Math.sign(rawDeltaX) * deadzone : 0;
-            const effectiveY = Math.abs(rawDeltaY) > deadzone ? rawDeltaY - Math.sign(rawDeltaY) * deadzone : 0;
-
-            const targetX = -effectiveX * TUNING.headCompGain;
-            const targetY = -effectiveY * TUNING.headCompGain;
-
-            smoothedHeadOffset.x = smoothedHeadOffset.x * 0.85 + targetX * 0.15;
-            smoothedHeadOffset.y = smoothedHeadOffset.y * 0.85 + targetY * 0.15;
+            smoothedHeadOffset.x = smoothedHeadOffset.x * 0.75 + targetX * 0.25;
+            smoothedHeadOffset.y = smoothedHeadOffset.y * 0.75 + targetY * 0.25;
 
             return smoothedHeadOffset;
         }
@@ -569,10 +629,9 @@
             });
         }
 
-        function applyComfortRange(x, y) {
-            const headCorrection = computeHeadPoseCorrection();
-            const totalOffsetX = (TUNING.offsetX || 0) + headCorrection.x;
-            const totalOffsetY = (TUNING.offsetY || 0) + headCorrection.y;
+        function mapGazeWithoutHeadCorrection(x, y) {
+            const totalOffsetX = (TUNING.offsetX || 0) + recenterOffset.x;
+            const totalOffsetY = (TUNING.offsetY || 0) + recenterOffset.y;
 
             if (!gazeRange) return { x: x + totalOffsetX, y: y + totalOffsetY };
 
@@ -594,6 +653,21 @@
             return {
                 x: Math.max(bounds.left, Math.min(bounds.right, mappedX)),
                 y: Math.max(bounds.top, Math.min(bounds.bottom, mappedY))
+            };
+        }
+
+        function applyComfortRange(x, y) {
+            const mapped = mapGazeWithoutHeadCorrection(x, y);
+            const headCorrection = computeHeadPoseCorrection();
+            if (!gazeRange) {
+                return { x: mapped.x + headCorrection.x, y: mapped.y + headCorrection.y };
+            }
+
+            const bounds = getGridBounds();
+            if (!bounds) return { x: mapped.x + headCorrection.x, y: mapped.y + headCorrection.y };
+            return {
+                x: Math.max(bounds.left, Math.min(bounds.right, mapped.x + headCorrection.x)),
+                y: Math.max(bounds.top, Math.min(bounds.bottom, mapped.y + headCorrection.y))
             };
         }
 
@@ -865,6 +939,9 @@
             ) {
                 return;
             }
+            if (document.querySelector(
+                '#gaze-calibration-overlay, #gaze-range-overlay, #gaze-recenter-overlay, #gaze-head-calibration-overlay'
+            )) return;
 
             if ((event.code === 'Space' || event.code === 'Enter') && !event.repeat) {
                 const target =
@@ -898,8 +975,9 @@
         // Implicit Background Click Self-Calibration
         window.addEventListener('click', event => {
             if (!window.webgazer || typeof window.webgazer.recordScreenPosition !== 'function') return;
-            if (event.target.closest('#gaze-settings-panel, #gaze-calibration-overlay, #gaze-range-overlay, #gaze-recenter-overlay')) return;
-            
+            if (!event.isTrusted || event.detail === 0 || !(event.target instanceof Element)) return;
+            if (event.target.closest('#gaze-settings-panel, #gaze-calibration-overlay, #gaze-range-overlay, #gaze-recenter-overlay, #gaze-head-calibration-overlay')) return;
+
             window.webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
         }, true);
 
@@ -944,9 +1022,16 @@
 
             const startTime = performance.now();
             const durationMs = 12000;
+            const sampleIntervalMs = 100;
+            let lastSampleTime = -Infinity;
             let animationFrameId;
 
             function animatePursuit(now) {
+                if (!overlay.isConnected) {
+                    cancelAnimationFrame(animationFrameId);
+                    return;
+                }
+
                 const elapsed = now - startTime;
                 const progress = Math.min(1, elapsed / durationMs);
 
@@ -961,8 +1046,14 @@
                 target.style.top = `${y}px`;
                 status.textContent = `Calibrating… ${Math.round(progress * 100)}%`;
 
-                if (window.webgazer && typeof window.webgazer.recordScreenPosition === 'function') {
+                if (
+                    now - lastSampleTime >= sampleIntervalMs &&
+                    now - lastGazeAt <= 250 &&
+                    window.webgazer &&
+                    typeof window.webgazer.recordScreenPosition === 'function'
+                ) {
                     window.webgazer.recordScreenPosition(x, y, 'click');
+                    lastSampleTime = now;
                 }
 
                 if (progress < 1) {
@@ -1101,7 +1192,7 @@
             });
 
             function checkDwell() {
-                if (isCompleted || !document.getElementById('gaze-calibration-overlay')) return;
+                if (isCompleted || !overlay.isConnected) return;
 
                 const rect = target.getBoundingClientRect();
                 const targetCenterX = rect.left + rect.width / 2;
@@ -1150,6 +1241,257 @@
             return sorted.length % 2
                 ? sorted[middle]
                 : (sorted[middle - 1] + sorted[middle]) / 2;
+        }
+
+        function createHeadPoseCalibration(onComplete) {
+            activeHeadPoseCapture = null;
+            document.querySelectorAll(
+                '#gaze-calibration-overlay, #gaze-range-overlay, #gaze-recenter-overlay, #gaze-head-calibration-overlay'
+            ).forEach(overlay => overlay.remove());
+
+            const overlay = document.createElement('div');
+            overlay.id = 'gaze-head-calibration-overlay';
+            overlay.style.cssText = [
+                'position:fixed',
+                'inset:0',
+                'z-index:1000001',
+                'display:flex',
+                'flex-direction:column',
+                'align-items:center',
+                'justify-content:center',
+                'background:rgba(10,10,10,.95)',
+                'color:white',
+                'font:16px sans-serif',
+                'text-align:center'
+            ].join(';');
+            overlay.innerHTML = `
+                <h2 style="margin:0 16px 10px">Optional Head-Shift Calibration</h2>
+                <p id="gaze-head-calibration-prompt" style="max-width:560px;margin:0 16px 18px;color:#ddd;line-height:1.5"></p>
+                <div aria-hidden="true" style="position:fixed;left:50%;top:50%;width:32px;height:32px;
+                    transform:translate(-50%,-50%);border:3px solid white;border-radius:50%;
+                    background:#00ffcc;box-shadow:0 0 24px #00ffcc"></div>
+                <p id="gaze-head-calibration-status" style="margin-top:42px;color:#00ffcc;font-weight:bold"></p>
+                <button type="button" style="margin-top:12px;padding:8px 16px;cursor:pointer">Cancel</button>
+            `;
+            document.body.appendChild(overlay);
+
+            const prompt = overlay.querySelector('#gaze-head-calibration-prompt');
+            const status = overlay.querySelector('#gaze-head-calibration-status');
+            const cancelButton = overlay.querySelector('button');
+            const settingsToggle = document.getElementById('gaze-settings-toggle');
+            if (settingsToggle) settingsToggle.disabled = true;
+            const bounds = getGridBounds();
+            const centerX = bounds ? (bounds.left + bounds.right) / 2 : window.innerWidth / 2;
+            const centerY = bounds ? (bounds.top + bounds.bottom) / 2 : window.innerHeight / 2;
+            const target = overlay.querySelector('[aria-hidden="true"]');
+            target.style.left = `${centerX}px`;
+            target.style.top = `${centerY}px`;
+            const phases = [
+                { instruction: 'Keep your head in a comfortable neutral position and look at the center dot.' },
+                { instruction: 'Keep looking at the center dot. If comfortable, gently move your head slightly to your left, then hold still.' },
+                { instruction: 'Keep looking at the center dot. If comfortable, gently move your head slightly to your right, then hold still.' },
+                { instruction: 'Keep looking at the center dot. If comfortable, gently move your head slightly upward, then hold still.' },
+                { instruction: 'Keep looking at the center dot. If comfortable, gently move your head slightly downward, then hold still.' },
+                { instruction: 'Return to your comfortable neutral head position and keep looking at the center dot.' }
+            ];
+            const settleMs = 1000;
+            const captureMs = 1800;
+            let phaseIndex = 0;
+            let phaseStartedAt = performance.now();
+            let phaseAttempts = 0;
+            let isFinished = false;
+            let phaseData = [];
+
+            function complete(message) {
+                if (isFinished) return;
+                isFinished = true;
+                activeHeadPoseCapture = null;
+                if (settingsToggle) settingsToggle.disabled = false;
+                status.textContent = message;
+                window.setTimeout(() => {
+                    overlay.remove();
+                    if (typeof onComplete === 'function') onComplete();
+                }, 1400);
+            }
+
+            function beginPhase(now) {
+                phaseStartedAt = now;
+                phaseAttempts = 0;
+                activeHeadPoseCapture = { collecting: false, samples: [] };
+                const phase = phases[phaseIndex];
+                prompt.textContent = `${phase.instruction} Pose ${phaseIndex + 1} of ${phases.length}. You can cancel at any time.`;
+                status.textContent = 'Get comfortable; the reading period starts shortly.';
+            }
+
+            function summarizePhase(samples) {
+                if (samples.length < 8) return null;
+
+                const midpoint = Math.floor(samples.length / 2);
+                const halves = [samples.slice(0, midpoint), samples.slice(midpoint)];
+                const summarizeSamples = group => ({
+                    pose: {
+                        centerX: median(group.map(sample => sample.pose.centerX)),
+                        centerY: median(group.map(sample => sample.pose.centerY)),
+                        width: median(group.map(sample => sample.pose.width)),
+                        roll: median(group.map(sample => sample.pose.roll))
+                    },
+                    gazeX: median(group.map(sample => sample.x)),
+                    gazeY: median(group.map(sample => sample.y)),
+                    mappedX: median(group.map(sample => sample.mappedX)),
+                    mappedY: median(group.map(sample => sample.mappedY))
+                });
+                const observations = halves.map(summarizeSamples);
+                const centerFaceX = median(samples.map(sample => sample.pose.centerX));
+                const centerFaceY = median(samples.map(sample => sample.pose.centerY));
+                const faceWidth = median(samples.map(sample => sample.pose.width));
+                const gazeX = median(samples.map(sample => sample.x));
+                const gazeY = median(samples.map(sample => sample.y));
+                const poseSpread = median(samples.map(sample =>
+                    Math.hypot(
+                        (sample.pose.centerX - centerFaceX) / faceWidth,
+                        (sample.pose.centerY - centerFaceY) / faceWidth
+                    )
+                ));
+                const gazeSpread = median(samples.map(sample =>
+                    Math.hypot(sample.x - gazeX, sample.y - gazeY)
+                ));
+
+                if (poseSpread > 0.06 || gazeSpread > 120 || Math.hypot(gazeX - centerX, gazeY - centerY) > 250) {
+                    return null;
+                }
+
+                return {
+                    pose: {
+                        centerX: centerFaceX,
+                        centerY: centerFaceY,
+                        width: faceWidth,
+                        roll: median(samples.map(sample => sample.pose.roll))
+                    },
+                    gazeX,
+                    gazeY,
+                    mappedX: median(samples.map(sample => sample.mappedX)),
+                    mappedY: median(samples.map(sample => sample.mappedY)),
+                    targetX: centerX,
+                    targetY: centerY,
+                    observations
+                };
+            }
+
+            function capturePhase(now) {
+                const summary = summarizePhase(activeHeadPoseCapture.samples);
+                if (!summary) {
+                    phaseAttempts++;
+                    if (phaseAttempts <= 2) {
+                        status.textContent = 'Face or gaze readings were not steady enough. Hold this position; trying again.';
+                        activeHeadPoseCapture = { collecting: false, samples: [] };
+                        phaseStartedAt = now;
+                        return;
+                    }
+                    complete('Stable readings were unavailable. Head-shift correction was not changed.');
+                    return;
+                }
+
+                phaseData.push(summary);
+                phaseIndex++;
+                if (phaseIndex < phases.length) {
+                    beginPhase(now);
+                    return;
+                }
+
+                const neutral = phaseData[0];
+                const finalNeutral = phaseData[5];
+                const returnDeltaX = (finalNeutral.pose.centerX - neutral.pose.centerX) / neutral.pose.width;
+                const returnDeltaY = (finalNeutral.pose.centerY - neutral.pose.centerY) / neutral.pose.width;
+                const widthRatio = finalNeutral.pose.width / neutral.pose.width;
+                if (
+                    Math.abs(returnDeltaX) > 0.08 ||
+                    Math.abs(returnDeltaY) > 0.08 ||
+                    widthRatio < 0.85 ||
+                    widthRatio > 1.15
+                ) {
+                    complete('Your neutral position changed during calibration. No head-shift correction was saved; try again when ready.');
+                    return;
+                }
+                const hasUnmodeledPoseChange = phaseData.slice(1, 5).some(phase => {
+                    const phaseWidthRatio = phase.pose.width / neutral.pose.width;
+                    const rollDelta = Math.atan2(
+                        Math.sin(phase.pose.roll - neutral.pose.roll),
+                        Math.cos(phase.pose.roll - neutral.pose.roll)
+                    );
+                    return phaseWidthRatio < 0.85 || phaseWidthRatio > 1.15 || Math.abs(rollDelta) > 0.12;
+                });
+                if (hasUnmodeledPoseChange) {
+                    complete('Head rotation or distance changed too much for translation-only correction. No correction was saved.');
+                    return;
+                }
+
+                const getResidualPairs = phase => phase.observations.map(observation => ({
+                    deltaX: (observation.pose.centerX - neutral.pose.centerX) / neutral.pose.width,
+                    deltaY: (observation.pose.centerY - neutral.pose.centerY) / neutral.pose.width,
+                    residualX: (phase.targetX - observation.mappedX) - (neutral.targetX - neutral.mappedX),
+                    residualY: (phase.targetY - observation.mappedY) - (neutral.targetY - neutral.mappedY)
+                }));
+                const horizontal = fitHeadPoseAxis(
+                    getResidualPairs(phaseData[1]),
+                    getResidualPairs(phaseData[2]),
+                    'deltaX',
+                    'residualX'
+                );
+                const vertical = fitHeadPoseAxis(
+                    getResidualPairs(phaseData[3]),
+                    getResidualPairs(phaseData[4]),
+                    'deltaY',
+                    'residualY'
+                );
+
+                if (!horizontal && !vertical) {
+                    complete('No reliable head-shift relationship was measured. Tracking remains unchanged.');
+                    return;
+                }
+
+                headPoseModel = {
+                    gainX: horizontal ? horizontal.gain : null,
+                    gainY: vertical ? vertical.gain : null,
+                    maxDeltaX: horizontal ? horizontal.maxDelta : 0,
+                    maxDeltaY: vertical ? vertical.maxDelta : 0,
+                    confidenceX: horizontal ? horizontal.confidence : 0,
+                    confidenceY: vertical ? vertical.confidence : 0
+                };
+                baselineHeadPose = finalNeutral.pose;
+                smoothedHeadOffset = { x: 0, y: 0 };
+                const calibratedAxes = [
+                    horizontal ? 'horizontal' : null,
+                    vertical ? 'vertical' : null
+                ].filter(Boolean);
+                complete(`Saved confidence-gated ${calibratedAxes.join(' and ')} head-shift correction.`);
+            }
+
+            function animate(now) {
+                if (isFinished || !overlay.isConnected) return;
+                const elapsed = now - phaseStartedAt;
+                if (elapsed >= settleMs && !activeHeadPoseCapture.collecting) {
+                    activeHeadPoseCapture.collecting = true;
+                    status.textContent = 'Hold still and keep looking at the dot while readings are collected.';
+                }
+                if (elapsed >= settleMs + captureMs) {
+                    capturePhase(now);
+                    if (isFinished) return;
+                }
+                requestAnimationFrame(animate);
+            }
+
+            cancelButton.addEventListener('click', () => {
+                if (!isFinished) {
+                    isFinished = true;
+                    activeHeadPoseCapture = null;
+                    if (settingsToggle) settingsToggle.disabled = false;
+                    overlay.remove();
+                    if (typeof onComplete === 'function') onComplete();
+                }
+            });
+
+            beginPhase(phaseStartedAt);
+            requestAnimationFrame(animate);
         }
 
         function createCenterRecenterOverlay() {
@@ -1230,6 +1572,19 @@
                     gazeRange.minY = newCenterY - (height / 2);
                     gazeRange.maxY = newCenterY + (height / 2);
                     saveRange();
+                    recenterOffset = { x: 0, y: 0 };
+                } else {
+                    const bounds = getGridBounds();
+                    const targetCenterX = bounds
+                        ? (bounds.left + bounds.right) / 2
+                        : window.innerWidth / 2;
+                    const targetCenterY = bounds
+                        ? (bounds.top + bounds.bottom) / 2
+                        : window.innerHeight / 2;
+                    recenterOffset = {
+                        x: targetCenterX - newCenterX,
+                        y: targetCenterY - newCenterY
+                    };
                 }
 
                 resetHeadPoseBaseline();
@@ -1330,6 +1685,7 @@
                         centerY: (minY + maxY) / 2
                     };
 
+                    recenterOffset = { x: 0, y: 0 };
                     saveRange();
                     gazeX = null;
                     gazeY = null;
@@ -1504,7 +1860,7 @@
              },
              {
                  key: 'headCompGain',
-                 label: 'Head pose hybrid compensation',
+                 label: 'Calibrated head-shift correction strength',
                  min: 0.0,
                  max: 2.0,
                  step: 0.1,
@@ -1568,6 +1924,8 @@
             recalibrate.textContent = 'Recalibrate (9 points)';
             recalibrate.addEventListener('click', () => {
                 panel.hidden = true;
+                clearHeadPoseModel();
+                headPoseStatus.textContent = 'Head-shift correction is off until optional calibration succeeds. It resets after reload or gaze recalibration.';
                 createCalibrationOverlay(() => {
                     panel.hidden = false;
                 });
@@ -1578,6 +1936,8 @@
             smoothRecalibrate.textContent = 'Smooth Pursuit (Zero-Click)';
             smoothRecalibrate.addEventListener('click', () => {
                 panel.hidden = true;
+                clearHeadPoseModel();
+                headPoseStatus.textContent = 'Head-shift correction is off until optional calibration succeeds. It resets after reload or gaze recalibration.';
                 createSmoothPursuitCalibration(() => {
                     panel.hidden = false;
                 });
@@ -1588,9 +1948,37 @@
             rangeButton.textContent = 'Calibrate comfort range';
             rangeButton.addEventListener('click', () => {
                 panel.hidden = true;
+                clearHeadPoseModel();
+                headPoseStatus.textContent = 'Head-shift correction is off until optional calibration succeeds. It resets after reload or gaze recalibration.';
                 createComfortRangeOverlay(() => {
                     panel.hidden = false;
                 });
+            });
+
+            const headPoseStatus = document.createElement('p');
+            headPoseStatus.textContent = headPoseModel
+                ? 'Head-shift correction is calibrated for this session.'
+                : 'Head-shift correction is off until optional calibration succeeds. It resets after reload or gaze recalibration.';
+
+            const headPoseCalibration = document.createElement('button');
+            headPoseCalibration.type = 'button';
+            headPoseCalibration.textContent = 'Calibrate head-shift compensation (optional, about 17 seconds)';
+            headPoseCalibration.addEventListener('click', () => {
+                panel.hidden = true;
+                createHeadPoseCalibration(() => {
+                    headPoseStatus.textContent = headPoseModel
+                        ? 'Head-shift correction is calibrated for this session.'
+                        : 'Head-shift correction is off until optional calibration succeeds. It resets after reload or gaze recalibration.';
+                    panel.hidden = false;
+                });
+            });
+
+            const clearHeadPoseCalibration = document.createElement('button');
+            clearHeadPoseCalibration.type = 'button';
+            clearHeadPoseCalibration.textContent = 'Clear head-shift calibration';
+            clearHeadPoseCalibration.addEventListener('click', () => {
+                clearHeadPoseModel();
+                headPoseStatus.textContent = 'Head-shift correction is off until optional calibration succeeds. It resets after reload or gaze recalibration.';
             });
 
             const clearRange = document.createElement('button');
@@ -1598,6 +1986,9 @@
             clearRange.textContent = 'Clear comfort range';
             clearRange.addEventListener('click', () => {
                 gazeRange = null;
+                clearHeadPoseModel();
+                headPoseStatus.textContent = 'Head-shift correction is off until optional calibration succeeds. It resets after reload or gaze recalibration.';
+                recenterOffset = { x: 0, y: 0 };
                 saveRange();
                 if (gazeState) {
                     clearHighlight(gazeState.activeTarget);
@@ -1619,7 +2010,15 @@
                 toggle.setAttribute('aria-expanded', String(!panel.hidden));
             });
 
-            panel.append(recalibrate, smoothRecalibrate, rangeButton, clearRange);
+            panel.append(
+                recalibrate,
+                smoothRecalibrate,
+                rangeButton,
+                headPoseStatus,
+                headPoseCalibration,
+                clearHeadPoseCalibration,
+                clearRange
+            );
             document.body.append(toggle, panel);
         }
 
@@ -1877,8 +2276,27 @@
                 window.webgazer.setGazeListener((data, elapsedTime) => {
                     if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
 
+                    lastGazeAt = performance.now();
                     const rawX = data.x;
                     const rawY = data.y;
+                    latestHeadPose = getCurrentHeadPose();
+                    const mappedWithoutHeadCorrection = mapGazeWithoutHeadCorrection(rawX, rawY);
+                    latestGazeSample = {
+                        x: rawX,
+                        y: rawY,
+                        mappedX: mappedWithoutHeadCorrection.x,
+                        mappedY: mappedWithoutHeadCorrection.y,
+                        time: lastGazeAt,
+                        pose: latestHeadPose
+                    };
+                    if (
+                        activeHeadPoseCapture &&
+                        activeHeadPoseCapture.collecting &&
+                        latestHeadPose &&
+                        activeHeadPoseCapture.samples.length < 150
+                    ) {
+                        activeHeadPoseCapture.samples.push(latestGazeSample);
+                    }
 
                     if (smoothedRawGazeX === null || smoothedRawGazeY === null) {
                         smoothedRawGazeX = rawX;
@@ -1903,7 +2321,8 @@
                     if (
                         document.getElementById('gaze-calibration-overlay') ||
                         document.getElementById('gaze-range-overlay') ||
-                        document.getElementById('gaze-recenter-overlay')
+                        document.getElementById('gaze-recenter-overlay') ||
+                        document.getElementById('gaze-head-calibration-overlay')
                     ) {
                         if (gazeX !== null && gazeY !== null) {
                             setGazeDots(rawX, rawY, gazeX, gazeY);
@@ -1945,12 +2364,6 @@
                 });
             }
 
-            if (typeof window.webgazer.begin === 'function') {
-                window.webgazer.begin().catch(error => {
-                    console.warn('WebGazer failed to initialize:', error);
-                });
-            }
-
             if (typeof window.webgazer.showVideoPreview === 'function') {
                 window.webgazer.showVideoPreview(false);
             }
@@ -1960,12 +2373,25 @@
             }
 
             addSettingsMenu();
-            createSmoothPursuitCalibration(() => {
-                resetHeadPoseBaseline();
-                if (typeof window.webgazer.saveDataAcrossSessions === 'function') {
-                    window.webgazer.saveDataAcrossSessions();
-                }
-            });
+            if (typeof window.webgazer.begin !== 'function') {
+                console.warn('WebGazer does not expose begin(); gaze interaction disabled.');
+                return;
+            }
+
+            try {
+                Promise.resolve(window.webgazer.begin()).then(() => {
+                    createSmoothPursuitCalibration(() => {
+                        resetHeadPoseBaseline();
+                        if (typeof window.webgazer.saveDataAcrossSessions === 'function') {
+                            window.webgazer.saveDataAcrossSessions();
+                        }
+                    });
+                }).catch(error => {
+                    console.warn('WebGazer failed to initialize:', error);
+                });
+            } catch (error) {
+                console.warn('WebGazer failed to initialize:', error);
+            }
         }
 
        window.addEventListener('load', function () {
@@ -1985,6 +2411,7 @@
             addSettingsMenu,
             createCalibrationOverlay,
             createSmoothPursuitCalibration,
+            createHeadPoseCalibration,
             createComfortRangeOverlay,
             triggerSelection,
             findCell,
