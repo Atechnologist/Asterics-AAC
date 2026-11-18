@@ -1243,7 +1243,7 @@
                 : (sorted[middle - 1] + sorted[middle]) / 2;
         }
 
-        function createHeadPoseCalibration(onComplete) {
+      function createHeadPoseCalibration(onComplete) {
             activeHeadPoseCapture = null;
             document.querySelectorAll(
                 '#gaze-calibration-overlay, #gaze-range-overlay, #gaze-recenter-overlay, #gaze-head-calibration-overlay'
@@ -1264,43 +1264,131 @@
                 'font:16px sans-serif',
                 'text-align:center'
             ].join(';');
+
             overlay.innerHTML = `
-                <h2 style="margin:0 16px 10px">Optional Head-Shift Calibration</h2>
-                <p id="gaze-head-calibration-prompt" style="max-width:560px;margin:0 16px 18px;color:#ddd;line-height:1.5"></p>
-                <div aria-hidden="true" style="position:fixed;left:50%;top:50%;width:32px;height:32px;
-                    transform:translate(-50%,-50%);border:3px solid white;border-radius:50%;
-                    background:#00ffcc;box-shadow:0 0 24px #00ffcc"></div>
-                <p id="gaze-head-calibration-status" style="margin-top:42px;color:#00ffcc;font-weight:bold"></p>
-                <button type="button" style="margin-top:12px;padding:8px 16px;cursor:pointer">Cancel</button>
+                <h2 style="position:fixed;top:24px;left:50%;transform:translateX(-50%);margin:0;font-size:20px;">
+                    Head-Shift Calibration
+                </h2>
+                <p id="gaze-head-calibration-prompt" style="position:fixed;top:56px;left:50%;transform:translateX(-50%);max-width:560px;width:90%;margin:0;color:#ddd;line-height:1.4"></p>
+
+                <!-- Visual Directional & Live Head-Shift HUD anchored at center target -->
+                <div id="gaze-head-hud" aria-hidden="true" style="position:fixed;left:50%;top:50%;width:180px;height:180px;transform:translate(-50%,-50%);pointer-events:none;">
+                    <!-- Directional Arrows around center dot -->
+                    <div id="hud-arrow-up" style="position:absolute;top:4px;left:50%;transform:translateX(-50%);font-size:32px;color:#00ffcc;opacity:0.15;transition:opacity 0.2s, transform 0.2s;">▲</div>
+                    <div id="hud-arrow-down" style="position:absolute;bottom:4px;left:50%;transform:translateX(-50%);font-size:32px;color:#00ffcc;opacity:0.15;transition:opacity 0.2s, transform 0.2s;">▼</div>
+                    <div id="hud-arrow-left" style="position:absolute;left:4px;top:50%;transform:translateY(-50%);font-size:32px;color:#00ffcc;opacity:0.15;transition:opacity 0.2s, transform 0.2s;">◀</div>
+                    <div id="hud-arrow-right" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:32px;color:#00ffcc;opacity:0.15;transition:opacity 0.2s, transform 0.2s;">▶</div>
+
+                    <!-- Target Shift Zone Ring -->
+                    <div id="hud-target-zone" style="position:absolute;left:50%;top:50%;width:48px;height:48px;transform:translate(-50%,-50%);border:2px dashed rgba(255,255,255,0.5);border-radius:50%;transition:all 0.2s;"></div>
+
+                    <!-- Live Head Position Indicator -->
+                    <div id="hud-live-head" style="position:absolute;left:50%;top:50%;width:40px;height:40px;transform:translate(-50%,-50%);border:2px solid #ffc857;background:rgba(255,200,87,0.18);border-radius:50%;transition:border-color 0.15s, background 0.15s;"></div>
+
+                    <!-- Capture Progress Ring -->
+                    <svg width="64" height="64" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-90deg);">
+                        <circle cx="32" cy="32" r="26" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="4" />
+                        <circle id="hud-progress-circle" cx="32" cy="32" r="26" fill="none" stroke="#00ffcc" stroke-width="4" stroke-dasharray="163.36" stroke-dashoffset="163.36" />
+                    </svg>
+
+                    <!-- Fixed Center Gaze Dot (Keep eyes here!) -->
+                    <div id="gaze-head-center-dot" style="position:absolute;left:50%;top:50%;width:24px;height:24px;transform:translate(-50%,-50%);border:3px solid white;border-radius:50%;background:#00ffcc;box-shadow:0 0 20px #00ffcc;"></div>
+                </div>
+
+                <p id="gaze-head-calibration-status" style="position:fixed;bottom:76px;left:50%;transform:translateX(-50%);width:90%;margin:0;color:#00ffcc;font-weight:bold"></p>
+                <button type="button" style="position:fixed;bottom:28px;left:50%;transform:translateX(-50%);padding:8px 18px;border:1px solid #00c9a7;border-radius:6px;background:#172321;color:white;cursor:pointer">Cancel</button>
             `;
             document.body.appendChild(overlay);
 
             const prompt = overlay.querySelector('#gaze-head-calibration-prompt');
             const status = overlay.querySelector('#gaze-head-calibration-status');
             const cancelButton = overlay.querySelector('button');
+            const hud = overlay.querySelector('#gaze-head-hud');
+            const targetZone = overlay.querySelector('#hud-target-zone');
+            const liveHeadDot = overlay.querySelector('#hud-live-head');
+            const progressCircle = overlay.querySelector('#hud-progress-circle');
+            const arrows = {
+                up: overlay.querySelector('#hud-arrow-up'),
+                down: overlay.querySelector('#hud-arrow-down'),
+                left: overlay.querySelector('#hud-arrow-left'),
+                right: overlay.querySelector('#hud-arrow-right')
+            };
+
             const settingsToggle = document.getElementById('gaze-settings-toggle');
             if (settingsToggle) settingsToggle.disabled = true;
+
             const bounds = getGridBounds();
             const centerX = bounds ? (bounds.left + bounds.right) / 2 : window.innerWidth / 2;
             const centerY = bounds ? (bounds.top + bounds.bottom) / 2 : window.innerHeight / 2;
-            const target = overlay.querySelector('[aria-hidden="true"]');
-            target.style.left = `${centerX}px`;
-            target.style.top = `${centerY}px`;
+            hud.style.left = `${centerX}px`;
+            hud.style.top = `${centerY}px`;
+
             const phases = [
-                { instruction: 'Keep your head in a comfortable neutral position and look at the center dot.' },
-                { instruction: 'Keep looking at the center dot. If comfortable, gently move your head slightly to your left, then hold still.' },
-                { instruction: 'Keep looking at the center dot. If comfortable, gently move your head slightly to your right, then hold still.' },
-                { instruction: 'Keep looking at the center dot. If comfortable, gently move your head slightly upward, then hold still.' },
-                { instruction: 'Keep looking at the center dot. If comfortable, gently move your head slightly downward, then hold still.' },
-                { instruction: 'Return to your comfortable neutral head position and keep looking at the center dot.' }
+                { dir: 'neutral', targetDx: 0, targetDy: 0, instruction: 'Keep eyes on the cyan dot. Hold head in center ring.' },
+                { dir: 'left',    targetDx: -36, targetDy: 0, instruction: 'Keep eyes on the cyan dot. Shift head gently LEFT into the ring.' },
+                { dir: 'right',   targetDx: 36,  targetDy: 0, instruction: 'Keep eyes on the cyan dot. Shift head gently RIGHT into the ring.' },
+                { dir: 'up',      targetDx: 0, targetDy: -36, instruction: 'Keep eyes on the cyan dot. Shift head gently UP into the ring.' },
+                { dir: 'down',    targetDx: 0, targetDy: 36,  instruction: 'Keep eyes on the cyan dot. Shift head gently DOWN into the ring.' },
+                { dir: 'neutral', targetDx: 0, targetDy: 0, instruction: 'Keep eyes on the cyan dot. Return head to center ring.' }
             ];
-            const settleMs = 1000;
+
+            const settleMs = 1100;
             const captureMs = 1800;
+            const circumference = 2 * Math.PI * 26;
             let phaseIndex = 0;
             let phaseStartedAt = performance.now();
             let phaseAttempts = 0;
             let isFinished = false;
             let phaseData = [];
+            let visualNeutralPose = null;
+
+            function updateVisualHud(phase, progressRatio) {
+                // Highlight active directional arrow
+                Object.keys(arrows).forEach(key => {
+                    const isActive = phase.dir === key;
+                    arrows[key].style.opacity = isActive ? '1' : '0.12';
+                    arrows[key].style.transform = key === 'up' || key === 'down'
+                        ? `translateX(-50%) scale(${isActive ? 1.25 : 1})`
+                        : `translateY(-50%) scale(${isActive ? 1.25 : 1})`;
+                });
+
+                // Position target zone ring
+                targetZone.style.left = `calc(50% + ${phase.targetDx}px)`;
+                targetZone.style.top = `calc(50% + ${phase.targetDy}px)`;
+
+                // Update circular capture progress
+                const offset = circumference * (1 - Math.max(0, Math.min(1, progressRatio)));
+                progressCircle.style.strokeDashoffset = String(offset);
+
+                // Update live head position indicator relative to neutral pose
+                const pose = latestHeadPose || getCurrentHeadPose();
+                if (pose) {
+                    if (!visualNeutralPose) {
+                        visualNeutralPose = { centerX: pose.centerX, centerY: pose.centerY, width: pose.width };
+                    }
+                    // Mirror X so moving head left moves the indicator left on screen
+                    const normDx = -((pose.centerX - visualNeutralPose.centerX) / visualNeutralPose.width);
+                    const normDy = (pose.centerY - visualNeutralPose.centerY) / visualNeutralPose.width;
+                    const pxX = Math.max(-68, Math.min(68, normDx * 550));
+                    const pxY = Math.max(-68, Math.min(68, normDy * 550));
+
+                    liveHeadDot.style.left = `calc(50% + ${pxX}px)`;
+                    liveHeadDot.style.top = `calc(50% + ${pxY}px)`;
+
+                    const distToTarget = Math.hypot(pxX - phase.targetDx, pxY - phase.targetDy);
+                    if (distToTarget <= 22) {
+                        liveHeadDot.style.borderColor = '#00ffcc';
+                        liveHeadDot.style.background = 'rgba(0, 255, 204, 0.32)';
+                        targetZone.style.borderColor = '#00ffcc';
+                        targetZone.style.borderStyle = 'solid';
+                    } else {
+                        liveHeadDot.style.borderColor = '#ffc857';
+                        liveHeadDot.style.background = 'rgba(255, 200, 87, 0.18)';
+                        targetZone.style.borderColor = 'rgba(255,255,255,0.5)';
+                        targetZone.style.borderStyle = 'dashed';
+                    }
+                }
+            }
 
             function complete(message) {
                 if (isFinished) return;
@@ -1319,8 +1407,9 @@
                 phaseAttempts = 0;
                 activeHeadPoseCapture = { collecting: false, samples: [] };
                 const phase = phases[phaseIndex];
-                prompt.textContent = `${phase.instruction} Pose ${phaseIndex + 1} of ${phases.length}. You can cancel at any time.`;
-                status.textContent = 'Get comfortable; the reading period starts shortly.';
+                prompt.textContent = `(${phaseIndex + 1}/${phases.length}) ${phase.instruction}`;
+                status.textContent = 'Move the yellow head ring into the dashed target ring…';
+                updateVisualHud(phase, 0);
             }
 
             function summarizePhase(samples) {
@@ -1382,13 +1471,17 @@
                 if (!summary) {
                     phaseAttempts++;
                     if (phaseAttempts <= 2) {
-                        status.textContent = 'Face or gaze readings were not steady enough. Hold this position; trying again.';
+                        status.textContent = 'Hold steady in the target ring while looking at the dot; retrying…';
                         activeHeadPoseCapture = { collecting: false, samples: [] };
                         phaseStartedAt = now;
                         return;
                     }
                     complete('Stable readings were unavailable. Head-shift correction was not changed.');
                     return;
+                }
+
+                if (phaseIndex === 0) {
+                    visualNeutralPose = summary.pose;
                 }
 
                 phaseData.push(summary);
@@ -1409,7 +1502,7 @@
                     widthRatio < 0.85 ||
                     widthRatio > 1.15
                 ) {
-                    complete('Your neutral position changed during calibration. No head-shift correction was saved; try again when ready.');
+                    complete('Neutral return position drifted too far. No head-shift correction was saved.');
                     return;
                 }
                 const hasUnmodeledPoseChange = phaseData.slice(1, 5).some(phase => {
@@ -1421,7 +1514,7 @@
                     return phaseWidthRatio < 0.85 || phaseWidthRatio > 1.15 || Math.abs(rollDelta) > 0.12;
                 });
                 if (hasUnmodeledPoseChange) {
-                    complete('Head rotation or distance changed too much for translation-only correction. No correction was saved.');
+                    complete('Head tilted or leaned too much. Shift sideways/up/down without turning or leaning.');
                     return;
                 }
 
@@ -1468,11 +1561,20 @@
 
             function animate(now) {
                 if (isFinished || !overlay.isConnected) return;
+                const phase = phases[phaseIndex];
                 const elapsed = now - phaseStartedAt;
-                if (elapsed >= settleMs && !activeHeadPoseCapture.collecting) {
-                    activeHeadPoseCapture.collecting = true;
-                    status.textContent = 'Hold still and keep looking at the dot while readings are collected.';
+
+                if (elapsed < settleMs) {
+                    updateVisualHud(phase, 0);
+                } else {
+                    if (!activeHeadPoseCapture.collecting) {
+                        activeHeadPoseCapture.collecting = true;
+                        status.textContent = 'Hold still! Recording…';
+                    }
+                    const captureProgress = (elapsed - settleMs) / captureMs;
+                    updateVisualHud(phase, captureProgress);
                 }
+
                 if (elapsed >= settleMs + captureMs) {
                     capturePhase(now);
                     if (isFinished) return;
