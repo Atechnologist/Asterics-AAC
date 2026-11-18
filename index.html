@@ -37,6 +37,34 @@
             box-shadow: 0 0 20px rgba(0, 255, 204, 0.75) !important;
         }
 
+        .gaze-group-active {
+            outline: 3px dashed rgba(0, 201, 167, 0.9) !important;
+            outline-offset: -5px;
+        }
+
+        .gaze-group-pending {
+            outline: 3px dashed #ffc857 !important;
+            outline-offset: -5px;
+        }
+
+        #gaze-group-status {
+            position: fixed;
+            left: 50%;
+            bottom: 18px;
+            z-index: 999996;
+            display: none;
+            max-width: calc(100vw - 32px);
+            padding: 10px 16px;
+            transform: translateX(-50%);
+            border: 1px solid #00c9a7;
+            border-radius: 6px;
+            background: rgba(15, 20, 20, 0.95);
+            color: #fff;
+            font: 15px sans-serif;
+            text-align: center;
+            pointer-events: none;
+        }
+
         #gaze-raw-dot,
         #gaze-cursor-sim {
             position: fixed;
@@ -96,6 +124,7 @@
 <body onload="window.loaded = true;">
     <div id="gaze-raw-dot" aria-hidden="true"></div>
     <div id="gaze-cursor-sim" aria-hidden="true"></div>
+    <div id="gaze-group-status" aria-live="polite"></div>
 
     <div style="display: none" aria-hidden="false">
         {{ $t('accessKey1NavigationAccessKey2Main') }}
@@ -339,6 +368,10 @@
                     const value = Number(saved[key]);
                     if (Number.isFinite(value)) TUNING[key] = value;
                 });
+                const savedMode = localStorage.getItem(MODE_KEY);
+                if (savedMode === 'grouped') {
+                    interactionMode = savedMode;
+                }
             } catch (error) {
                 console.warn('Could not load gaze settings:', error);
             }
@@ -570,6 +603,148 @@
             if (element && element.isConnected) {
                 element.classList.add('gaze-active-target');
             }
+        }
+
+        function getCellGroupForCell(cell, bounds) {
+            if (!cell || !bounds) return null;
+
+            const middleX = (bounds.left + bounds.right) / 2;
+            const middleY = (bounds.top + bounds.bottom) / 2;
+            return `${cell.centerY < middleY ? 'top' : 'bottom'}-${cell.centerX < middleX ? 'left' : 'right'}`;
+        }
+
+        function getCellGroup(element, bounds = getGridBounds()) {
+            return getCellGroupForCell(
+                activeCells.find(item => item.element === element),
+                bounds
+            );
+        }
+
+        function getGroupAtPoint(x, y, bounds = getGridBounds(), preferredGroup = null) {
+            if (
+                !bounds ||
+                x < bounds.left ||
+                x > bounds.right ||
+                y < bounds.top ||
+                y > bounds.bottom
+            ) {
+                return null;
+            }
+
+            const middleX = (bounds.left + bounds.right) / 2;
+            const middleY = (bounds.top + bounds.bottom) / 2;
+            let horizontal = x < middleX ? 'left' : 'right';
+            let vertical = y < middleY ? 'top' : 'bottom';
+
+            if (preferredGroup) {
+                const [preferredVertical, preferredHorizontal] = preferredGroup.split('-');
+                const horizontalBuffer = Math.max(20, Math.min(50, (bounds.right - bounds.left) * 0.06));
+                const verticalBuffer = Math.max(20, Math.min(50, (bounds.bottom - bounds.top) * 0.06));
+
+                if (horizontal !== preferredHorizontal && Math.abs(x - middleX) < horizontalBuffer) {
+                    horizontal = preferredHorizontal;
+                }
+                if (vertical !== preferredVertical && Math.abs(y - middleY) < verticalBuffer) {
+                    vertical = preferredVertical;
+                }
+            }
+
+            const pointGroup = `${vertical}-${horizontal}`;
+            if (activeCells.some(cell => getCellGroupForCell(cell, bounds) === pointGroup)) {
+                return pointGroup;
+            }
+
+            const groupCenters = new Map();
+            activeCells.forEach(cell => {
+                const groupKey = getCellGroupForCell(cell, bounds);
+                const center = groupCenters.get(groupKey) || { x: 0, y: 0, count: 0 };
+                center.x += cell.centerX;
+                center.y += cell.centerY;
+                center.count++;
+                groupCenters.set(groupKey, center);
+            });
+
+            let nearestGroup = null;
+            let nearestDistance = Infinity;
+            groupCenters.forEach((center, groupKey) => {
+                const distance = Math.hypot(
+                    x - center.x / center.count,
+                    y - center.y / center.count
+                );
+                if (distance < nearestDistance) {
+                    nearestGroup = groupKey;
+                    nearestDistance = distance;
+                }
+            });
+            return nearestGroup;
+        }
+
+        function setGroupHighlight(groupKey, className, enabled) {
+            if (!groupKey) return;
+
+            const bounds = getGridBounds();
+            activeCells.forEach(cell => {
+                if (getCellGroupForCell(cell, bounds) === groupKey) {
+                    cell.element.classList.toggle(className, enabled);
+                }
+            });
+        }
+
+        function setGroupedStatus(text) {
+            const status = document.getElementById('gaze-group-status');
+            if (!status) return;
+            const display = interactionMode === 'grouped' ? 'block' : 'none';
+            if (status.textContent !== text) status.textContent = text;
+            if (status.style.display !== display) status.style.display = display;
+        }
+
+        function cancelPendingGroup(state) {
+            if (!state.pendingGroupKey) return;
+
+            setGroupHighlight(state.pendingGroupKey, 'gaze-group-pending', false);
+            state.pendingGroupKey = null;
+            state.pendingGroupAt = 0;
+            state.pendingGroupLastSeen = 0;
+            state.pendingGroupElapsed = 0;
+            state.groupSamples = 0;
+        }
+
+        function pauseGroupedTargetDwell(state, now) {
+            if (state.activeTarget && state.dwellStartedAt && state.groupOutSince === null) {
+                state.groupOutSince = now;
+            }
+        }
+
+        function resumeGroupedTargetDwell(state, now) {
+            if (state.groupOutSince === null) return;
+            if (state.activeTarget && state.dwellStartedAt) {
+                state.dwellStartedAt += now - state.groupOutSince;
+            }
+            state.groupOutSince = null;
+        }
+
+        function clearGroupedState(state) {
+            document.querySelectorAll('.gaze-group-active, .gaze-group-pending').forEach(element => {
+                element.classList.remove('gaze-group-active', 'gaze-group-pending');
+            });
+            if (!state) return;
+
+            clearHighlight(state.activeTarget);
+            clearHighlight(state.pendingTarget);
+            state.groupKey = null;
+            state.pendingGroupKey = null;
+            state.pendingGroupAt = 0;
+            state.pendingGroupLastSeen = 0;
+            state.pendingGroupElapsed = 0;
+            state.groupSamples = 0;
+            state.groupOutSince = null;
+            state.activeTarget = null;
+            state.pendingTarget = null;
+            state.pendingAt = 0;
+            state.dwellStartedAt = 0;
+            state.samples = 0;
+            state.selectedTarget = null;
+            state.missingSince = 0;
         }
 
         function triggerSelection(element) {
@@ -1103,8 +1278,12 @@
             modeSelect.innerHTML = `
                 <option value="direct">Direct gaze</option>
                 <option value="joystick">Directional gaze</option>
+                <option value="grouped">Coarse-to-fine (2×2 groups)</option>
             `;
             modeSelect.value = interactionMode;
+
+            const modeHelp = document.createElement('p');
+            modeHelp.textContent = 'Hold on a quadrant to activate it, then hold on a button inside it for a second dwell. Switching to another quadrant requires a steadier, longer gaze; brief shifts pause but do not reset button dwell. Grids with 4 or fewer visible cells use direct gaze.';
 
             modeSelect.addEventListener('change', () => {
                 if (modeSelect.value === 'joystick' && !gazeRange) {
@@ -1113,11 +1292,23 @@
                     return;
                 }
 
+                if (gazeState) {
+                    clearHighlight(gazeState.activeTarget);
+                    clearHighlight(gazeState.pendingTarget);
+                    clearGroupedState(gazeState);
+                } else {
+                    clearGroupedState(null);
+                }
                 interactionMode = modeSelect.value;
                 localStorage.setItem(MODE_KEY, interactionMode);
+                setGroupedStatus(
+                    interactionMode === 'grouped'
+                        ? 'Hold gaze on a quadrant to activate it.'
+                        : ''
+                );
             });
 
-            panel.append(modeLabel, modeSelect);
+            panel.append(modeLabel, modeSelect, modeHelp);
 
             const settings = [
              {
@@ -1239,9 +1430,17 @@
             clearRange.addEventListener('click', () => {
                 gazeRange = null;
                 saveRange();
+                if (gazeState) {
+                    clearHighlight(gazeState.activeTarget);
+                    clearHighlight(gazeState.pendingTarget);
+                    clearGroupedState(gazeState);
+                } else {
+                    clearGroupedState(null);
+                }
                 interactionMode = 'direct';
                 modeSelect.value = 'direct';
                 localStorage.setItem(MODE_KEY, 'direct');
+                setGroupedStatus('');
                 gazeX = null;
                 gazeY = null;
             });
@@ -1376,6 +1575,127 @@
             }
         }
 
+        function processGroupedGaze(state, now) {
+            const groupSwitchGraceMs = 1000;
+            const groupSwitchDwellMs = Math.max(TUNING.dwellMs * 2, 1800);
+
+            if (activeCells.length <= 4) {
+                if (state.groupKey || state.pendingGroupKey) {
+                    clearGroupedState(state);
+                }
+                setGroupedStatus('Small grid: direct targeting. Larger grids use 2×2 groups.');
+                processDirectGaze(state, now);
+                return;
+            }
+
+            const bounds = getGridBounds();
+            if (state.groupKey && !activeCells.some(cell => getCellGroupForCell(cell, bounds) === state.groupKey)) {
+                clearGroupedState(state);
+            }
+
+            const cell = findCell(gazeX, gazeY);
+            const candidate = cell ? cell.element : null;
+            const candidateGroup = getGroupAtPoint(gazeX, gazeY, bounds, state.groupKey);
+
+            if (!candidateGroup) {
+                pauseGroupedTargetDwell(state, now);
+                if (
+                    state.pendingGroupKey &&
+                    now - state.pendingGroupLastSeen > groupSwitchGraceMs
+                ) {
+                    cancelPendingGroup(state);
+                }
+                setGroupedStatus(state.groupKey
+                    ? 'Gaze is outside the grid groups. Button dwell is paused; look inside the highlighted group to resume.'
+                    : 'Hold gaze on a quadrant to activate it.');
+                return;
+            }
+
+            if (candidateGroup !== state.groupKey) {
+                pauseGroupedTargetDwell(state, now);
+                if (state.pendingGroupKey !== candidateGroup) {
+                    cancelPendingGroup(state);
+                    state.pendingGroupKey = candidateGroup;
+                    state.pendingGroupAt = now;
+                    state.pendingGroupLastSeen = now;
+                    state.pendingGroupElapsed = 0;
+                    state.groupSamples = 1;
+                    setGroupHighlight(candidateGroup, 'gaze-group-pending', true);
+                    const groupLabel = candidateGroup.replace('-', ' ');
+                    setGroupedStatus(state.groupKey
+                        ? `Button dwell paused. Hold in the ${groupLabel} group for a longer dwell to switch, or return to the active group.`
+                        : `Hold gaze in the ${groupLabel} group for a longer dwell to activate it.`);
+                    return;
+                }
+
+                if (now - state.pendingGroupLastSeen > groupSwitchGraceMs) {
+                    cancelPendingGroup(state);
+                    state.pendingGroupKey = candidateGroup;
+                    state.pendingGroupAt = now;
+                    state.pendingGroupLastSeen = now;
+                    state.pendingGroupElapsed = 0;
+                    state.groupSamples = 1;
+                    setGroupHighlight(candidateGroup, 'gaze-group-pending', true);
+                    const groupLabel = candidateGroup.replace('-', ' ');
+                    setGroupedStatus(state.groupKey
+                        ? `Button dwell paused. Hold in the ${groupLabel} group for a longer dwell to switch, or return to the active group.`
+                        : `Hold gaze in the ${groupLabel} group for a longer dwell to activate it.`);
+                    return;
+                }
+
+                const sampleGap = now - state.pendingGroupLastSeen;
+                if (sampleGap <= 250) state.pendingGroupElapsed += sampleGap;
+                state.pendingGroupLastSeen = now;
+                state.groupSamples++;
+                if (
+                    state.pendingGroupElapsed >= groupSwitchDwellMs &&
+                    state.groupSamples >= TUNING.minStableSamples
+                ) {
+                    setGroupHighlight(state.groupKey, 'gaze-group-active', false);
+                    setGroupHighlight(state.pendingGroupKey, 'gaze-group-pending', false);
+                    state.groupKey = candidateGroup;
+                    state.pendingGroupKey = null;
+                    state.pendingGroupAt = 0;
+                    state.pendingGroupLastSeen = 0;
+                    state.pendingGroupElapsed = 0;
+                    state.groupSamples = 0;
+                    state.groupOutSince = null;
+                    clearHighlight(state.activeTarget);
+                    clearHighlight(state.pendingTarget);
+                    state.activeTarget = null;
+                    state.pendingTarget = null;
+                    state.pendingAt = 0;
+                    state.dwellStartedAt = 0;
+                    state.samples = 0;
+                    state.selectedTarget = null;
+                    setGroupHighlight(state.groupKey, 'gaze-group-active', true);
+                    const groupLabel = state.groupKey.replace('-', ' ');
+                    setGroupedStatus(`Active group: ${groupLabel}. Hold on a button inside it for another dwell to select.`);
+                }
+                return;
+            }
+
+            resumeGroupedTargetDwell(state, now);
+            if (state.pendingGroupKey) {
+                cancelPendingGroup(state);
+            }
+            setGroupedStatus(`Active group: ${state.groupKey.replace('-', ' ')}. Hold on a button inside it for another dwell to select.`);
+
+            if (candidate && getCellGroup(candidate, bounds) !== state.groupKey) {
+                clearHighlight(state.activeTarget);
+                clearHighlight(state.pendingTarget);
+                state.activeTarget = null;
+                state.pendingTarget = null;
+                state.pendingAt = 0;
+                state.dwellStartedAt = 0;
+                state.samples = 0;
+                state.selectedTarget = null;
+                return;
+            }
+
+            processDirectGaze(state, now);
+        }
+
         function startGazeSystem() {
             if (!window.webgazer || gazeLoopStarted) return;
             gazeLoopStarted = true;
@@ -1433,13 +1753,23 @@
                 pendingTarget: null,
                 pendingAt: 0,
                 missingSince: 0,
-                selected: false
+                selected: false,
+                groupKey: null,
+                pendingGroupKey: null,
+                pendingGroupAt: 0,
+                pendingGroupLastSeen: 0,
+                pendingGroupElapsed: 0,
+                groupSamples: 0,
+                groupOutSince: null
             };
         }
 
         if (interactionMode === 'joystick') {
             processJoystickGaze(data, gazeState, performance.now());
+        } else if (interactionMode === 'grouped') {
+            processGroupedGaze(gazeState, performance.now());
         } else {
+            setGroupedStatus('');
             processDirectGaze(gazeState, performance.now());
         }
 
