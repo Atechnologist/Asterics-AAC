@@ -369,7 +369,7 @@
                     if (Number.isFinite(value)) TUNING[key] = value;
                 });
                 const savedMode = localStorage.getItem(MODE_KEY);
-                if (savedMode === 'grouped') {
+                if (savedMode === 'grouped' || savedMode === 'direct' || savedMode === 'joystick') {
                     interactionMode = savedMode;
                 }
             } catch (error) {
@@ -802,7 +802,6 @@
 
                 event.preventDefault();
                 
-                // Directly trigger selection on the first press
                 if (typeof triggerSelection === 'function') {
                     triggerSelection(target);
                 } else {
@@ -818,6 +817,15 @@
                 event.preventDefault();
                 createCenterRecenterOverlay();
             }
+        }, true);
+
+        // Option 3: Implicit Background Click Self-Calibration
+        window.addEventListener('click', event => {
+            if (!window.webgazer || typeof window.webgazer.recordScreenPosition !== 'function') return;
+            if (event.target.closest('#gaze-settings-panel, #gaze-calibration-overlay, #gaze-range-overlay, #gaze-recenter-overlay')) return;
+            
+            // Feed natural user clicks back into WebGazer to continuously refine regression mapping
+            window.webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
         }, true);
 
        function createCalibrationOverlay(onComplete) {
@@ -841,11 +849,10 @@
             ].join(';');
 
             overlay.innerHTML = `
-                <h2 style="margin:0 16px 10px">Auto-Dwell Eye-Tracker Calibration</h2>
+                <h2 style="margin:0 16px 10px">Hybrid Auto-Dwell Calibration</h2>
                 <p style="max-width:540px;margin:0 16px 20px;color:#ccc;line-height:1.5">
-                    Click the first five targets and keep looking at each until it moves to
-                    give the tracker several samples. Then hold your gaze on each remaining
-                    target for 1.5 seconds to auto-capture it, or click it manually.
+                    Click the first 5 targets to train the model, then hold your gaze on each 
+                    remaining target for 1.5 seconds to auto-capture it (or click it manually).
                 </p>
                 <div id="gaze-calibration-target" style="position:fixed;width:50px;height:50px;padding:0;border:3px solid white;
                     border-radius:50%;background:#00ffcc;box-shadow:0 0 28px #00ffcc;
@@ -864,7 +871,7 @@
             smoothedRawGazeY = null;
 
             const points = [
-                { x: 0.10, y: 0.15 }, // Seed points cover the corners and center.
+                { x: 0.10, y: 0.15 }, // Seed points cover corners and center
                 { x: 0.90, y: 0.15 },
                 { x: 0.10, y: 0.85 },
                 { x: 0.90, y: 0.85 },
@@ -880,7 +887,7 @@
             let pointIndex = 0;
             let dwellStartTime = null;
             let isRecordingPoint = false;
-            const dwellRequiredMs = 1500; // 1.5 seconds dwell
+            const dwellRequiredMs = 1500; 
             let isCompleted = false;
 
             function showPoint() {
@@ -937,13 +944,11 @@
                 recordSample();
             }
 
-            // Manual click fallback
             target.addEventListener('click', () => {
                 const rect = target.getBoundingClientRect();
                 recordPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
             });
 
-            // Dwell check loop using requestAnimationFrame
             function checkDwell() {
                 if (isCompleted || !document.getElementById('gaze-calibration-overlay')) return;
 
@@ -987,6 +992,7 @@
             showPoint();
             requestAnimationFrame(checkDwell);
         }
+
         function median(values) {
             const sorted = values.slice().sort((a, b) => a - b);
             const middle = Math.floor(sorted.length / 2);
@@ -1344,14 +1350,6 @@
                  format: value => Number(value).toFixed(2)
              },
              {
-                 key: 'headCompGain',
-                 label: 'Head shift compensation',
-                 min: 0.0,
-                 max: 3.0,
-                 step: 0.1,
-                 format: value => Number(value).toFixed(1)
-             },
-             {
                  key: 'offsetX',
                  label: 'Horizontal Offset (X)',
                  min: -150,
@@ -1468,7 +1466,6 @@
             state.missingSince = now;
         }
 
-        // Ignore short tracking gaps instead of restarting dwell immediately.
         if (
             state.activeTarget &&
             state.missingSince &&
@@ -1526,8 +1523,7 @@
         if (triggerSelection(candidate)) {
             state.selectedTarget = candidate;      
         }
-    }
-  console.debug('gaze candidate:', candidate, 'active:', state.activeTarget);         
+    }       
 }
 
         function processJoystickGaze(data, state, now) {
@@ -1707,78 +1703,77 @@
             window.setInterval(updateSpatialMap, TUNING.mapRefreshIntervalMs);
 
             if (typeof window.webgazer.setGazeListener === 'function') {
-    window.webgazer.setGazeListener((data, elapsedTime) => {
-        if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
+                window.webgazer.setGazeListener((data, elapsedTime) => {
+                    if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
 
-        const rawX = data.x;
-        const rawY = data.y;
+                    const rawX = data.x;
+                    const rawY = data.y;
 
-        if (smoothedRawGazeX === null || smoothedRawGazeY === null) {
-            smoothedRawGazeX = rawX;
-            smoothedRawGazeY = rawY;
-        } else {
-            smoothedRawGazeX += (rawX - smoothedRawGazeX) * TUNING.smoothing;
-            smoothedRawGazeY += (rawY - smoothedRawGazeY) * TUNING.smoothing;
-        }
+                    if (smoothedRawGazeX === null || smoothedRawGazeY === null) {
+                        smoothedRawGazeX = rawX;
+                        smoothedRawGazeY = rawY;
+                    } else {
+                        smoothedRawGazeX += (rawX - smoothedRawGazeX) * TUNING.smoothing;
+                        smoothedRawGazeY += (rawY - smoothedRawGazeY) * TUNING.smoothing;
+                    }
 
-        const mapped = applyComfortRange(rawX, rawY);
-        if (gazeX === null || gazeY === null) {
-            gazeX = mapped.x;
-            gazeY = mapped.y;
-        } else {
-            gazeX += (mapped.x - gazeX) * TUNING.smoothing;
-            gazeY += (mapped.y - gazeY) * TUNING.smoothing;
-        }
+                    const mapped = applyComfortRange(rawX, rawY);
+                    if (gazeX === null || gazeY === null) {
+                        gazeX = mapped.x;
+                        gazeY = mapped.y;
+                    } else {
+                        gazeX += (mapped.x - gazeX) * TUNING.smoothing;
+                        gazeY += (mapped.y - gazeY) * TUNING.smoothing;
+                    }
 
-        recentGaze.push({ x: rawX, y: rawY, time: performance.now() });
-        if (recentGaze.length > 200) recentGaze.shift();
+                    recentGaze.push({ x: rawX, y: rawY, time: performance.now() });
+                    if (recentGaze.length > 200) recentGaze.shift();
 
-        // GUARD: If calibration or range overlay is open, DO NOT process background grid clicks/dwell
-        if (
-            document.getElementById('gaze-calibration-overlay') ||
-            document.getElementById('gaze-range-overlay') ||
-            document.getElementById('gaze-recenter-overlay')
-        ) {
-            if (gazeX !== null && gazeY !== null) {
-                setGazeDots(rawX, rawY, gazeX, gazeY);
+                    if (
+                        document.getElementById('gaze-calibration-overlay') ||
+                        document.getElementById('gaze-range-overlay') ||
+                        document.getElementById('gaze-recenter-overlay')
+                    ) {
+                        if (gazeX !== null && gazeY !== null) {
+                            setGazeDots(rawX, rawY, gazeX, gazeY);
+                        }
+                        return;
+                    }
+
+                    if (!gazeState) {
+                        gazeState = {
+                            activeTarget: null,
+                            dwellStartedAt: 0,
+                            samples: 0,
+                            pendingTarget: null,
+                            pendingAt: 0,
+                            missingSince: 0,
+                            selected: false,
+                            groupKey: null,
+                            pendingGroupKey: null,
+                            pendingGroupAt: 0,
+                            pendingGroupLastSeen: 0,
+                            pendingGroupElapsed: 0,
+                            groupSamples: 0,
+                            groupOutSince: null
+                        };
+                    }
+
+                    if (interactionMode === 'joystick') {
+                        processJoystickGaze(data, gazeState, performance.now());
+                    } else if (interactionMode === 'grouped') {
+                        processGroupedGaze(gazeState, performance.now());
+                    } else {
+                        setGroupedStatus('');
+                        processDirectGaze(gazeState, performance.now());
+                    }
+
+                    if (gazeX !== null && gazeY !== null) {
+                        setGazeDots(rawX, rawY, gazeX, gazeY);
+                    }
+                });
             }
-            return;
-        }
 
-        if (!gazeState) {
-            gazeState = {
-                activeTarget: null,
-                dwellStartedAt: 0,
-                samples: 0,
-                pendingTarget: null,
-                pendingAt: 0,
-                missingSince: 0,
-                selected: false,
-                groupKey: null,
-                pendingGroupKey: null,
-                pendingGroupAt: 0,
-                pendingGroupLastSeen: 0,
-                pendingGroupElapsed: 0,
-                groupSamples: 0,
-                groupOutSince: null
-            };
-        }
-
-        if (interactionMode === 'joystick') {
-            processJoystickGaze(data, gazeState, performance.now());
-        } else if (interactionMode === 'grouped') {
-            processGroupedGaze(gazeState, performance.now());
-        } else {
-            setGroupedStatus('');
-            processDirectGaze(gazeState, performance.now());
-        }
-
-        if (gazeX !== null && gazeY !== null) {
-            setGazeDots(rawX, rawY, gazeX, gazeY);
-        }
-
-    });
-}
             if (typeof window.webgazer.begin === 'function') {
                 window.webgazer.begin().catch(error => {
                     console.warn('WebGazer failed to initialize:', error);
@@ -1803,7 +1798,6 @@
 
        window.addEventListener('load', function () {
             if (window.webgazer) {
-                // Defer WebGazer initialization to eliminate the load handler violation warning
                 setTimeout(startGazeSystem, 300);
             } else {
                 console.warn('WebGazer did not load; gaze interaction disabled.');
