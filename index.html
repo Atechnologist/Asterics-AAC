@@ -493,6 +493,14 @@
             joystickSelectCooldownUntil = 0;
         }
 
+        function median(values) {
+            const sorted = values.slice().sort((a, b) => a - b);
+            const middle = Math.floor(sorted.length / 2);
+            return sorted.length % 2
+                ? sorted[middle]
+                : (sorted[middle - 1] + sorted[middle]) / 2;
+        }
+
         function fitHeadPoseAxis(negativeSamples, positiveSamples, deltaKey, residualKey) {
             const negativeDelta = median(negativeSamples.map(sample => sample[deltaKey]));
             const positiveDelta = median(positiveSamples.map(sample => sample[deltaKey]));
@@ -979,13 +987,13 @@
                 }
 
                 event.preventDefault();
-                
+
                 if (typeof triggerSelection === 'function') {
                     triggerSelection(target);
                 } else {
                     target.click();
                 }
-                
+
                 clearHighlight(target);
                 return;
             }
@@ -997,7 +1005,6 @@
             }
         }, true);
 
-        // Implicit Background Click Self-Calibration
         window.addEventListener('click', event => {
             if (!window.webgazer || typeof window.webgazer.recordScreenPosition !== 'function') return;
             if (!event.isTrusted || event.detail === 0 || !(event.target instanceof Element)) return;
@@ -1006,7 +1013,6 @@
             window.webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
         }, true);
 
-        // Relaxed 12-Second Smooth Pursuit Zero-Click Calibration
         function createSmoothPursuitCalibration(onComplete) {
             const previous = document.getElementById('gaze-calibration-overlay');
             if (previous) previous.remove();
@@ -1030,7 +1036,7 @@
             overlay.innerHTML = `
                 <h2 style="margin:0 16px 10px">Smooth Pursuit Calibration (Zero-Click)</h2>
                 <p style="max-width:540px;margin:0 16px 20px;color:#ccc;line-height:1.5">
-                    Keep your head still and follow the moving dot smoothly with your eyes. 
+                    Keep your head still and follow the moving dot smoothly with your eyes.
                     Relaxed 12-second pace.
                 </p>
                 <div id="gaze-pursuit-target"></div>
@@ -1041,7 +1047,7 @@
 
             const target = document.getElementById('gaze-pursuit-target');
             const status = document.getElementById('gaze-pursuit-status');
-            
+
             smoothedRawGazeX = null;
             smoothedRawGazeY = null;
 
@@ -1117,7 +1123,7 @@
             overlay.innerHTML = `
                 <h2 style="margin:0 16px 10px">Hybrid Auto-Dwell Calibration</h2>
                 <p style="max-width:540px;margin:0 16px 20px;color:#ccc;line-height:1.5">
-                    Click the first 5 targets to train the model, then hold your gaze on each 
+                    Click the first 5 targets to train the model, then hold your gaze on each
                     remaining target for 1.5 seconds to auto-capture it (or click it manually).
                 </p>
                 <div id="gaze-calibration-target" style="position:fixed;width:50px;height:50px;padding:0;border:3px solid white;
@@ -1153,7 +1159,7 @@
             let pointIndex = 0;
             let dwellStartTime = null;
             let isRecordingPoint = false;
-            const dwellRequiredMs = 1500; 
+            const dwellRequiredMs = 1500;
             let isCompleted = false;
 
             function showPoint() {
@@ -1258,14 +1264,6 @@
 
             showPoint();
             requestAnimationFrame(checkDwell);
-        }
-
-        function median(values) {
-            const sorted = values.slice().sort((a, b) => a - b);
-            const middle = Math.floor(sorted.length / 2);
-            return sorted.length % 2
-                ? sorted[middle]
-                : (sorted[middle - 1] + sorted[middle]) / 2;
         }
 
         function createHeadPoseCalibration(onComplete) {
@@ -2025,63 +2023,63 @@
             panel.append(modeLabel, modeSelect, modeHelp);
 
             const settings = [
-             {
-                 key: 'dwellMs',
-                 label: 'Dwell time',
-                 min: 500,
-                 max: 2500,
-                 step: 100,
-                 format: value => `${(value / 1000).toFixed(1)} s`
-             },
-             {
-                 key: 'smoothing',
-                 label: 'Gaze responsiveness',
-                 min: 0.2,
-                 max: 0.9,
-                 step: 0.05,
-                 format: value => Number(value).toFixed(2)
-             },
-             {
-                 key: 'switchHysteresisMs',
-                 label: 'Direct target switch delay',
-                 min: 50,
-                 max: 400,
-                 step: 25,
-                 format: value => `${value} ms`
-             },
-             {
-                 key: 'joystickThreshold',
-                 label: 'Directional movement threshold',
-                 min: 0.20,
-                 max: 0.70,
-                 step: 0.05,
-                 format: value => Number(value).toFixed(2)
-             },
-             {
-                 key: 'headCompGain',
-                 label: 'Calibrated head-shift correction strength',
-                 min: 0.0,
-                 max: 2.0,
-                 step: 0.1,
-                 format: value => Number(value).toFixed(1)
-             },
-             {
-                 key: 'offsetX',
-                 label: 'Horizontal Offset (X)',
-                 min: -150,
-                 max: 150,
-                 step: 1,
-                 format: value => `${value} px`
-             },
-             {
-                 key: 'offsetY',
-                 label: 'Vertical Offset (Y)',
-                 min: -150,
-                 max: 150,
-                 step: 1,
-                 format: value => `${value} px`
-             }
-         ];
+                {
+                    key: 'dwellMs',
+                    label: 'Dwell time',
+                    min: 500,
+                    max: 2500,
+                    step: 100,
+                    format: value => `${(value / 1000).toFixed(1)} s`
+                },
+                {
+                    key: 'smoothing',
+                    label: 'Gaze responsiveness',
+                    min: 0.2,
+                    max: 0.9,
+                    step: 0.05,
+                    format: value => Number(value).toFixed(2)
+                },
+                {
+                    key: 'switchHysteresisMs',
+                    label: 'Direct target switch delay',
+                    min: 50,
+                    max: 400,
+                    step: 25,
+                    format: value => `${value} ms`
+                },
+                {
+                    key: 'joystickThreshold',
+                    label: 'Directional movement threshold',
+                    min: 0.20,
+                    max: 0.70,
+                    step: 0.05,
+                    format: value => Number(value).toFixed(2)
+                },
+                {
+                    key: 'headCompGain',
+                    label: 'Calibrated head-shift correction strength',
+                    min: 0.0,
+                    max: 2.0,
+                    step: 0.1,
+                    format: value => Number(value).toFixed(1)
+                },
+                {
+                    key: 'offsetX',
+                    label: 'Horizontal Offset (X)',
+                    min: -150,
+                    max: 150,
+                    step: 1,
+                    format: value => `${value} px`
+                },
+                {
+                    key: 'offsetY',
+                    label: 'Vertical Offset (Y)',
+                    min: -150,
+                    max: 150,
+                    step: 1,
+                    format: value => `${value} px`
+                }
+            ];
 
             settings.forEach(setting => {
                 const wrapper = document.createElement('div');
@@ -2248,4 +2246,411 @@
                     state.samples = 0;
                     state.missingSince = 0;
                 }
-                return
+                return;
+            }
+
+            state.missingSince = 0;
+
+            if (candidate !== state.activeTarget) {
+                if (state.pendingTarget !== candidate) {
+                    clearHighlight(state.pendingTarget);
+                    clearHighlight(state.activeTarget);
+                    state.pendingTarget = candidate;
+                    state.pendingAt = now;
+                    highlight(candidate);
+                    return;
+                }
+
+                if (now - state.pendingAt < TUNING.switchHysteresisMs) return;
+
+                clearHighlight(state.activeTarget);
+                state.activeTarget = candidate;
+                state.selectedTarget = null;
+                state.dwellStartedAt = now;
+                state.samples = 1;
+                state.pendingTarget = null;
+                state.pendingAt = 0;
+                highlight(candidate);
+                return;
+            }
+
+            if (state.pendingTarget) {
+                clearHighlight(state.pendingTarget);
+                state.pendingTarget = null;
+                state.pendingAt = 0;
+            }
+            highlight(candidate);
+
+            state.samples++;
+
+            if (
+                state.selectedTarget !== candidate &&
+                now - state.dwellStartedAt >= TUNING.dwellMs &&
+                state.samples >= TUNING.minStableSamples
+            ) {
+                if (triggerSelection(candidate)) {
+                    state.selectedTarget = candidate;
+                }
+            }
+        }
+
+        function processJoystickGaze(data, state, now) {
+            const pose = latestHeadPose || getCurrentHeadPose();
+            if (!pose) {
+                updateJoystickHud(0, 0, 0.05, null, false);
+                return;
+            }
+
+            if (!baselineHeadPose) {
+                baselineHeadPose = pose;
+            }
+
+            if (!state.activeTarget || !state.activeTarget.isConnected) {
+                const startingCell = findCell(gazeX, gazeY) || activeCells[0];
+                if (!startingCell) return;
+
+                state.activeTarget = startingCell.element;
+                state.pendingTarget = null;
+                state.dwellStartedAt = now;
+                state.samples = 1;
+                highlight(state.activeTarget);
+            }
+
+            const rawDx = -((pose.centerX - baselineHeadPose.centerX) / baselineHeadPose.width);
+            const rawDy = (pose.centerY - baselineHeadPose.centerY) / baselineHeadPose.width;
+
+            const alpha = Math.max(0.15, Math.min(0.65, TUNING.smoothing * 0.5));
+            smoothJoyDx += (rawDx - smoothJoyDx) * alpha;
+            smoothJoyDy += (rawDy - smoothJoyDy) * alpha;
+
+            const deadzone = TUNING.joystickThreshold * 0.16;
+            const absX = Math.abs(smoothJoyDx);
+            const absY = Math.abs(smoothJoyDy);
+
+            let activeDir = null;
+            if (absX > deadzone || absY > deadzone) {
+                activeDir = absX > absY
+                    ? (smoothJoyDx > 0 ? 'right' : 'left')
+                    : (smoothJoyDy > 0 ? 'down' : 'up');
+            }
+
+            updateJoystickHud(smoothJoyDx, smoothJoyDy, deadzone, activeDir, true);
+
+            if (activeDir) {
+                state.dwellStartedAt = now;
+
+                const stepCooldownMs = 480;
+                if (now - lastJoystickStepAt >= stepCooldownMs) {
+                    const neighbor = findNeighbor(state.activeTarget, activeDir);
+                    if (neighbor) {
+                        clearHighlight(state.activeTarget);
+                        state.activeTarget = neighbor;
+                        state.dwellStartedAt = now;
+                        highlight(state.activeTarget);
+                    }
+                    lastJoystickStepAt = now;
+                }
+                return;
+            }
+
+            highlight(state.activeTarget);
+            if (
+                now >= joystickSelectCooldownUntil &&
+                state.activeTarget &&
+                now - state.dwellStartedAt >= TUNING.dwellMs
+            ) {
+                if (triggerSelection(state.activeTarget)) {
+                    joystickSelectCooldownUntil = now + JOYSTICK_REPEAT_DELAY_MS;
+                }
+                state.dwellStartedAt = now;
+            }
+        }
+
+        function processGroupedGaze(state, now) {
+            const groupSwitchGraceMs = 1000;
+            const groupSwitchDwellMs = Math.max(TUNING.dwellMs * 2, 1800);
+
+            if (activeCells.length <= 4) {
+                if (state.groupKey || state.pendingGroupKey) {
+                    clearGroupedState(state);
+                }
+                setGroupedStatus('Small grid: direct targeting. Larger grids use 2×2 groups.');
+                processDirectGaze(state, now);
+                return;
+            }
+
+            const bounds = getGridBounds();
+            if (state.groupKey && !activeCells.some(cell => getCellGroupForCell(cell, bounds) === state.groupKey)) {
+                clearGroupedState(state);
+            }
+
+            const cell = findCell(gazeX, gazeY);
+            const candidate = cell ? cell.element : null;
+            const candidateGroup = getGroupAtPoint(gazeX, gazeY, bounds, state.groupKey);
+
+            if (!candidateGroup) {
+                pauseGroupedTargetDwell(state, now);
+                if (
+                    state.pendingGroupKey &&
+                    now - state.pendingGroupLastSeen > groupSwitchGraceMs
+                ) {
+                    cancelPendingGroup(state);
+                }
+                setGroupedStatus(state.groupKey
+                    ? 'Gaze is outside the grid groups. Button dwell is paused; look inside the highlighted group to resume.'
+                    : 'Hold gaze on a quadrant to activate it.');
+                return;
+            }
+
+            if (candidateGroup !== state.groupKey) {
+                pauseGroupedTargetDwell(state, now);
+                if (state.pendingGroupKey !== candidateGroup) {
+                    cancelPendingGroup(state);
+                    state.pendingGroupKey = candidateGroup;
+                    state.pendingGroupAt = now;
+                    state.pendingGroupLastSeen = now;
+                    state.pendingGroupElapsed = 0;
+                    state.groupSamples = 1;
+                    setGroupHighlight(candidateGroup, 'gaze-group-pending', true);
+                    const groupLabel = candidateGroup.replace('-', ' ');
+                    setGroupedStatus(state.groupKey
+                        ? `Button dwell paused. Hold in the ${groupLabel} group for a longer dwell to switch, or return to the active group.`
+                        : `Hold gaze in the ${groupLabel} group for a longer dwell to activate it.`);
+                    return;
+                }
+
+                if (now - state.pendingGroupLastSeen > groupSwitchGraceMs) {
+                    cancelPendingGroup(state);
+                    state.pendingGroupKey = candidateGroup;
+                    state.pendingGroupAt = now;
+                    state.pendingGroupLastSeen = now;
+                    state.pendingGroupElapsed = 0;
+                    state.groupSamples = 1;
+                    setGroupHighlight(candidateGroup, 'gaze-group-pending', true);
+                    const groupLabel = candidateGroup.replace('-', ' ');
+                    setGroupedStatus(state.groupKey
+                        ? `Button dwell paused. Hold in the ${groupLabel} group for a longer dwell to switch, or return to the active group.`
+                        : `Hold gaze in the ${groupLabel} group for a longer dwell to activate it.`);
+                    return;
+                }
+
+                const sampleGap = now - state.pendingGroupLastSeen;
+                if (sampleGap <= 250) state.pendingGroupElapsed += sampleGap;
+                state.pendingGroupLastSeen = now;
+                state.groupSamples++;
+                if (
+                    state.pendingGroupElapsed >= groupSwitchDwellMs &&
+                    state.groupSamples >= TUNING.minStableSamples
+                ) {
+                    setGroupHighlight(state.groupKey, 'gaze-group-active', false);
+                    setGroupHighlight(state.pendingGroupKey, 'gaze-group-pending', false);
+                    state.groupKey = candidateGroup;
+                    state.pendingGroupKey = null;
+                    state.pendingGroupAt = 0;
+                    state.pendingGroupLastSeen = 0;
+                    state.pendingGroupElapsed = 0;
+                    state.groupSamples = 0;
+                    state.groupOutSince = null;
+                    clearHighlight(state.activeTarget);
+                    clearHighlight(state.pendingTarget);
+                    state.activeTarget = null;
+                    state.pendingTarget = null;
+                    state.pendingAt = 0;
+                    state.dwellStartedAt = 0;
+                    state.samples = 0;
+                    state.selectedTarget = null;
+                    setGroupHighlight(state.groupKey, 'gaze-group-active', true);
+                    const groupLabel = state.groupKey.replace('-', ' ');
+                    setGroupedStatus(`Active group: ${groupLabel}. Hold on a button inside it for another dwell to select.`);
+                }
+                return;
+            }
+
+            resumeGroupedTargetDwell(state, now);
+            if (state.pendingGroupKey) {
+                cancelPendingGroup(state);
+            }
+            setGroupedStatus(`Active group: ${state.groupKey.replace('-', ' ')}. Hold on a button inside it for another dwell to select.`);
+
+            if (candidate && getCellGroup(candidate, bounds) !== state.groupKey) {
+                clearHighlight(state.activeTarget);
+                clearHighlight(state.pendingTarget);
+                state.activeTarget = null;
+                state.pendingTarget = null;
+                state.pendingAt = 0;
+                state.dwellStartedAt = 0;
+                state.samples = 0;
+                state.selectedTarget = null;
+                return;
+            }
+
+            processDirectGaze(state, now);
+        }
+
+        function startGazeSystem() {
+            if (!window.webgazer || gazeLoopStarted) return;
+            gazeLoopStarted = true;
+
+            loadSettings();
+            loadRange();
+            updateSpatialMap();
+            observeSpatialMapChanges();
+            window.setInterval(updateSpatialMap, TUNING.mapRefreshIntervalMs);
+
+            if (typeof window.webgazer.setGazeListener === 'function') {
+                window.webgazer.setGazeListener((data, elapsedTime) => {
+                    if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
+
+                    const now = performance.now();
+                    lastGazeAt = now;
+                    const rawX = data.x;
+                    const rawY = data.y;
+                    latestHeadPose = getCurrentHeadPose();
+                    const mappedWithoutHeadCorrection = mapGazeWithoutHeadCorrection(rawX, rawY);
+                    latestGazeSample = {
+                        x: rawX,
+                        y: rawY,
+                        mappedX: mappedWithoutHeadCorrection.x,
+                        mappedY: mappedWithoutHeadCorrection.y,
+                        time: now,
+                        pose: latestHeadPose
+                    };
+                    if (
+                        activeHeadPoseCapture &&
+                        activeHeadPoseCapture.collecting &&
+                        latestHeadPose &&
+                        activeHeadPoseCapture.samples.length < 150
+                    ) {
+                        activeHeadPoseCapture.samples.push(latestGazeSample);
+                    }
+
+                    if (smoothedRawGazeX === null || smoothedRawGazeY === null) {
+                        smoothedRawGazeX = rawX;
+                        smoothedRawGazeY = rawY;
+                    } else {
+                        smoothedRawGazeX += (rawX - smoothedRawGazeX) * TUNING.smoothing;
+                        smoothedRawGazeY += (rawY - smoothedRawGazeY) * TUNING.smoothing;
+                    }
+
+                    const mapped = applyComfortRange(rawX, rawY);
+                    if (gazeX === null || gazeY === null) {
+                        gazeX = mapped.x;
+                        gazeY = mapped.y;
+                    } else {
+                        gazeX += (mapped.x - gazeX) * TUNING.smoothing;
+                        gazeY += (mapped.y - gazeY) * TUNING.smoothing;
+                    }
+
+                    recentGaze.push({ x: rawX, y: rawY, time: now });
+                    if (recentGaze.length > 60) recentGaze.shift();
+
+                    if (
+                        document.getElementById('gaze-calibration-overlay') ||
+                        document.getElementById('gaze-range-overlay') ||
+                        document.getElementById('gaze-recenter-overlay') ||
+                        document.getElementById('gaze-head-calibration-overlay')
+                    ) {
+                        updateJoystickHud(0, 0, 0.05, null, false);
+                        if (gazeX !== null && gazeY !== null) {
+                            setGazeDots(rawX, rawY, gazeX, gazeY);
+                        }
+                        return;
+                    }
+
+                    if (!gazeState) {
+                        gazeState = {
+                            activeTarget: null,
+                            dwellStartedAt: 0,
+                            samples: 0,
+                            pendingTarget: null,
+                            pendingAt: 0,
+                            missingSince: 0,
+                            selected: false,
+                            groupKey: null,
+                            pendingGroupKey: null,
+                            pendingGroupAt: 0,
+                            pendingGroupLastSeen: 0,
+                            pendingGroupElapsed: 0,
+                            groupSamples: 0,
+                            groupOutSince: null
+                        };
+                    }
+
+                    if (interactionMode === 'joystick') {
+                        processJoystickGaze(data, gazeState, now);
+                    } else if (interactionMode === 'grouped') {
+                        updateJoystickHud(0, 0, 0.05, null, false);
+                        processGroupedGaze(gazeState, now);
+                    } else {
+                        updateJoystickHud(0, 0, 0.05, null, false);
+                        setGroupedStatus('');
+                        processDirectGaze(gazeState, now);
+                    }
+
+                    if (gazeX !== null && gazeY !== null) {
+                        setGazeDots(rawX, rawY, gazeX, gazeY);
+                    }
+                });
+            }
+
+            if (typeof window.webgazer.showVideoPreview === 'function') {
+                window.webgazer.showVideoPreview(false);
+            }
+
+            if (typeof window.webgazer.showPredictionPoints === 'function') {
+                window.webgazer.showPredictionPoints(false);
+            }
+
+            addSettingsMenu();
+            if (typeof window.webgazer.begin !== 'function') {
+                console.warn('WebGazer does not expose begin(); gaze interaction disabled.');
+                return;
+            }
+
+            try {
+                Promise.resolve(window.webgazer.begin()).then(() => {
+                    createSmoothPursuitCalibration(() => {
+                        resetHeadPoseBaseline();
+                        if (typeof window.webgazer.saveDataAcrossSessions === 'function') {
+                            window.webgazer.saveDataAcrossSessions();
+                        }
+                    });
+                }).catch(error => {
+                    console.warn('WebGazer failed to initialize:', error);
+                });
+            } catch (error) {
+                console.warn('WebGazer failed to initialize:', error);
+            }
+        }
+
+        window.addEventListener('load', function () {
+            if (window.webgazer) {
+                setTimeout(startGazeSystem, 300);
+            } else {
+                console.warn('WebGazer did not load; gaze interaction disabled.');
+            }
+        });
+
+        window.__astericsGaze = {
+            TUNING,
+            loadSettings,
+            saveSettings,
+            loadRange,
+            saveRange,
+            addSettingsMenu,
+            createCalibrationOverlay,
+            createSmoothPursuitCalibration,
+            createHeadPoseCalibration,
+            createComfortRangeOverlay,
+            triggerSelection,
+            findCell,
+            applyComfortRange
+        };
+    }
+
+    initializeAstericsGaze();
+    </script>
+
+    <script type="module" src="app/build/asterics-aac.bundle.js"></script>
+</body>
+</html>
