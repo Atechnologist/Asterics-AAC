@@ -734,6 +734,9 @@
 
             const horizontal = direction === 'left' || direction === 'right';
             const sign = direction === 'left' || direction === 'up' ? -1 : 1;
+            const currentSpan = horizontal
+                ? Math.max(40, current.bottom - current.top)
+                : Math.max(40, current.right - current.left);
 
             let best = null;
             let bestScore = Infinity;
@@ -745,22 +748,17 @@
                     ? (cell.centerX - current.centerX) * sign
                     : (cell.centerY - current.centerY) * sign;
 
-                if (primary <= 0) continue;
+                if (primary <= 4) continue;
 
                 const perpendicular = horizontal
                     ? Math.abs(cell.centerY - current.centerY)
                     : Math.abs(cell.centerX - current.centerX);
 
-                const score = perpendicular * 2 + primary * 0.15;
+                // Strongly prefer cells aligned with the current row or column
+                const alignmentPenalty = perpendicular > currentSpan * 0.85 ? perpendicular * 8 : perpendicular * 3.5;
+                const score = alignmentPenalty + primary * 0.2;
 
                 if (score < bestScore) {
-                    best = cell;
-                    bestScore = score;
-                }
-            }
-
-            return best ? best.element : null;
-        }
 
         function setGazeDots(rawX, rawY, mappedX, mappedY) {
             const rawDot = document.getElementById('gaze-raw-dot');
@@ -2294,7 +2292,7 @@
             }
         }
 
-        function processJoystickGaze(data, state, now) {
+       function processJoystickGaze(data, state, now) {
             const pose = latestHeadPose || getCurrentHeadPose();
             if (!pose) {
                 updateJoystickHud(0, 0, 0.05, null, false);
@@ -2311,6 +2309,7 @@
 
                 state.activeTarget = startingCell.element;
                 state.pendingTarget = null;
+                state.selectedTarget = null;
                 state.dwellStartedAt = now;
                 state.samples = 1;
                 highlight(state.activeTarget);
@@ -2339,12 +2338,13 @@
             if (activeDir) {
                 state.dwellStartedAt = now;
 
-                const stepCooldownMs = 480;
+                const stepCooldownMs = 550;
                 if (now - lastJoystickStepAt >= stepCooldownMs) {
                     const neighbor = findNeighbor(state.activeTarget, activeDir);
                     if (neighbor) {
                         clearHighlight(state.activeTarget);
                         state.activeTarget = neighbor;
+                        state.selectedTarget = null;
                         state.dwellStartedAt = now;
                         highlight(state.activeTarget);
                     }
@@ -2360,6 +2360,7 @@
                 now - state.dwellStartedAt >= TUNING.dwellMs
             ) {
                 if (triggerSelection(state.activeTarget)) {
+                    state.selectedTarget = state.activeTarget;
                     joystickSelectCooldownUntil = now + JOYSTICK_REPEAT_DELAY_MS;
                 }
                 state.dwellStartedAt = now;
