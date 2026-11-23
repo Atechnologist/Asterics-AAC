@@ -754,11 +754,17 @@
                     ? Math.abs(cell.centerY - current.centerY)
                     : Math.abs(cell.centerX - current.centerX);
 
-                // Strongly prefer cells aligned with the current row or column
                 const alignmentPenalty = perpendicular > currentSpan * 0.85 ? perpendicular * 8 : perpendicular * 3.5;
                 const score = alignmentPenalty + primary * 0.2;
 
                 if (score < bestScore) {
+                    best = cell;
+                    bestScore = score;
+                }
+            }
+
+            return best ? best.element : null;
+        }
 
         function setGazeDots(rawX, rawY, mappedX, mappedY) {
             const rawDot = document.getElementById('gaze-raw-dot');
@@ -2292,7 +2298,7 @@
             }
         }
 
-       function processJoystickGaze(data, state, now) {
+        function processJoystickGaze(data, state, now) {
             const pose = latestHeadPose || getCurrentHeadPose();
             if (!pose) {
                 updateJoystickHud(0, 0, 0.05, null, false);
