@@ -431,6 +431,8 @@
             }
         }
 
+       let joystickHudRefs = null;
+
         function getCurrentHeadPose() {
             try {
                 if (window.webgazer && typeof window.webgazer.getTracker === 'function') {
@@ -439,15 +441,11 @@
                         const positions = tracker.getPositions();
                         if (!Array.isArray(positions) || positions.length < 455) return null;
 
-                        const noseTip = positions[1];
                         const leftCheek = positions[234];
                         const rightCheek = positions[454];
                         if (
-                            !noseTip ||
                             !leftCheek ||
                             !rightCheek ||
-                            !Number.isFinite(noseTip[0]) ||
-                            !Number.isFinite(noseTip[1]) ||
                             !Number.isFinite(leftCheek[0]) ||
                             !Number.isFinite(leftCheek[1]) ||
                             !Number.isFinite(rightCheek[0]) ||
@@ -458,8 +456,8 @@
                         if (width < 20) return null;
 
                         return {
-                            centerX: noseTip[0],
-                            centerY: noseTip[1],
+                            centerX: (leftCheek[0] + rightCheek[0]) / 2,
+                            centerY: (leftCheek[1] + rightCheek[1]) / 2,
                             width,
                             roll: Math.atan2(rightCheek[1] - leftCheek[1], rightCheek[0] - leftCheek[0])
                         };
@@ -472,6 +470,86 @@
                 }
             }
             return null;
+        }
+
+       function updateJoystickHud(dx, dy, thresholdNorm, activeDir, visible) {
+            if (!joystickHudRefs) {
+                const hud = document.createElement('div');
+                hud.id = 'gaze-joystick-hud';
+                hud.setAttribute('aria-hidden', 'true');
+                hud.style.cssText = [
+                    'position:fixed',
+                    'left:50%',
+                    'top:50%',
+                    'z-index:999995',
+                    'width:136px',
+                    'height:136px',
+                    'border-radius:50%',
+                    'background:rgba(15,20,20,0.45)',
+                    'border:2px solid rgba(0,201,167,0.65)',
+                    'box-shadow:0 4px 18px rgba(0,0,0,0.35)',
+                    'pointer-events:none',
+                    'display:none'
+                ].join(';');
+                hud.innerHTML = `
+                    <div id="joy-arrow-up" style="position:absolute;top:5px;left:50%;transform:translateX(-50%);font-size:16px;color:#00ffcc;opacity:0.25;">▲</div>
+                    <div id="joy-arrow-down" style="position:absolute;bottom:5px;left:50%;transform:translateX(-50%);font-size:16px;color:#00ffcc;opacity:0.25;">▼</div>
+                    <div id="joy-arrow-left" style="position:absolute;left:7px;top:50%;transform:translateY(-50%);font-size:16px;color:#00ffcc;opacity:0.25;">◀</div>
+                    <div id="joy-arrow-right" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);font-size:16px;color:#00ffcc;opacity:0.25;">▶</div>
+                    <div id="joy-deadzone" style="position:absolute;left:50%;top:50%;width:48px;height:48px;transform:translate(-50%,-50%);border:1.5px dashed rgba(255,255,255,0.6);border-radius:50%;"></div>
+                    <div id="joy-head-dot" style="position:absolute;left:50%;top:50%;width:18px;height:18px;transform:translate3d(-50%,-50%,0);border-radius:50%;background:#00ffcc;border:2px solid #fff;box-shadow:0 0 10px rgba(0,255,204,0.8);will-change:transform;"></div>
+                `;
+                document.body.appendChild(hud);
+                joystickHudRefs = {
+                    hud,
+                    dot: hud.querySelector('#joy-head-dot'),
+                    arrows: {
+                        up: hud.querySelector('#joy-arrow-up'),
+                        down: hud.querySelector('#joy-arrow-down'),
+                        left: hud.querySelector('#joy-arrow-left'),
+                        right: hud.querySelector('#joy-arrow-right')
+                    },
+                    lastX: null,
+                    lastY: null,
+                    lastDir: null
+                };
+            }
+
+            const { hud, dot, arrows } = joystickHudRefs;
+            if (!visible) {
+                if (hud.style.display !== 'none') hud.style.display = 'none';
+                return;
+            }
+
+            const bounds = getGridBounds();
+            const centerX = bounds ? (bounds.left + bounds.right) / 2 : window.innerWidth / 2;
+            const centerY = bounds ? (bounds.top + bounds.bottom) / 2 : window.innerHeight / 2;
+            hud.style.transform = `translate3d(${centerX}px, ${centerY}px, 0) translate(-50%, -50%)`;
+            hud.style.left = '0px';
+            hud.style.top = '0px';
+            if (hud.style.display !== 'block') hud.style.display = 'block';
+
+            const scale = 24 / Math.max(0.02, thresholdNorm);
+            const pxX = Math.max(-52, Math.min(52, dx * scale));
+            const pxY = Math.max(-52, Math.min(52, dy * scale));
+
+            if (joystickHudRefs.lastX !== pxX || joystickHudRefs.lastY !== pxY) {
+                dot.style.transform = `translate3d(calc(-50% + ${pxX}px), calc(-50% + ${pxY}px), 0)`;
+                joystickHudRefs.lastX = pxX;
+                joystickHudRefs.lastY = pxY;
+            }
+
+            const nextColor = activeDir ? '#ffc857' : '#00ffcc';
+            if (dot.style.background !== nextColor) {
+                dot.style.background = nextColor;
+            }
+
+            if (joystickHudRefs.lastDir !== activeDir) {
+                ['up', 'down', 'left', 'right'].forEach(dir => {
+                    arrows[dir].style.opacity = activeDir === dir ? '1' : '0.22';
+                });
+                joystickHudRefs.lastDir = activeDir;
+            }
         }
         function resetHeadPoseBaseline() {
             baselineHeadPose = getCurrentHeadPose();
