@@ -338,10 +338,14 @@
         // Blink & eye-loss guard thresholds
         const EAR_CLOSED_THRESHOLD = 0.19;
         const BLINK_FREEZE_MAX_MS = 450;
-        const EYE_LOSS_TIMEOUT_MS = 1000;
+        const LONG_BLINK_MIN_MS = 500;
+        const LONG_BLINK_MAX_MS = 1100;
+        const EYE_LOSS_TIMEOUT_MS = 1100;
 
         const DEFAULTS = {
             dwellMs: 900,
+            repeatDelayMs: 1200,
+            longBlinkEnabled: false,
             smoothing: 0.65,
             switchHysteresisMs: 100,
             minStableSamples: 4,
@@ -385,16 +389,22 @@
         let joystickSelectCooldownUntil = 0;
         let joystickHudRefs = null;
 
-        // Blink & eye-loss tracking state
+        // Blink, long-blink & eye-loss tracking state
         let eyesClosedSince = 0;
         let faceMissingSince = 0;
         let isBlinkingOrLost = false;
         let dwellPausedAt = 0;
+        let lastSelectedTarget = null;
+        let lastSelectedAt = 0;
 
         function loadSettings() {
             try {
                 const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
                 Object.keys(DEFAULTS).forEach(key => {
+                    if (typeof DEFAULTS[key] === 'boolean') {
+                        if (typeof saved[key] === 'boolean') TUNING[key] = saved[key];
+                        return;
+                    }
                     const value = Number(saved[key]);
                     if (Number.isFinite(value)) TUNING[key] = value;
                 });
@@ -528,7 +538,6 @@
         }
 
         function evaluateEyeState(metrics, now) {
-            // Check for missing face/landmarks
             if (!metrics || !metrics.pose) {
                 eyesClosedSince = 0;
                 if (!faceMissingSince) faceMissingSince = now;
@@ -540,14 +549,22 @@
 
             faceMissingSince = 0;
 
-            // Check Eye Aspect Ratio (EAR) for blinks or prolonged closure
             if (typeof metrics.ear === 'number' && metrics.ear < EAR_CLOSED_THRESHOLD) {
                 if (!eyesClosedSince) eyesClosedSince = now;
                 const closedDuration = now - eyesClosedSince;
-                return closedDuration > BLINK_FREEZE_MAX_MS ? 'eye-loss' : 'blink';
+                return closedDuration > EYE_LOSS_TIMEOUT_MS ? 'eye-loss' : 'blink';
             }
 
+            const closedDuration = eyesClosedSince > 0 ? (now - eyesClosedSince) : 0;
             eyesClosedSince = 0;
+
+            if (
+                closedDuration >= LONG_BLINK_MIN_MS &&
+                closedDuration <= LONG_BLINK_MAX_MS
+            ) {
+                return 'long-blink-release';
+            }
+
             return 'open';
         }
 
@@ -567,6 +584,27 @@
                 if (state.pendingGroupLastSeen > 0) state.pendingGroupLastSeen += pausedDuration;
             }
             dwellPausedAt = 0;
+        }
+
+        function canSelectElement(element, now) {
+            if (!element) return false;
+            if (lastSelectedTarget === element && (now - lastSelectedAt) < TUNING.repeatDelayMs) {
+                return false;
+            }
+            return true;
+        }
+
+        function activateGazeTarget(element, state, now) {
+            if (!canSelectElement(element, now)) return false;
+            if (!triggerSelection(element)) return false;
+
+            lastSelectedTarget = element;
+            lastSelectedAt = now;
+            if (state) {
+                state.selectedTarget = element;
+                state.dwellStartedAt = now;
+            }
+            return true;
         }
 
         function resetHeadPoseBaseline() {
@@ -2061,6 +2099,7 @@
                 .gaze-setting{margin:12px 0}
                 .gaze-setting-heading{display:flex;justify-content:space-between;gap:12px;margin-bottom:5px}
                 .gaze-setting input{width:100%;accent-color:#00ffcc}
+                .gaze-setting input[type="checkbox"]{width:auto;margin-right:8px;vertical-align:middle}
                 #gaze-settings-panel button,#gaze-settings-panel select {
                     margin:4px;padding:7px 9px;border:1px solid #00c9a7;
                     border-radius:5px;background:#172321;color:#fff
@@ -2127,12 +2166,39 @@
 
             panel.append(modeLabel, modeSelect, modeHelp);
 
+            const longBlinkWrapper = document.createElement('div');
+            longBlinkWrapper.className = 'gaze-setting';
+            const longBlinkLabel = document.createElement('label');
+            longBlinkLabel.htmlFor = 'gaze-setting-longBlinkEnabled';
+            const longBlinkCheckbox = document.createElement('input');
+            longBlinkCheckbox.id = 'gaze-setting-longBlinkEnabled';
+            longBlinkCheckbox.type = 'checkbox';
+            longBlinkCheckbox.checked = Boolean(TUNING.longBlinkEnabled);
+            longBlinkCheckbox.addEventListener('change', () => {
+                TUNING.longBlinkEnabled = longBlinkCheckbox.checked;
+                saveSettings();
+            });
+            longBlinkLabel.append(
+                longBlinkCheckbox,
+                document.createTextNode('Long-blink click on highlighted target (0.5–1.1 s)')
+            );
+            longBlinkWrapper.appendChild(longBlinkLabel);
+            panel.appendChild(longBlinkWrapper);
+
             const settings = [
                 {
                     key: 'dwellMs',
                     label: 'Dwell time',
                     min: 500,
                     max: 2500,
+                    step: 100,
+                    format: value => `${(value / 1000).toFixed(1)} s`
+                },
+                {
+                    key: 'repeatDelayMs',
+                    label: 'Same-button repeat delay',
+                    min: 300,
+                    max: 3500,
                     step: 100,
                     format: value => `${(value / 1000).toFixed(1)} s`
                 },
@@ -2393,8 +2459,8 @@
                 now - state.dwellStartedAt >= TUNING.dwellMs &&
                 state.samples >= TUNING.minStableSamples
             ) {
-                if (triggerSelection(candidate)) {
-                    state.selectedTarget = candidate;
+                if (activateGazeTarget(candidate, state, now)) {
+                    state.dwellStartedAt = now;
                 }
             }
         }
@@ -2466,9 +2532,8 @@
                 state.activeTarget &&
                 now - state.dwellStartedAt >= TUNING.dwellMs
             ) {
-                if (triggerSelection(state.activeTarget)) {
-                    state.selectedTarget = state.activeTarget;
-                    joystickSelectCooldownUntil = now + JOYSTICK_REPEAT_DELAY_MS;
+                if (activateGazeTarget(state.activeTarget, state, now)) {
+                    joystickSelectCooldownUntil = now + Math.max(JOYSTICK_REPEAT_DELAY_MS, TUNING.repeatDelayMs);
                 }
                 state.dwellStartedAt = now;
             }
@@ -2628,7 +2693,8 @@
                         return;
                     }
 
-                    if (isBlinkingOrLost) {
+                    const wasBlinkingOrLost = isBlinkingOrLost;
+                    if (wasBlinkingOrLost) {
                         isBlinkingOrLost = false;
                         resumeDwellAfterBlinkOrLoss(gazeState, now);
                     }
@@ -2701,6 +2767,14 @@
                             groupSamples: 0,
                             groupOutSince: null
                         };
+                    }
+
+                    if (
+                        eyeState === 'long-blink-release' &&
+                        TUNING.longBlinkEnabled &&
+                        gazeState.activeTarget
+                    ) {
+                        activateGazeTarget(gazeState.activeTarget, gazeState, now);
                     }
 
                     if (interactionMode === 'joystick') {
