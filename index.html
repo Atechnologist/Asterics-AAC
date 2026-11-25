@@ -76,6 +76,7 @@
             transform: translate(-50%, -50%);
             pointer-events: none;
             display: none;
+            transition: opacity 0.15s ease;
         }
 
         #gaze-raw-dot {
@@ -334,6 +335,11 @@
         const MODE_KEY = 'asterics-gaze-mode-v1';
         const JOYSTICK_REPEAT_DELAY_MS = 1200;
 
+        // Blink & eye-loss guard thresholds
+        const EAR_CLOSED_THRESHOLD = 0.19;
+        const BLINK_FREEZE_MAX_MS = 450;
+        const EYE_LOSS_TIMEOUT_MS = 1000;
+
         const DEFAULTS = {
             dwellMs: 900,
             smoothing: 0.65,
@@ -378,6 +384,12 @@
         let smoothJoyDy = 0;
         let joystickSelectCooldownUntil = 0;
         let joystickHudRefs = null;
+
+        // Blink & eye-loss tracking state
+        let eyesClosedSince = 0;
+        let faceMissingSince = 0;
+        let isBlinkingOrLost = false;
+        let dwellPausedAt = 0;
 
         function loadSettings() {
             try {
@@ -437,14 +449,44 @@
             }
         }
 
-        function getCurrentHeadPose() {
+        function getEyeOpenness(positions) {
+            if (!Array.isArray(positions) || positions.length < 387) return null;
+
+            const p159 = positions[159];
+            const p145 = positions[145];
+            const p33 = positions[33];
+            const p133 = positions[133];
+            const p386 = positions[386];
+            const p374 = positions[374];
+            const p362 = positions[362];
+            const p263 = positions[263];
+
+            if (!p159 || !p145 || !p33 || !p133 || !p386 || !p374 || !p362 || !p263) {
+                return null;
+            }
+
+            const leftVert = Math.hypot(p159[0] - p145[0], p159[1] - p145[1]);
+            const leftHoriz = Math.hypot(p33[0] - p133[0], p33[1] - p133[1]);
+            const rightVert = Math.hypot(p386[0] - p374[0], p386[1] - p374[1]);
+            const rightHoriz = Math.hypot(p362[0] - p263[0], p362[1] - p263[1]);
+
+            if (leftHoriz < 5 || rightHoriz < 5) return null;
+
+            const ear = ((leftVert / leftHoriz) + (rightVert / rightHoriz)) / 2;
+            return Number.isFinite(ear) ? ear : null;
+        }
+
+        function readFaceMetrics() {
             try {
                 if (window.webgazer && typeof window.webgazer.getTracker === 'function') {
                     const tracker = window.webgazer.getTracker();
                     if (tracker && typeof tracker.getPositions === 'function') {
                         const positions = tracker.getPositions();
-                        if (!Array.isArray(positions) || positions.length < 455) return null;
+                        if (!Array.isArray(positions) || positions.length < 455) {
+                            return { pose: null, ear: null };
+                        }
 
+                        const ear = getEyeOpenness(positions);
                         const leftCheek = positions[234];
                         const rightCheek = positions[454];
                         if (
@@ -454,16 +496,21 @@
                             !Number.isFinite(leftCheek[1]) ||
                             !Number.isFinite(rightCheek[0]) ||
                             !Number.isFinite(rightCheek[1])
-                        ) return null;
+                        ) {
+                            return { pose: null, ear };
+                        }
 
                         const width = Math.hypot(rightCheek[0] - leftCheek[0], rightCheek[1] - leftCheek[1]);
-                        if (width < 20) return null;
+                        if (width < 20) return { pose: null, ear };
 
                         return {
-                            centerX: (leftCheek[0] + rightCheek[0]) / 2,
-                            centerY: (leftCheek[1] + rightCheek[1]) / 2,
-                            width,
-                            roll: Math.atan2(rightCheek[1] - leftCheek[1], rightCheek[0] - leftCheek[0])
+                            pose: {
+                                centerX: (leftCheek[0] + rightCheek[0]) / 2,
+                                centerY: (leftCheek[1] + rightCheek[1]) / 2,
+                                width,
+                                roll: Math.atan2(rightCheek[1] - leftCheek[1], rightCheek[0] - leftCheek[0])
+                            },
+                            ear
                         };
                     }
                 }
@@ -473,7 +520,53 @@
                     headPoseReadWarningLogged = true;
                 }
             }
-            return null;
+            return { pose: null, ear: null };
+        }
+
+        function getCurrentHeadPose() {
+            return readFaceMetrics().pose;
+        }
+
+        function evaluateEyeState(metrics, now) {
+            // Check for missing face/landmarks
+            if (!metrics || !metrics.pose) {
+                eyesClosedSince = 0;
+                if (!faceMissingSince) faceMissingSince = now;
+                if (now - faceMissingSince >= EYE_LOSS_TIMEOUT_MS) {
+                    return 'eye-loss';
+                }
+                return 'blink';
+            }
+
+            faceMissingSince = 0;
+
+            // Check Eye Aspect Ratio (EAR) for blinks or prolonged closure
+            if (typeof metrics.ear === 'number' && metrics.ear < EAR_CLOSED_THRESHOLD) {
+                if (!eyesClosedSince) eyesClosedSince = now;
+                const closedDuration = now - eyesClosedSince;
+                return closedDuration > BLINK_FREEZE_MAX_MS ? 'eye-loss' : 'blink';
+            }
+
+            eyesClosedSince = 0;
+            return 'open';
+        }
+
+        function pauseDwellForBlinkOrLoss(state, now) {
+            if (!state) return;
+            if (!dwellPausedAt) {
+                dwellPausedAt = now;
+            }
+        }
+
+        function resumeDwellAfterBlinkOrLoss(state, now) {
+            if (!dwellPausedAt) return;
+            const pausedDuration = now - dwellPausedAt;
+            if (state) {
+                if (state.dwellStartedAt > 0) state.dwellStartedAt += pausedDuration;
+                if (state.pendingAt > 0) state.pendingAt += pausedDuration;
+                if (state.pendingGroupLastSeen > 0) state.pendingGroupLastSeen += pausedDuration;
+            }
+            dwellPausedAt = 0;
         }
 
         function resetHeadPoseBaseline() {
@@ -766,18 +859,21 @@
             return best ? best.element : null;
         }
 
-        function setGazeDots(rawX, rawY, mappedX, mappedY) {
+        function setGazeDots(rawX, rawY, mappedX, mappedY, dimmed = false) {
             const rawDot = document.getElementById('gaze-raw-dot');
             const mappedDot = document.getElementById('gaze-cursor-sim');
+            const opacity = dimmed ? '0.35' : '1';
 
             if (rawDot) {
                 rawDot.style.transform = `translate3d(${rawX}px, ${rawY}px, 0) translate(-50%, -50%)`;
                 rawDot.style.display = 'block';
+                rawDot.style.opacity = opacity;
             }
 
             if (mappedDot) {
                 mappedDot.style.transform = `translate3d(${mappedX}px, ${mappedY}px, 0) translate(-50%, -50%)`;
                 mappedDot.style.display = 'block';
+                mappedDot.style.opacity = opacity;
             }
         }
 
@@ -1082,6 +1178,7 @@
                 status.textContent = `Calibrating… ${Math.round(progress * 100)}%`;
 
                 if (
+                    !isBlinkingOrLost &&
                     now - lastSampleTime >= sampleIntervalMs &&
                     now - lastGazeAt <= 250 &&
                     window.webgazer &&
@@ -1203,7 +1300,11 @@
                         return;
                     }
 
-                    if (window.webgazer && typeof window.webgazer.recordScreenPosition === 'function') {
+                    if (
+                        !isBlinkingOrLost &&
+                        window.webgazer &&
+                        typeof window.webgazer.recordScreenPosition === 'function'
+                    ) {
                         window.webgazer.recordScreenPosition(x, y, 'click');
                     }
 
@@ -1233,7 +1334,7 @@
                 const targetCenterX = rect.left + rect.width / 2;
                 const targetCenterY = rect.top + rect.height / 2;
 
-                if (pointIndex < seedPointCount) {
+                if (pointIndex < seedPointCount || isBlinkingOrLost) {
                     requestAnimationFrame(checkDwell);
                     return;
                 }
@@ -2512,7 +2613,26 @@
                     lastGazeAt = now;
                     const rawX = data.x;
                     const rawY = data.y;
-                    latestHeadPose = getCurrentHeadPose();
+
+                    const faceMetrics = readFaceMetrics();
+                    latestHeadPose = faceMetrics.pose;
+
+                    const eyeState = evaluateEyeState(faceMetrics, now);
+                    if (eyeState === 'blink' || eyeState === 'eye-loss') {
+                        isBlinkingOrLost = true;
+                        pauseDwellForBlinkOrLoss(gazeState, now);
+
+                        if (gazeX !== null && gazeY !== null) {
+                            setGazeDots(rawX, rawY, gazeX, gazeY, true);
+                        }
+                        return;
+                    }
+
+                    if (isBlinkingOrLost) {
+                        isBlinkingOrLost = false;
+                        resumeDwellAfterBlinkOrLoss(gazeState, now);
+                    }
+
                     const mappedWithoutHeadCorrection = mapGazeWithoutHeadCorrection(rawX, rawY);
                     latestGazeSample = {
                         x: rawX,
@@ -2559,7 +2679,7 @@
                     ) {
                         updateJoystickHud(0, 0, 0.05, null, false);
                         if (gazeX !== null && gazeY !== null) {
-                            setGazeDots(rawX, rawY, gazeX, gazeY);
+                            setGazeDots(rawX, rawY, gazeX, gazeY, false);
                         }
                         return;
                     }
@@ -2572,7 +2692,7 @@
                             pendingTarget: null,
                             pendingAt: 0,
                             missingSince: 0,
-                            selected: false,
+                            selectedTarget: null,
                             groupKey: null,
                             pendingGroupKey: null,
                             pendingGroupAt: 0,
@@ -2595,7 +2715,7 @@
                     }
 
                     if (gazeX !== null && gazeY !== null) {
-                        setGazeDots(rawX, rawY, gazeX, gazeY);
+                        setGazeDots(rawX, rawY, gazeX, gazeY, false);
                     }
                 });
             }
