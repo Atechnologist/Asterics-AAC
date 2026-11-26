@@ -2465,10 +2465,15 @@
             }
         }
 
+       let nudgeArmed = true;
+        let neutralSinceForNudge = 0;
+
         function processJoystickGaze(data, state, now) {
             const pose = latestHeadPose || getCurrentHeadPose();
             if (!pose) {
                 updateJoystickHud(0, 0, 0.05, null, false);
+                nudgeArmed = true;
+                neutralSinceForNudge = 0;
                 return;
             }
 
@@ -2485,6 +2490,8 @@
                 state.selectedTarget = null;
                 state.dwellStartedAt = now;
                 state.samples = 1;
+                nudgeArmed = true;
+                neutralSinceForNudge = 0;
                 highlight(state.activeTarget);
             }
 
@@ -2496,6 +2503,7 @@
             smoothJoyDy += (rawDy - smoothJoyDy) * alpha;
 
             const deadzone = TUNING.joystickThreshold * 0.16;
+            const releaseDeadzone = deadzone * 0.65;
             const absX = Math.abs(smoothJoyDx);
             const absY = Math.abs(smoothJoyDy);
 
@@ -2508,11 +2516,22 @@
 
             updateJoystickHud(smoothJoyDx, smoothJoyDy, deadzone, activeDir, true);
 
+            if (absX <= releaseDeadzone && absY <= releaseDeadzone) {
+                if (!neutralSinceForNudge) {
+                    neutralSinceForNudge = now;
+                }
+                if (!nudgeArmed && now - neutralSinceForNudge >= 140) {
+                    nudgeArmed = true;
+                }
+            } else {
+                neutralSinceForNudge = 0;
+            }
+
             if (activeDir) {
                 state.dwellStartedAt = now;
 
-                const stepCooldownMs = 550;
-                if (now - lastJoystickStepAt >= stepCooldownMs) {
+                const stepCooldownMs = 350;
+                if (nudgeArmed && now - lastJoystickStepAt >= stepCooldownMs) {
                     const neighbor = findNeighbor(state.activeTarget, activeDir);
                     if (neighbor) {
                         clearHighlight(state.activeTarget);
@@ -2521,6 +2540,7 @@
                         state.dwellStartedAt = now;
                         highlight(state.activeTarget);
                     }
+                    nudgeArmed = false;
                     lastJoystickStepAt = now;
                 }
                 return;
@@ -2538,7 +2558,6 @@
                 state.dwellStartedAt = now;
             }
         }
-
         function processGroupedGaze(state, now) {
             const groupSwitchGraceMs = 1000;
             const groupSwitchDwellMs = Math.max(TUNING.dwellMs * 2, 1800);
