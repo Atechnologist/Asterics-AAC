@@ -2468,12 +2468,121 @@
        let nudgeArmed = true;
         let neutralSinceForNudge = 0;
 
+        let nudgeArmed = true;
+        let peakNudgeMag = 0;
+        let lastSteppedAt = 0;
+        let neutralSettledAt = 0;
+
+        function updateJoystickHud(dx, dy, thresholdNorm, activeDir, nudgeReady, dwellProgress, visible) {
+            if (!joystickHudRefs) {
+                const hud = document.createElement('div');
+                hud.id = 'gaze-joystick-hud';
+                hud.setAttribute('aria-hidden', 'true');
+                hud.style.cssText = [
+                    'position:fixed',
+                    'left:0',
+                    'top:0',
+                    'z-index:999995',
+                    'width:156px',
+                    'height:156px',
+                    'border-radius:50%',
+                    'background:rgba(15,20,20,0.48)',
+                    'border:2px solid rgba(0,201,167,0.7)',
+                    'box-shadow:0 4px 18px rgba(0,0,0,0.35)',
+                    'pointer-events:none',
+                    'display:none'
+                ].join(';');
+                hud.innerHTML = `
+                    <div id="joy-arrow-up" style="position:absolute;top:6px;left:50%;transform:translateX(-50%);font-size:16px;color:#00ffcc;opacity:0.25;">▲</div>
+                    <div id="joy-arrow-down" style="position:absolute;bottom:6px;left:50%;transform:translateX(-50%);font-size:16px;color:#00ffcc;opacity:0.25;">▼</div>
+                    <div id="joy-arrow-left" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:16px;color:#00ffcc;opacity:0.25;">◀</div>
+                    <div id="joy-arrow-right" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:16px;color:#00ffcc;opacity:0.25;">▶</div>
+                    <div id="joy-step-ring" style="position:absolute;left:50%;top:50%;width:92px;height:92px;transform:translate(-50%,-50%);border:1.5px dashed rgba(0,255,204,0.45);border-radius:50%;"></div>
+                    <div id="joy-deadzone" style="position:absolute;left:50%;top:50%;width:38px;height:38px;transform:translate(-50%,-50%);border:1.5px solid rgba(255,255,255,0.55);border-radius:50%;"></div>
+                    <div id="joy-head-dot" style="position:absolute;left:50%;top:50%;width:18px;height:18px;transform:translate3d(-50%,-50%,0);border-radius:50%;background:#00ffcc;border:2px solid #fff;box-shadow:0 0 10px rgba(0,255,204,0.8);will-change:transform;"></div>
+                `;
+                document.body.appendChild(hud);
+                joystickHudRefs = {
+                    hud,
+                    dot: hud.querySelector('#joy-head-dot'),
+                    stepRing: hud.querySelector('#joy-step-ring'),
+                    deadzoneRing: hud.querySelector('#joy-deadzone'),
+                    arrows: {
+                        up: hud.querySelector('#joy-arrow-up'),
+                        down: hud.querySelector('#joy-arrow-down'),
+                        left: hud.querySelector('#joy-arrow-left'),
+                        right: hud.querySelector('#joy-arrow-right')
+                    },
+                    lastCenterX: null,
+                    lastCenterY: null,
+                    lastX: null,
+                    lastY: null,
+                    lastDir: null
+                };
+            }
+
+            const { hud, dot, stepRing, deadzoneRing, arrows } = joystickHudRefs;
+            if (!visible) {
+                if (hud.style.display !== 'none') hud.style.display = 'none';
+                return;
+            }
+
+            const bounds = getGridBounds();
+            const centerX = bounds ? (bounds.left + bounds.right) / 2 : window.innerWidth / 2;
+            const centerY = bounds ? (bounds.top + bounds.bottom) / 2 : window.innerHeight / 2;
+            if (joystickHudRefs.lastCenterX !== centerX || joystickHudRefs.lastCenterY !== centerY) {
+                hud.style.transform = `translate3d(${centerX}px, ${centerY}px, 0) translate(-50%, -50%)`;
+                joystickHudRefs.lastCenterX = centerX;
+                joystickHudRefs.lastCenterY = centerY;
+            }
+            if (hud.style.display !== 'block') hud.style.display = 'block';
+
+            // Map stepThreshold directly to the 46px radius of #joy-step-ring
+            // so reaching the dashed outer ring equals triggering one button step
+            const stepRadiusPx = 46;
+            const scale = stepRadiusPx / Math.max(0.02, thresholdNorm);
+            const pxX = Math.max(-64, Math.min(64, dx * scale));
+            const pxY = Math.max(-64, Math.min(64, dy * scale));
+
+            if (joystickHudRefs.lastX !== pxX || joystickHudRefs.lastY !== pxY) {
+                dot.style.transform = `translate3d(calc(-50% + ${pxX}px), calc(-50% + ${pxY}px), 0)`;
+                joystickHudRefs.lastX = pxX;
+                joystickHudRefs.lastY = pxY;
+            }
+
+            stepRing.style.borderColor = nudgeReady
+                ? 'rgba(0, 255, 204, 0.55)'
+                : 'rgba(255, 200, 87, 0.45)';
+
+            deadzoneRing.style.borderColor = dwellProgress > 0
+                ? '#00ffcc'
+                : 'rgba(255, 255, 255, 0.55)';
+            deadzoneRing.style.boxShadow = dwellProgress > 0
+                ? `0 0 ${Math.round(14 * dwellProgress)}px rgba(0, 255, 204, 0.85)`
+                : 'none';
+
+            const nextColor = activeDir
+                ? (nudgeReady ? '#00ffcc' : '#ffc857')
+                : (dwellProgress > 0 ? '#00ffcc' : '#9ee8dc');
+            if (dot.style.background !== nextColor) {
+                dot.style.background = nextColor;
+            }
+
+            if (joystickHudRefs.lastDir !== activeDir) {
+                ['up', 'down', 'left', 'right'].forEach(dir => {
+                    arrows[dir].style.opacity = activeDir === dir ? '1' : '0.22';
+                });
+                joystickHudRefs.lastDir = activeDir;
+            }
+        }
+
         function processJoystickGaze(data, state, now) {
             const pose = latestHeadPose || getCurrentHeadPose();
             if (!pose) {
-                updateJoystickHud(0, 0, 0.05, null, false);
+                updateJoystickHud(0, 0, 0.05, null, true, 0, false);
                 nudgeArmed = true;
-                neutralSinceForNudge = 0;
+                peakNudgeMag = 0;
+                neutralSettledAt = 0;
                 return;
             }
 
@@ -2488,69 +2597,95 @@
                 state.activeTarget = startingCell.element;
                 state.pendingTarget = null;
                 state.selectedTarget = null;
-                state.dwellStartedAt = now;
+                state.dwellStartedAt = 0;
                 state.samples = 1;
                 nudgeArmed = true;
-                neutralSinceForNudge = 0;
+                peakNudgeMag = 0;
+                neutralSettledAt = 0;
                 highlight(state.activeTarget);
             }
 
             const rawDx = -((pose.centerX - baselineHeadPose.centerX) / baselineHeadPose.width);
             const rawDy = (pose.centerY - baselineHeadPose.centerY) / baselineHeadPose.width;
 
-            const alpha = Math.max(0.15, Math.min(0.65, TUNING.smoothing * 0.5));
+            // Responsive filter so pullbacks toward center register quickly
+            const alpha = Math.max(0.25, Math.min(0.75, TUNING.smoothing * 0.7));
             smoothJoyDx += (rawDx - smoothJoyDx) * alpha;
             smoothJoyDy += (rawDy - smoothJoyDy) * alpha;
 
-            const deadzone = TUNING.joystickThreshold * 0.16;
-            const releaseDeadzone = deadzone * 0.65;
+            // Outer step threshold vs inner neutral rest zone (~40% of step radius)
+            const stepThreshold = Math.max(0.035, TUNING.joystickThreshold * 0.18);
+            const neutralZone = stepThreshold * 0.42;
             const absX = Math.abs(smoothJoyDx);
             const absY = Math.abs(smoothJoyDy);
+            const radialMag = Math.hypot(smoothJoyDx, smoothJoyDy);
 
             let activeDir = null;
-            if (absX > deadzone || absY > deadzone) {
+            if (absX > stepThreshold || absY > stepThreshold) {
                 activeDir = absX > absY
                     ? (smoothJoyDx > 0 ? 'right' : 'left')
                     : (smoothJoyDy > 0 ? 'down' : 'up');
             }
 
-            updateJoystickHud(smoothJoyDx, smoothJoyDy, deadzone, activeDir, true);
-
-            if (absX <= releaseDeadzone && absY <= releaseDeadzone) {
-                if (!neutralSinceForNudge) {
-                    neutralSinceForNudge = now;
+            // Track peak excursion and re-arm as soon as you pull back 40% toward center
+            if (!nudgeArmed) {
+                if (radialMag > peakNudgeMag) {
+                    peakNudgeMag = radialMag;
                 }
-                if (!nudgeArmed && now - neutralSinceForNudge >= 140) {
+                const pullbackThreshold = Math.max(neutralZone, peakNudgeMag * 0.6);
+                if (radialMag <= pullbackThreshold) {
                     nudgeArmed = true;
+                    peakNudgeMag = 0;
                 }
-            } else {
-                neutralSinceForNudge = 0;
             }
 
-            if (activeDir) {
-                state.dwellStartedAt = now;
+            // Outside the inner neutral rest zone: never count dwell selection
+            if (radialMag > neutralZone) {
+                neutralSettledAt = 0;
+                state.dwellStartedAt = 0;
 
-                const stepCooldownMs = 350;
-                if (nudgeArmed && now - lastJoystickStepAt >= stepCooldownMs) {
+                if (activeDir && nudgeArmed && (now - lastSteppedAt >= 260)) {
                     const neighbor = findNeighbor(state.activeTarget, activeDir);
                     if (neighbor) {
                         clearHighlight(state.activeTarget);
                         state.activeTarget = neighbor;
                         state.selectedTarget = null;
-                        state.dwellStartedAt = now;
                         highlight(state.activeTarget);
                     }
                     nudgeArmed = false;
-                    lastJoystickStepAt = now;
+                    peakNudgeMag = radialMag;
+                    lastSteppedAt = now;
                 }
+
+                updateJoystickHud(smoothJoyDx, smoothJoyDy, stepThreshold, activeDir, nudgeArmed, 0, true);
                 return;
             }
 
+            // Inside inner neutral circle: require a calm settle delay after any nudge
+            // so returning to center never triggers an accidental click or repeat
+            const postNudgeSettleMs = 850;
+            if (now - lastSteppedAt < postNudgeSettleMs) {
+                neutralSettledAt = 0;
+                state.dwellStartedAt = 0;
+                highlight(state.activeTarget);
+                updateJoystickHud(smoothJoyDx, smoothJoyDy, stepThreshold, null, nudgeArmed, 0, true);
+                return;
+            }
+
+            if (!neutralSettledAt) {
+                neutralSettledAt = now;
+                state.dwellStartedAt = now;
+            }
+
+            const dwellElapsed = Math.max(0, now - state.dwellStartedAt);
+            const dwellProgress = Math.min(1, dwellElapsed / Math.max(200, TUNING.dwellMs));
             highlight(state.activeTarget);
+            updateJoystickHud(smoothJoyDx, smoothJoyDy, stepThreshold, null, nudgeArmed, dwellProgress, true);
+
             if (
                 now >= joystickSelectCooldownUntil &&
                 state.activeTarget &&
-                now - state.dwellStartedAt >= TUNING.dwellMs
+                dwellElapsed >= TUNING.dwellMs
             ) {
                 if (activateGazeTarget(state.activeTarget, state, now)) {
                     joystickSelectCooldownUntil = now + Math.max(JOYSTICK_REPEAT_DELAY_MS, TUNING.repeatDelayMs);
