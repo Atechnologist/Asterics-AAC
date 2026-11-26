@@ -2448,6 +2448,64 @@
             return null;
         }
 
+        let lastDirectGazeX = null;
+        let lastDirectGazeY = null;
+        let lastDirectGazeAt = 0;
+        let directSettledAt = 0;
+        let directNudgeArmed = true;
+        let directPeakNudgeMag = 0;
+        let directLastNudgeAt = 0;
+        let directNudgeTarget = null;
+        let directNudgeLockedUntil = 0;
+
+        function getDirectHeadNudge(now) {
+            const pose = latestHeadPose || getCurrentHeadPose();
+            if (!pose) return null;
+
+            if (!baselineHeadPose) {
+                baselineHeadPose = pose;
+                return null;
+            }
+
+            const rawDx = -((pose.centerX - baselineHeadPose.centerX) / baselineHeadPose.width);
+            const rawDy = (pose.centerY - baselineHeadPose.centerY) / baselineHeadPose.width;
+
+            const alpha = Math.max(0.25, Math.min(0.75, TUNING.smoothing * 0.7));
+            smoothJoyDx += (rawDx - smoothJoyDx) * alpha;
+            smoothJoyDy += (rawDy - smoothJoyDy) * alpha;
+
+            const stepThreshold = Math.max(0.045, TUNING.joystickThreshold * 0.22);
+            const neutralZone = stepThreshold * 0.45;
+            const absX = Math.abs(smoothJoyDx);
+            const absY = Math.abs(smoothJoyDy);
+            const radialMag = Math.hypot(smoothJoyDx, smoothJoyDy);
+
+            if (!directNudgeArmed) {
+                if (radialMag > directPeakNudgeMag) {
+                    directPeakNudgeMag = radialMag;
+                }
+                if (radialMag <= Math.max(neutralZone, directPeakNudgeMag * 0.6)) {
+                    directNudgeArmed = true;
+                    directPeakNudgeMag = 0;
+                }
+            }
+
+            if (
+                directNudgeArmed &&
+                (now - directLastNudgeAt >= 300) &&
+                (absX > stepThreshold || absY > stepThreshold)
+            ) {
+                directNudgeArmed = false;
+                directPeakNudgeMag = radialMag;
+                directLastNudgeAt = now;
+                return absX > absY
+                    ? (smoothJoyDx > 0 ? 'right' : 'left')
+                    : (smoothJoyDy > 0 ? 'down' : 'up');
+            }
+
+            return null;
+        }
+
         function processDirectGaze(state, now) {
             const nudgeDir = getDirectHeadNudge(now);
             if (nudgeDir && state.activeTarget && state.activeTarget.isConnected) {
@@ -2459,16 +2517,16 @@
                     state.pendingTarget = null;
                     state.pendingAt = 0;
                     state.selectedTarget = null;
-                    state.dwellStartedAt = 0;
+                    state.dwellStartedAt = now;
                     state.samples = 1;
-                    directSettledAt = 0;
+                    directSettledAt = now;
                     directNudgeTarget = neighbor;
+                    directNudgeLockedUntil = now + 1500;
                     highlight(neighbor);
                     return;
                 }
             }
 
-            // Measure gaze velocity so fast eye sweeps do not start dwell mid-flight
             let gazeSpeedPxPerMs = 0;
             if (
                 typeof gazeX === 'number' &&
@@ -2483,14 +2541,38 @@
             lastDirectGazeY = gazeY;
             lastDirectGazeAt = now;
 
-            const isSweepingFast = gazeSpeedPxPerMs > 0.65;
-            const cell = (!isSweepingFast && directNudgeTarget && directNudgeTarget.isConnected)
-                ? { element: directNudgeTarget }
-                : findCell(gazeX, gazeY);
-            const candidate = cell ? cell.element : null;
+            // Higher threshold (1.05 px/ms) so small cursor jitter is not treated as a sweep
+            const isSweepingFast = gazeSpeedPxPerMs > 1.05;
+            const gazeCell = findCell(gazeX, gazeY);
+            const gazeCandidate = gazeCell ? gazeCell.element : null;
 
-            if (!candidate) {
+            // Keep nudged target anchored briefly so wandering gaze doesn't yank focus away
+            if (directNudgeTarget && directNudgeTarget.isConnected && now < directNudgeLockedUntil) {
+                if (!gazeCandidate || gazeCandidate === directNudgeTarget) {
+                    highlight(directNudgeTarget);
+                    state.activeTarget = directNudgeTarget;
+                    if (!state.dwellStartedAt) state.dwellStartedAt = now;
+                    state.samples++;
+                    if (
+                        state.selectedTarget !== directNudgeTarget &&
+                        now - state.dwellStartedAt >= TUNING.dwellMs &&
+                        state.samples >= Math.max(4, TUNING.minStableSamples)
+                    ) {
+                        if (activateGazeTarget(directNudgeTarget, state, now)) {
+                            state.dwellStartedAt = now;
+                            directNudgeLockedUntil = 0;
+                        }
+                    }
+                    return;
+                }
                 directNudgeTarget = null;
+                directNudgeLockedUntil = 0;
+            } else if (directNudgeTarget) {
+                directNudgeTarget = null;
+            }
+
+            const candidate = gazeCandidate;
+            if (!candidate) {
                 clearHighlight(state.pendingTarget);
                 clearHighlight(state.activeTarget);
                 state.pendingTarget = null;
@@ -2516,13 +2598,9 @@
                 return;
             }
 
-            // If gaze moves into a different button than the nudged one, hand control back to gaze
-            if (directNudgeTarget && candidate !== directNudgeTarget) {
-                directNudgeTarget = null;
-            }
-
             state.missingSince = 0;
 
+            const effectiveSwitchDelayMs = Math.max(220, TUNING.switchHysteresisMs);
             if (candidate !== state.activeTarget) {
                 if (state.pendingTarget !== candidate) {
                     clearHighlight(state.pendingTarget);
@@ -2539,7 +2617,7 @@
                     return;
                 }
 
-                if (now - state.pendingAt < TUNING.switchHysteresisMs) return;
+                if (now - state.pendingAt < effectiveSwitchDelayMs) return;
 
                 clearHighlight(state.activeTarget);
                 state.activeTarget = candidate;
@@ -2560,13 +2638,8 @@
             }
             highlight(candidate);
 
-            if (isSweepingFast) {
-                directSettledAt = 0;
-                state.dwellStartedAt = 0;
-                return;
-            }
-
-            const directSettleMs = 240;
+            // Short settle window (180 ms) once landed on the button
+            const directSettleMs = 180;
             if (!directSettledAt) {
                 directSettledAt = now;
             }
@@ -2578,12 +2651,18 @@
                 state.dwellStartedAt = now;
             }
 
+            // During brief fast jitter, hold dwell clock steady instead of resetting to 0
+            if (isSweepingFast) {
+                state.dwellStartedAt += TUNING.processingIntervalMs || 50;
+                return;
+            }
+
             state.samples++;
 
             if (
                 state.selectedTarget !== candidate &&
                 now - state.dwellStartedAt >= TUNING.dwellMs &&
-                state.samples >= TUNING.minStableSamples
+                state.samples >= Math.max(5, TUNING.minStableSamples)
             ) {
                 if (activateGazeTarget(candidate, state, now)) {
                     state.dwellStartedAt = now;
