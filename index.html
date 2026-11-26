@@ -2391,15 +2391,111 @@
             document.body.append(toggle, panel);
         }
 
+       let lastDirectGazeX = null;
+        let lastDirectGazeY = null;
+        let lastDirectGazeAt = 0;
+        let directSettledAt = 0;
+        let directNudgeArmed = true;
+        let directPeakNudgeMag = 0;
+        let directLastNudgeAt = 0;
+        let directNudgeTarget = null;
+
+        function getDirectHeadNudge(now) {
+            const pose = latestHeadPose || getCurrentHeadPose();
+            if (!pose) return null;
+
+            if (!baselineHeadPose) {
+                baselineHeadPose = pose;
+                return null;
+            }
+
+            const rawDx = -((pose.centerX - baselineHeadPose.centerX) / baselineHeadPose.width);
+            const rawDy = (pose.centerY - baselineHeadPose.centerY) / baselineHeadPose.width;
+
+            const alpha = Math.max(0.25, Math.min(0.75, TUNING.smoothing * 0.7));
+            smoothJoyDx += (rawDx - smoothJoyDx) * alpha;
+            smoothJoyDy += (rawDy - smoothJoyDy) * alpha;
+
+            const stepThreshold = Math.max(0.04, TUNING.joystickThreshold * 0.2);
+            const neutralZone = stepThreshold * 0.42;
+            const absX = Math.abs(smoothJoyDx);
+            const absY = Math.abs(smoothJoyDy);
+            const radialMag = Math.hypot(smoothJoyDx, smoothJoyDy);
+
+            if (!directNudgeArmed) {
+                if (radialMag > directPeakNudgeMag) {
+                    directPeakNudgeMag = radialMag;
+                }
+                if (radialMag <= Math.max(neutralZone, directPeakNudgeMag * 0.6)) {
+                    directNudgeArmed = true;
+                    directPeakNudgeMag = 0;
+                }
+            }
+
+            if (
+                directNudgeArmed &&
+                (now - directLastNudgeAt >= 260) &&
+                (absX > stepThreshold || absY > stepThreshold)
+            ) {
+                directNudgeArmed = false;
+                directPeakNudgeMag = radialMag;
+                directLastNudgeAt = now;
+                return absX > absY
+                    ? (smoothJoyDx > 0 ? 'right' : 'left')
+                    : (smoothJoyDy > 0 ? 'down' : 'up');
+            }
+
+            return null;
+        }
+
         function processDirectGaze(state, now) {
-            const cell = findCell(gazeX, gazeY);
+            const nudgeDir = getDirectHeadNudge(now);
+            if (nudgeDir && state.activeTarget && state.activeTarget.isConnected) {
+                const neighbor = findNeighbor(state.activeTarget, nudgeDir);
+                if (neighbor) {
+                    clearHighlight(state.activeTarget);
+                    clearHighlight(state.pendingTarget);
+                    state.activeTarget = neighbor;
+                    state.pendingTarget = null;
+                    state.pendingAt = 0;
+                    state.selectedTarget = null;
+                    state.dwellStartedAt = 0;
+                    state.samples = 1;
+                    directSettledAt = 0;
+                    directNudgeTarget = neighbor;
+                    highlight(neighbor);
+                    return;
+                }
+            }
+
+            // Measure gaze velocity so fast eye sweeps do not start dwell mid-flight
+            let gazeSpeedPxPerMs = 0;
+            if (
+                typeof gazeX === 'number' &&
+                typeof gazeY === 'number' &&
+                lastDirectGazeX !== null &&
+                lastDirectGazeY !== null &&
+                now > lastDirectGazeAt
+            ) {
+                gazeSpeedPxPerMs = Math.hypot(gazeX - lastDirectGazeX, gazeY - lastDirectGazeY) / (now - lastDirectGazeAt);
+            }
+            lastDirectGazeX = gazeX;
+            lastDirectGazeY = gazeY;
+            lastDirectGazeAt = now;
+
+            const isSweepingFast = gazeSpeedPxPerMs > 0.65;
+            const cell = (!isSweepingFast && directNudgeTarget && directNudgeTarget.isConnected)
+                ? { element: directNudgeTarget }
+                : findCell(gazeX, gazeY);
             const candidate = cell ? cell.element : null;
 
             if (!candidate) {
+                directNudgeTarget = null;
                 clearHighlight(state.pendingTarget);
                 clearHighlight(state.activeTarget);
                 state.pendingTarget = null;
                 state.pendingAt = 0;
+                directSettledAt = 0;
 
                 if (state.activeTarget && !state.missingSince) {
                     state.missingSince = now;
@@ -2420,6 +2516,11 @@
                 return;
             }
 
+            // If gaze moves into a different button than the nudged one, hand control back to gaze
+            if (directNudgeTarget && candidate !== directNudgeTarget) {
+                directNudgeTarget = null;
+            }
+
             state.missingSince = 0;
 
             if (candidate !== state.activeTarget) {
@@ -2428,7 +2529,13 @@
                     clearHighlight(state.activeTarget);
                     state.pendingTarget = candidate;
                     state.pendingAt = now;
+                    directSettledAt = 0;
                     highlight(candidate);
+                    return;
+                }
+
+                if (isSweepingFast) {
+                    state.pendingAt = now;
                     return;
                 }
 
@@ -2437,10 +2544,11 @@
                 clearHighlight(state.activeTarget);
                 state.activeTarget = candidate;
                 state.selectedTarget = null;
-                state.dwellStartedAt = now;
+                state.dwellStartedAt = 0;
                 state.samples = 1;
                 state.pendingTarget = null;
                 state.pendingAt = 0;
+                directSettledAt = now;
                 highlight(candidate);
                 return;
             }
@@ -2451,6 +2559,24 @@
                 state.pendingAt = 0;
             }
             highlight(candidate);
+
+            if (isSweepingFast) {
+                directSettledAt = 0;
+                state.dwellStartedAt = 0;
+                return;
+            }
+
+            const directSettleMs = 240;
+            if (!directSettledAt) {
+                directSettledAt = now;
+            }
+            if (now - directSettledAt < directSettleMs) {
+                return;
+            }
+
+            if (!state.dwellStartedAt) {
+                state.dwellStartedAt = now;
+            }
 
             state.samples++;
 
