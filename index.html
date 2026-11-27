@@ -342,6 +342,13 @@
         const LONG_BLINK_MAX_MS = 1100;
         const EYE_LOSS_TIMEOUT_MS = 1100;
 
+        const QUADRANT_NEIGHBORS = {
+            'top-left':     { right: 'top-right',    down: 'bottom-left' },
+            'top-right':    { left: 'top-left',     down: 'bottom-right' },
+            'bottom-left':  { right: 'bottom-right', up: 'top-left' },
+            'bottom-right': { left: 'bottom-left',  up: 'top-right' }
+        };
+
         const DEFAULTS = {
             dwellMs: 900,
             repeatDelayMs: 1200,
@@ -362,6 +369,8 @@
 
         let activeCells = [];
         let cachedGridBounds = null;
+        let cachedMainGridCells = null;
+        let cachedMainGridBounds = null;
         let gazeRange = null;
         let interactionMode = 'direct';
         let calibrationDone = false;
@@ -396,7 +405,7 @@
         let lastSteppedAt = 0;
         let neutralSettledAt = 0;
 
-        // Direct gaze velocity, settle & head-nudge state
+        // Direct & grouped gaze velocity, settle & head-nudge state
         let lastDirectGazeX = null;
         let lastDirectGazeY = null;
         let lastDirectGazeAt = 0;
@@ -738,6 +747,21 @@
             return smoothedHeadOffset;
         }
 
+        function computeBoundsFromCells(cells) {
+            if (!cells || !cells.length) return null;
+            return cells.reduce((bounds, cell) => ({
+                left: Math.min(bounds.left, cell.left),
+                top: Math.min(bounds.top, cell.top),
+                right: Math.max(bounds.right, cell.right),
+                bottom: Math.max(bounds.bottom, cell.bottom)
+            }), {
+                left: Infinity,
+                top: Infinity,
+                right: -Infinity,
+                bottom: -Infinity
+            });
+        }
+
         function updateSpatialMap() {
             const nextCells = [];
             let minLeft = Infinity;
@@ -767,6 +791,8 @@
                     top: rect.top,
                     right: rect.right,
                     bottom: rect.bottom,
+                    width: rect.width,
+                    height: rect.height,
                     area: rect.width * rect.height,
                     centerX: (rect.left + rect.right) / 2,
                     centerY: (rect.top + rect.bottom) / 2
@@ -777,6 +803,50 @@
             cachedGridBounds = nextCells.length
                 ? { left: minLeft, top: minTop, right: maxRight, bottom: maxBottom }
                 : null;
+            cachedMainGridCells = null;
+            cachedMainGridBounds = null;
+        }
+
+        function getMainGridCells() {
+            if (cachedMainGridCells) return cachedMainGridCells;
+            if (!activeCells.length) return [];
+
+            // Separate out top typing bars / narrow header action strips from main grid matrix cells
+            const heights = activeCells.map(cell => cell.height).sort((a, b) => a - b);
+            const medianHeight = heights[Math.floor(heights.length / 2)] || 0;
+            const minMainHeight = Math.max(48, medianHeight * 0.65);
+
+            const sortedByTop = activeCells.slice().sort((a, b) => a.top - b.top);
+            const firstTop = sortedByTop[0].top;
+            const topRowTolerance = 14;
+            const topRowCells = sortedByTop.filter(cell => Math.abs(cell.top - firstTop) <= topRowTolerance);
+            const remainingCells = sortedByTop.filter(cell => Math.abs(cell.top - firstTop) > topRowTolerance);
+
+            const topRowHasWideBar = topRowCells.some(cell => {
+                const maxOtherWidth = remainingCells.reduce((max, c) => Math.max(max, c.width), 0);
+                return maxOtherWidth > 0 && cell.width > maxOtherWidth * 1.45;
+            });
+            const topRowIsShorterStrip = remainingCells.length >= 4 &&
+                topRowCells.every(cell => cell.height < medianHeight * 0.78);
+
+            let mainCandidates = (topRowHasWideBar || topRowIsShorterStrip) && remainingCells.length >= 4
+                ? remainingCells
+                : activeCells;
+
+            const heightFiltered = mainCandidates.filter(cell => cell.height >= minMainHeight);
+            if (heightFiltered.length >= 4) {
+                mainCandidates = heightFiltered;
+            }
+
+            cachedMainGridCells = mainCandidates;
+            return cachedMainGridCells;
+        }
+
+        function getMainGridBounds() {
+            if (cachedMainGridBounds) return cachedMainGridBounds;
+            const mainCells = getMainGridCells();
+            cachedMainGridBounds = computeBoundsFromCells(mainCells);
+            return cachedMainGridBounds;
         }
 
         function scheduleSpatialMapUpdate() {
@@ -811,19 +881,7 @@
 
         function getGridBounds() {
             if (cachedGridBounds) return cachedGridBounds;
-            if (!activeCells.length) return null;
-
-            cachedGridBounds = activeCells.reduce((bounds, cell) => ({
-                left: Math.min(bounds.left, cell.left),
-                top: Math.min(bounds.top, cell.top),
-                right: Math.max(bounds.right, cell.right),
-                bottom: Math.max(bounds.bottom, cell.bottom)
-            }), {
-                left: Infinity,
-                top: Infinity,
-                right: -Infinity,
-                bottom: -Infinity
-            });
+            cachedGridBounds = computeBoundsFromCells(activeCells);
             return cachedGridBounds;
         }
 
@@ -869,10 +927,10 @@
             };
         }
 
-        function findCell(x, y) {
+        function findCell(x, y, pool = activeCells) {
             if (typeof x !== 'number' || typeof y !== 'number') return null;
 
-            const matches = activeCells
+            const matches = pool
                 .filter(cell =>
                     cell.element.isConnected &&
                     x >= cell.left &&
@@ -887,14 +945,14 @@
             const elementUnderGaze = document.elementFromPoint(x, y);
             const targetEl = elementUnderGaze ? elementUnderGaze.closest('.element-container, button, [role="button"], .q-btn') : null;
             if (targetEl) {
-                return activeCells.find(cell => cell.element === targetEl) || null;
+                return pool.find(cell => cell.element === targetEl) || null;
             }
 
             return null;
         }
 
-        function findNeighbor(element, direction) {
-            const current = activeCells.find(cell => cell.element === element);
+        function findNeighbor(element, direction, pool = activeCells) {
+            const current = pool.find(cell => cell.element === element);
             if (!current) return null;
 
             const horizontal = direction === 'left' || direction === 'right';
@@ -906,7 +964,7 @@
             let best = null;
             let bestScore = Infinity;
 
-            for (const cell of activeCells) {
+            for (const cell of pool) {
                 if (cell.element === element) continue;
 
                 const primary = horizontal
@@ -969,16 +1027,19 @@
             return `${cell.centerY < middleY ? 'top' : 'bottom'}-${cell.centerX < middleX ? 'left' : 'right'}`;
         }
 
-        function getCellGroup(element, bounds = getGridBounds()) {
+        function getCellGroup(element, bounds = getMainGridBounds()) {
+            const mainCells = getMainGridCells();
             return getCellGroupForCell(
-                activeCells.find(item => item.element === element),
+                mainCells.find(item => item.element === element),
                 bounds
             );
         }
 
-        function getGroupAtPoint(x, y, bounds = getGridBounds(), preferredGroup = null) {
+        function getGroupAtPoint(x, y, bounds = getMainGridBounds(), preferredGroup = null) {
+            const mainCells = getMainGridCells();
             if (
                 !bounds ||
+                !mainCells.length ||
                 x < bounds.left ||
                 x > bounds.right ||
                 y < bounds.top ||
@@ -1006,12 +1067,12 @@
             }
 
             const pointGroup = `${vertical}-${horizontal}`;
-            if (activeCells.some(cell => getCellGroupForCell(cell, bounds) === pointGroup)) {
+            if (mainCells.some(cell => getCellGroupForCell(cell, bounds) === pointGroup)) {
                 return pointGroup;
             }
 
             const groupCenters = new Map();
-            activeCells.forEach(cell => {
+            mainCells.forEach(cell => {
                 const groupKey = getCellGroupForCell(cell, bounds);
                 const center = groupCenters.get(groupKey) || { x: 0, y: 0, count: 0 };
                 center.x += cell.centerX;
@@ -1038,12 +1099,23 @@
         function setGroupHighlight(groupKey, className, enabled) {
             if (!groupKey) return;
 
-            const bounds = getGridBounds();
-            activeCells.forEach(cell => {
+            const bounds = getMainGridBounds();
+            const mainCells = getMainGridCells();
+            mainCells.forEach(cell => {
                 if (getCellGroupForCell(cell, bounds) === groupKey) {
                     cell.element.classList.toggle(className, enabled);
                 }
             });
+        }
+
+        function getFirstCellInGroup(groupKey, bounds = getMainGridBounds()) {
+            const mainCells = getMainGridCells().filter(
+                cell => getCellGroupForCell(cell, bounds) === groupKey
+            );
+            if (!mainCells.length) return null;
+
+            mainCells.sort((a, b) => (a.top - b.top) || (a.left - b.left));
+            return mainCells[0].element;
         }
 
         function setGroupedStatus(text) {
@@ -2084,7 +2156,7 @@
                 return;
             }
 
-            const bounds = getGridBounds();
+            const bounds = getMainGridBounds() || getGridBounds();
             const centerX = bounds ? (bounds.left + bounds.right) / 2 : window.innerWidth / 2;
             const centerY = bounds ? (bounds.top + bounds.bottom) / 2 : window.innerHeight / 2;
             if (joystickHudRefs.lastCenterX !== centerX || joystickHudRefs.lastCenterY !== centerY) {
@@ -2191,7 +2263,7 @@
             modeSelect.value = interactionMode;
 
             const modeHelp = document.createElement('p');
-            modeHelp.textContent = 'Hold on a quadrant to activate it, then hold on a button inside it for a second dwell. Switching to another quadrant requires a steadier, longer gaze; brief shifts pause but do not reset button dwell.';
+            modeHelp.textContent = 'Hold on a quadrant or use a head nudge to pick a quadrant on the main grid, then look or head-nudge between buttons inside it.';
 
             modeSelect.addEventListener('change', () => {
                 if (gazeState) {
@@ -2210,7 +2282,7 @@
                 }
                 setGroupedStatus(
                     interactionMode === 'grouped'
-                        ? 'Hold gaze on a quadrant to activate it.'
+                        ? 'Hold gaze on a quadrant or nudge your head to select a quadrant.'
                         : ''
                 );
             });
@@ -2498,24 +2570,29 @@
             return null;
         }
 
-        function processDirectGaze(state, now) {
-            const nudgeDir = getDirectHeadNudge(now);
-            if (nudgeDir && state.activeTarget && state.activeTarget.isConnected) {
-                const neighbor = findNeighbor(state.activeTarget, nudgeDir);
-                if (neighbor) {
-                    clearHighlight(state.activeTarget);
-                    clearHighlight(state.pendingTarget);
-                    state.activeTarget = neighbor;
-                    state.pendingTarget = null;
-                    state.pendingAt = 0;
-                    state.selectedTarget = null;
-                    state.dwellStartedAt = now;
-                    state.samples = 1;
-                    directSettledAt = now;
-                    directNudgeTarget = neighbor;
-                    directNudgeLockedUntil = now + 1500;
-                    highlight(neighbor);
-                    return;
+        function processDirectGaze(state, now, options = {}) {
+            const cellPool = options.cellPool || activeCells;
+            const disableNudge = Boolean(options.disableNudge);
+
+            if (!disableNudge) {
+                const nudgeDir = getDirectHeadNudge(now);
+                if (nudgeDir && state.activeTarget && state.activeTarget.isConnected) {
+                    const neighbor = findNeighbor(state.activeTarget, nudgeDir, cellPool);
+                    if (neighbor) {
+                        clearHighlight(state.activeTarget);
+                        clearHighlight(state.pendingTarget);
+                        state.activeTarget = neighbor;
+                        state.pendingTarget = null;
+                        state.pendingAt = 0;
+                        state.selectedTarget = null;
+                        state.dwellStartedAt = now;
+                        state.samples = 1;
+                        directSettledAt = now;
+                        directNudgeTarget = neighbor;
+                        directNudgeLockedUntil = now + 1500;
+                        highlight(neighbor);
+                        return;
+                    }
                 }
             }
 
@@ -2534,7 +2611,7 @@
             lastDirectGazeAt = now;
 
             const isSweepingFast = gazeSpeedPxPerMs > 1.05;
-            const gazeCell = findCell(gazeX, gazeY);
+            const gazeCell = findCell(gazeX, gazeY, cellPool);
             const gazeCandidate = gazeCell ? gazeCell.element : null;
 
             if (directNudgeTarget && directNudgeTarget.isConnected && now < directNudgeLockedUntil) {
@@ -2770,25 +2847,119 @@
             }
         }
 
+        function activateQuadrant(nextGroup, state, now, autoSelectFirstButton = false) {
+            if (!nextGroup) return;
+            if (state.groupKey) setGroupHighlight(state.groupKey, 'gaze-group-active', false);
+            if (state.pendingGroupKey) setGroupHighlight(state.pendingGroupKey, 'gaze-group-pending', false);
+
+            state.groupKey = nextGroup;
+            state.pendingGroupKey = null;
+            state.pendingGroupAt = 0;
+            state.pendingGroupLastSeen = 0;
+            state.pendingGroupElapsed = 0;
+            state.groupSamples = 0;
+            state.groupOutSince = null;
+            directNudgeTarget = null;
+            directNudgeLockedUntil = 0;
+
+            clearHighlight(state.activeTarget);
+            clearHighlight(state.pendingTarget);
+            state.activeTarget = null;
+            state.pendingTarget = null;
+            state.pendingAt = 0;
+            state.dwellStartedAt = 0;
+            state.samples = 0;
+            state.selectedTarget = null;
+
+            setGroupHighlight(nextGroup, 'gaze-group-active', true);
+
+            if (autoSelectFirstButton) {
+                const firstBtn = getFirstCellInGroup(nextGroup);
+                if (firstBtn) {
+                    state.activeTarget = firstBtn;
+                    state.dwellStartedAt = now;
+                    state.samples = 1;
+                    directSettledAt = now;
+                    directNudgeTarget = firstBtn;
+                    directNudgeLockedUntil = now + 1500;
+                    highlight(firstBtn);
+                }
+            }
+
+            const groupLabel = nextGroup.replace('-', ' ');
+            setGroupedStatus(`Active group: ${groupLabel}. Nudge to step buttons or hold dwell to select.`);
+        }
+
         function processGroupedGaze(state, now) {
             const groupSwitchGraceMs = 1000;
             const groupSwitchDwellMs = Math.max(TUNING.dwellMs * 2, 1800);
+            const mainCells = getMainGridCells();
+            const bounds = getMainGridBounds();
 
-            if (activeCells.length <= 4) {
+            if (mainCells.length <= 4) {
                 if (state.groupKey || state.pendingGroupKey) {
                     clearGroupedState(state);
                 }
                 setGroupedStatus('Small grid: direct targeting. Larger grids use 2×2 groups.');
-                processDirectGaze(state, now);
+                processDirectGaze(state, now, { cellPool: mainCells.length ? mainCells : activeCells });
                 return;
             }
 
-            const bounds = getGridBounds();
-            if (state.groupKey && !activeCells.some(cell => getCellGroupForCell(cell, bounds) === state.groupKey)) {
+            if (state.groupKey && !mainCells.some(cell => getCellGroupForCell(cell, bounds) === state.groupKey)) {
                 clearGroupedState(state);
             }
 
-            const cell = findCell(gazeX, gazeY);
+            const nudgeDir = getDirectHeadNudge(now);
+            if (nudgeDir) {
+                // 1. If a quadrant is active, try stepping inside that quadrant first;
+                //    if no button is highlighted yet or at the quadrant edge, switch quadrant.
+                if (state.groupKey) {
+                    const currentInGroup = state.activeTarget &&
+                        state.activeTarget.isConnected &&
+                        getCellGroup(state.activeTarget, bounds) === state.groupKey
+                        ? state.activeTarget
+                        : null;
+
+                    if (currentInGroup) {
+                        const neighbor = findNeighbor(currentInGroup, nudgeDir, mainCells);
+                        if (neighbor && getCellGroup(neighbor, bounds) === state.groupKey) {
+                            clearHighlight(state.activeTarget);
+                            clearHighlight(state.pendingTarget);
+                            state.activeTarget = neighbor;
+                            state.pendingTarget = null;
+                            state.pendingAt = 0;
+                            state.selectedTarget = null;
+                            state.dwellStartedAt = now;
+                            state.samples = 1;
+                            directSettledAt = now;
+                            directNudgeTarget = neighbor;
+                            directNudgeLockedUntil = now + 1500;
+                            highlight(neighbor);
+                            setGroupedStatus(`Active group: ${state.groupKey.replace('-', ' ')}. Nudged button; hold dwell or press Space/Enter.`);
+                            return;
+                        }
+                    }
+
+                    const nextQuadrant = QUADRANT_NEIGHBORS[state.groupKey] && QUADRANT_NEIGHBORS[state.groupKey][nudgeDir];
+                    if (nextQuadrant && mainCells.some(c => getCellGroupForCell(c, bounds) === nextQuadrant)) {
+                        activateQuadrant(nextQuadrant, state, now, true);
+                        return;
+                    }
+                } else {
+                    // 2. No quadrant locked yet: select quadrant directly via head nudge
+                    const baseQuadrant = state.pendingGroupKey ||
+                        getGroupAtPoint(gazeX, gazeY, bounds) ||
+                        'top-left';
+                    const targetQuadrant = (QUADRANT_NEIGHBORS[baseQuadrant] && QUADRANT_NEIGHBORS[baseQuadrant][nudgeDir]) || baseQuadrant;
+                    const resolvedQuadrant = mainCells.some(c => getCellGroupForCell(c, bounds) === targetQuadrant)
+                        ? targetQuadrant
+                        : baseQuadrant;
+                    activateQuadrant(resolvedQuadrant, state, now, true);
+                    return;
+                }
+            }
+
+            const cell = findCell(gazeX, gazeY, mainCells);
             const candidate = cell ? cell.element : null;
             const candidateGroup = getGroupAtPoint(gazeX, gazeY, bounds, state.groupKey);
 
@@ -2801,12 +2972,24 @@
                     cancelPendingGroup(state);
                 }
                 setGroupedStatus(state.groupKey
-                    ? 'Gaze is outside the grid groups. Button dwell is paused; look inside the highlighted group to resume.'
-                    : 'Hold gaze on a quadrant to activate it.');
+                    ? 'Gaze is outside the main grid. Nudge head to switch quadrant or look inside active group.'
+                    : 'Hold gaze on a quadrant or nudge your head to pick a quadrant.');
                 return;
             }
 
             if (candidateGroup !== state.groupKey) {
+                // Keep nudged button anchored if user just nudged into this quadrant
+                if (
+                    state.groupKey &&
+                    directNudgeTarget &&
+                    directNudgeTarget.isConnected &&
+                    now < directNudgeLockedUntil &&
+                    getCellGroup(directNudgeTarget, bounds) === state.groupKey
+                ) {
+                    highlight(directNudgeTarget);
+                    return;
+                }
+
                 pauseGroupedTargetDwell(state, now);
                 if (state.pendingGroupKey !== candidateGroup) {
                     cancelPendingGroup(state);
@@ -2818,8 +3001,8 @@
                     setGroupHighlight(candidateGroup, 'gaze-group-pending', true);
                     const groupLabel = candidateGroup.replace('-', ' ');
                     setGroupedStatus(state.groupKey
-                        ? `Button dwell paused. Hold in the ${groupLabel} group for a longer dwell to switch, or return to the active group.`
-                        : `Hold gaze in the ${groupLabel} group for a longer dwell to activate it.`);
+                        ? `Button dwell paused. Hold in ${groupLabel} or nudge head to switch quadrant.`
+                        : `Hold gaze in ${groupLabel} or nudge head to activate it.`);
                     return;
                 }
 
@@ -2833,8 +3016,8 @@
                     setGroupHighlight(candidateGroup, 'gaze-group-pending', true);
                     const groupLabel = candidateGroup.replace('-', ' ');
                     setGroupedStatus(state.groupKey
-                        ? `Button dwell paused. Hold in the ${groupLabel} group for a longer dwell to switch, or return to the active group.`
-                        : `Hold gaze in the ${groupLabel} group for a longer dwell to activate it.`);
+                        ? `Button dwell paused. Hold in ${groupLabel} or nudge head to switch quadrant.`
+                        : `Hold gaze in ${groupLabel} or nudge head to activate it.`);
                     return;
                 }
 
@@ -2846,26 +3029,7 @@
                     state.pendingGroupElapsed >= groupSwitchDwellMs &&
                     state.groupSamples >= TUNING.minStableSamples
                 ) {
-                    setGroupHighlight(state.groupKey, 'gaze-group-active', false);
-                    setGroupHighlight(state.pendingGroupKey, 'gaze-group-pending', false);
-                    state.groupKey = candidateGroup;
-                    state.pendingGroupKey = null;
-                    state.pendingGroupAt = 0;
-                    state.pendingGroupLastSeen = 0;
-                    state.pendingGroupElapsed = 0;
-                    state.groupSamples = 0;
-                    state.groupOutSince = null;
-                    clearHighlight(state.activeTarget);
-                    clearHighlight(state.pendingTarget);
-                    state.activeTarget = null;
-                    state.pendingTarget = null;
-                    state.pendingAt = 0;
-                    state.dwellStartedAt = 0;
-                    state.samples = 0;
-                    state.selectedTarget = null;
-                    setGroupHighlight(state.groupKey, 'gaze-group-active', true);
-                    const groupLabel = state.groupKey.replace('-', ' ');
-                    setGroupedStatus(`Active group: ${groupLabel}. Hold on a button inside it for another dwell to select.`);
+                    activateQuadrant(candidateGroup, state, now, false);
                 }
                 return;
             }
@@ -2874,7 +3038,7 @@
             if (state.pendingGroupKey) {
                 cancelPendingGroup(state);
             }
-            setGroupedStatus(`Active group: ${state.groupKey.replace('-', ' ')}. Hold on a button inside it for another dwell to select.`);
+            setGroupedStatus(`Active group: ${state.groupKey.replace('-', ' ')}. Hold on a button or nudge inside it.`);
 
             if (candidate && getCellGroup(candidate, bounds) !== state.groupKey) {
                 clearHighlight(state.activeTarget);
@@ -2888,7 +3052,8 @@
                 return;
             }
 
-            processDirectGaze(state, now);
+            const groupCells = mainCells.filter(c => getCellGroupForCell(c, bounds) === state.groupKey);
+            processDirectGaze(state, now, { cellPool: groupCells, disableNudge: true });
         }
 
         function startGazeSystem() {
@@ -2957,7 +3122,7 @@
                         smoothedRawGazeY += (rawY - smoothedRawGazeY) * rawAlpha;
                     }
 
-                    const cursorAlpha = interactionMode === 'direct'
+                    const cursorAlpha = (interactionMode === 'direct' || interactionMode === 'grouped')
                         ? Math.max(0.10, Math.min(0.85, TUNING.directCursorSmoothing))
                         : rawAlpha;
 
