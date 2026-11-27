@@ -2202,7 +2202,160 @@
                 joystickHudRefs.lastDir = activeDir;
             }
         }
+        let patternIndex = 0;
+        let lastPatternStepAt = 0;
+        let patternHoldUntil = 0;
 
+        function getOrderedPatternCells() {
+            const cells = getMainGridCells().slice();
+            if (!cells.length) return [];
+
+            // Group into rows using vertical center tolerance, then sort left-to-right
+            cells.sort((a, b) => a.centerY - b.centerY);
+            const rows = [];
+            const rowTolerance = 28;
+
+            for (const cell of cells) {
+                const lastRow = rows[rows.length - 1];
+                if (!lastRow || Math.abs(cell.centerY - lastRow.avgY) > rowTolerance) {
+                    rows.push({ avgY: cell.centerY, items: [cell] });
+                } else {
+                    lastRow.items.push(cell);
+                    lastRow.avgY = lastRow.items.reduce((sum, item) => sum + item.centerY, 0) / lastRow.items.length;
+                }
+            }
+
+            const ordered = [];
+            for (const row of rows) {
+                row.items.sort((a, b) => a.centerX - b.centerX);
+                ordered.push(...row.items);
+            }
+            return ordered;
+        }
+
+        function processPatternGaze(state, now) {
+            const orderedCells = getOrderedPatternCells();
+            if (!orderedCells.length) {
+                setGroupedStatus('Pattern scan: no grid buttons available.');
+                return;
+            }
+
+            if (patternIndex >= orderedCells.length) {
+                patternIndex = 0;
+            }
+
+            // Keep state.activeTarget aligned with patternIndex
+            let currentCell = orderedCells[patternIndex];
+            if (state.activeTarget && state.activeTarget.isConnected) {
+                const existingIdx = orderedCells.findIndex(c => c.element === state.activeTarget);
+                if (existingIdx !== -1) {
+                    patternIndex = existingIdx;
+                    currentCell = orderedCells[patternIndex];
+                }
+            }
+
+            // 1. Head nudge lets you step forward/back/up/down manually and holds briefly
+            const nudgeDir = getDirectHeadNudge(now);
+            if (nudgeDir && currentCell) {
+                const neighbor = findNeighbor(currentCell.element, nudgeDir, orderedCells);
+                if (neighbor) {
+                    const nextIdx = orderedCells.findIndex(c => c.element === neighbor);
+                    if (nextIdx !== -1) {
+                        clearHighlight(state.activeTarget);
+                        patternIndex = nextIdx;
+                        currentCell = orderedCells[patternIndex];
+                        state.activeTarget = currentCell.element;
+                        state.selectedTarget = null;
+                        state.dwellStartedAt = now;
+                        state.samples = 1;
+                        patternHoldUntil = now + 1600;
+                        highlight(state.activeTarget);
+                        setGroupedStatus(`Pattern scan: nudged to button ${patternIndex + 1}/${orderedCells.length} (paused to select).`);
+                        return;
+                    }
+                }
+            }
+
+            state.activeTarget = currentCell.element;
+            highlight(state.activeTarget);
+
+            const bounds = getMainGridBounds();
+            const gazeInsideGrid = bounds &&
+                typeof gazeX === 'number' &&
+                typeof gazeY === 'number' &&
+                gazeX >= bounds.left &&
+                gazeX <= bounds.right &&
+                gazeY >= bounds.top &&
+                gazeY <= bounds.bottom;
+
+            // 2. If eyes look outside the grid, pause the pattern without resetting
+            if (!gazeInsideGrid) {
+                state.dwellStartedAt = 0;
+                state.samples = 0;
+                lastPatternStepAt = now;
+                setGroupedStatus(`Pattern scan paused (gaze outside grid) — button ${patternIndex + 1}/${orderedCells.length}.`);
+                return;
+            }
+
+            const distToActive = Math.hypot(gazeX - currentCell.centerX, gazeY - currentCell.centerY);
+            const activeRadius = Math.max(currentCell.width, currentCell.height) * 0.65;
+            const approachRadius = activeRadius * 1.9;
+
+            // 3. Gaze is on the highlighted button: lock pattern in place and count dwell to select
+            if (distToActive <= activeRadius) {
+                if (!state.dwellStartedAt) {
+                    state.dwellStartedAt = now;
+                    state.samples = 1;
+                } else {
+                    state.samples++;
+                }
+
+                const elapsed = now - state.dwellStartedAt;
+                const pct = Math.min(100, Math.round((elapsed / Math.max(200, TUNING.dwellMs)) * 100));
+                setGroupedStatus(`Pattern locked on button ${patternIndex + 1}/${orderedCells.length} — holding to select (${pct}%).`);
+
+                if (
+                    state.selectedTarget !== state.activeTarget &&
+                    elapsed >= TUNING.dwellMs &&
+                    state.samples >= Math.max(4, TUNING.minStableSamples)
+                ) {
+                    if (activateGazeTarget(state.activeTarget, state, now)) {
+                        state.dwellStartedAt = now;
+                        patternHoldUntil = now + 900;
+                    }
+                }
+                return;
+            }
+
+            // 4. Gaze is nearby (approaching): slow the step interval by 1.8x so it doesn't rush past
+            state.dwellStartedAt = 0;
+            state.samples = 0;
+
+            if (now < patternHoldUntil) {
+                setGroupedStatus(`Pattern scan held on button ${patternIndex + 1}/${orderedCells.length}. Look at it to select.`);
+                return;
+            }
+
+            const baseStepMs = Math.max(700, Math.min(2200, TUNING.dwellMs * 1.15));
+            const effectiveStepMs = distToActive <= approachRadius ? baseStepMs * 1.8 : baseStepMs;
+
+            if (!lastPatternStepAt) {
+                lastPatternStepAt = now;
+            }
+
+            if (now - lastPatternStepAt >= effectiveStepMs) {
+                clearHighlight(state.activeTarget);
+                patternIndex = (patternIndex + 1) % orderedCells.length;
+                const nextCell = orderedCells[patternIndex];
+                state.activeTarget = nextCell.element;
+                state.selectedTarget = null;
+                lastPatternStepAt = now;
+                highlight(state.activeTarget);
+            }
+
+            const speedNote = distToActive <= approachRadius ? 'slowing near gaze' : 'scanning';
+            setGroupedStatus(`Pattern ${speedNote}: button ${patternIndex + 1}/${orderedCells.length}. Look at active button to pause & select.`);
+        }
         function addSettingsMenu() {
             const style = document.createElement('style');
             style.textContent = `
@@ -3055,7 +3208,7 @@
             const groupCells = mainCells.filter(c => getCellGroupForCell(c, bounds) === state.groupKey);
             processDirectGaze(state, now, { cellPool: groupCells, disableNudge: true });
         }
-
+        
         function startGazeSystem() {
             if (!window.webgazer || gazeLoopStarted) return;
             gazeLoopStarted = true;
@@ -3183,6 +3336,9 @@
                     } else if (interactionMode === 'grouped') {
                         updateJoystickHud(0, 0, 0.05, null, true, 0, false);
                         processGroupedGaze(gazeState, now);
+                    } else if (interactionMode === 'pattern') {
+                        updateJoystickHud(0, 0, 0.05, null, true, 0, false);
+                        processPatternGaze(gazeState, now);
                     } else {
                         updateJoystickHud(0, 0, 0.05, null, true, 0, false);
                         setGroupedStatus('');
